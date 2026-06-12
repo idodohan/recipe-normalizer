@@ -14,5 +14,11 @@ export function Button({
   const classes = ["btn", `btn--${variant}`];
   if (block) classes.push("btn--block");
   if (className) classes.push(className);
-  return <button type="button" {...rest} className={classes.join(" ")} />;
+  return (
+    <button
+      {...rest}
+      type={rest.type ?? "button"}
+      className={classes.join(" ")}
+    />
+  );
 }

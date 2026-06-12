@@ -1,21 +1,26 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { apiErrorMessage } from "../api/errors";
 import { Button } from "../components/Button";
 import { Field, Input } from "../components/Field";
-import { useUserActions } from "../hooks/useUser";
+import { useUser, useUserActions } from "../hooks/useUser";
 import "./auth.css";
 
 export function RegisterPage() {
   const navigate = useNavigate();
+  const { user, isLoading } = useUser();
   const { setUser } = useUserActions();
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  if (!isLoading && user) {
+    return <Navigate to="/" replace />;
+  }
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();

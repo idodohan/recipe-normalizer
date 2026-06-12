@@ -35,9 +35,8 @@ export function useUserActions() {
     setUser(user: User | null) {
       queryClient.setQueryData(USER_QUERY_KEY, user);
     },
-    async clear() {
+    clear() {
       queryClient.setQueryData(USER_QUERY_KEY, null);
-      await queryClient.invalidateQueries({ queryKey: USER_QUERY_KEY });
     },
   };
 }

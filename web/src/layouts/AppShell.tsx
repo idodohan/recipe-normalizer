@@ -19,7 +19,7 @@ export function AppShell({ user }: { user: User }) {
 
   async function signOut() {
     await api.POST("/api/auth/logout");
-    await clear();
+    clear();
     navigate("/login", { replace: true });
   }
 
