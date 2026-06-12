@@ -160,6 +160,12 @@ export function RecipeDetailPage() {
           note: line.note,
           isOptional: line.is_optional,
           passesThrough: line.passes_through,
+          // Keep the cook's wording visible beneath the rescaled row —
+          // passthrough lines already show it as their primary text.
+          originalText:
+            !line.passes_through && line.quantity_display != null
+              ? line.original_text
+              : null,
         })),
       }))
     : data.groups.map((group) => ({

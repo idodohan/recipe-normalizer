@@ -16,6 +16,12 @@ export type DisplayLine = {
   isOptional: boolean;
   /** Scaled view only: quantity is unscalable ("salt to taste"). */
   passesThrough?: boolean;
+  /**
+   * Scaled view only: the cook's original wording, kept visible beneath the
+   * recalculated row ("from 2 cups all-purpose flour") — scaling must never
+   * hide the original.
+   */
+  originalText?: string | null;
 };
 
 export type DisplayGroup = {
@@ -49,6 +55,9 @@ function IngredientRow({ line }: { line: DisplayLine }) {
           <span className="ing-line__pass">doesn’t scale</span>
         ) : null}
       </p>
+      {line.originalText ? (
+        <p className="ing-line__from">from {line.originalText}</p>
+      ) : null}
       {line.note ? <p className="ing-line__note">{line.note}</p> : null}
     </li>
   );

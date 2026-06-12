@@ -409,6 +409,15 @@
   margin-left: var(--space-1);
 }
 
+/* Scaled view: the cook's original wording kept beneath the rescaled
+   row — quieter than a note (faint, upright) so the two never blur. */
+.ing-line__from {
+  margin-top: 2px;
+  font-size: var(--text-small);
+  color: var(--color-text-faint);
+  max-width: none;
+}
+
 .ing-line__note {
   margin-top: 2px;
   font-size: var(--text-small);
