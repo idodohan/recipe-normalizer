@@ -61,6 +61,8 @@ One repo. Backend `src/` is split into modules. **Each module owns its tables an
 ### Recipe
 - `id`, `owner_id`, `schema_version`
 - `title`, `description`
+- `image_ref` (nullable, via `FileStore`) — the recipe's hero image. Extraction captures it when the source provides one (JSON-LD `image`, `og:image`, or the page's primary photo); manual entry may attach one. This is the source's image of the dish, distinct from the non-goal of user photo uploads of finished dishes.
+- `last_edited_by`, `last_edited_at` — set on every edit; the only edit metadata in v1 (no version history)
 - `source` (URL / file reference / `manual`), `source_type` (`web | pdf | image | text | manual`)
 - `language` (BCP-47 of the original)
 - `servings`: base yield — structured as `{amount, unit_text}` (e.g. `{4, "servings"}`, `{1, "loaf (~900g)"}`, `{1, "cocktail"}`)
@@ -89,6 +91,8 @@ One repo. Backend `src/` is split into modules. **Each module owns its tables an
 - `preferred_measure`: `mass | volume` — solids normalize to grams, liquids to ml
 - `density_data`: g/ml, g per cup/tbsp/tsp, g per unit (e.g. 1 medium egg ≈ 50 g) — whatever is known; sparse is fine
 - `status`: `seeded | unreviewed | reviewed` — extraction auto-creates `unreviewed` entries; Catalog admin page supports review and **merge** (merging re-points all ingredient lines)
+- **The catalog is global** (shared by all users; alias/density/review work benefits everyone). Any user can review and merge — friends-scale trust; merges re-point ingredient lines across all users' recipes.
+- **Granularity rule:** a qualifier gets its own canonical entry only when it changes something the system uses — category, dietary flags, density/preferred measure, or a distinction users would filter by. Otherwise it maps to the same canonical ingredient and the qualifier stays on the ingredient line (`original_text`/`note`). Example: "minced beef", "ground beef 20% fat", "lean beef mince" → one canonical *ground beef*; "veal mince" → separate canonical; "gluten-free flour" → separate from *flour* (dietary flags differ). Extraction mistakes are corrected via merge.
 - Seed with ~200 common ingredients (incl. bar staples: gin, vodka, simple syrup, bitters…) with density data. Seed file lives in the repo as data, not code.
 
 ### Units
@@ -113,26 +117,29 @@ Each tier runs only if the previous one failed; the tier used and actions taken 
 - Future plugins (out of v1): YouTube transcript, Instagram, email-in, voice memo — same interface, listed in roadmap only.
 
 ### 6.3 Normalize (shared)
-1. One structured-output LLM pass (Pydantic-validated) produces the §5 schema from acquired text/images: ingredient lines parsed into quantity/unit/name/note, groups detected, steps split, cuisine/dish-type/tags assigned, language detected, `servings` extracted.
+1. One structured-output LLM pass (Pydantic-validated) produces **a list of recipes** (`recipes[]`) in the §5 schema from acquired text/images: ingredient lines parsed into quantity/unit/name/note, groups detected, steps split, cuisine/dish-type/tags assigned, language detected, `servings` extracted. The common case is one recipe per input, but multi-recipe sources (roundup pages, cookbook-chapter PDFs) yield N draft recipes from one job, each landing in `needs_review` as its own item; the Inbox shows "this input produced N recipes".
 2. **Deterministic post-processing (code, not LLM):** unit→g/ml conversion via catalog densities; `is_approx` set per the rules in §5.
 3. **Catalog matching** per ingredient line: exact/alias match → link; fuzzy+LLM match above threshold → link; else create `unreviewed` canonical ingredient.
 
 ### 6.4 Guardrails
 - **Not-a-recipe:** the normalize pass returns `is_recipe` + confidence. Below threshold → job ends `not_a_recipe` with a human-readable reason (news article, menu photo, …). Never fabricate a recipe from a non-recipe.
-- **Review gate:** every successful extraction lands in `needs_review`. The review screen shows extracted fields side-by-side with the source artifact (page snapshot / image), low-confidence fields highlighted; every field editable. Accept → cookbook with `is_verified = true`.
+- **Review gate:** every successful extraction lands in `needs_review`. The review screen shows extracted fields side-by-side with the source artifact (page snapshot / image), low-confidence fields highlighted; every field editable. Accept → cookbook with `is_verified = true`. Accepting is one click per item, and the Inbox has an **"approve all high-confidence"** action that accepts every pending item whose fields all clear the confidence threshold.
 - **Raw artifact retention:** acquired raw text/screenshots are stored with the job; retry after a fix never re-scrapes.
+- **Duplicate prevention:** submitting a URL (normalized: lowercased host, stripped tracking params) or file (content hash) that already produced one of the user's recipes is rejected at submission with a link to the existing recipe. To re-extract, the user deletes the existing recipe first. The check is per-user; two users may each have their own copy.
 
 ## 7. Features
 
 ### Cookbook & search
-Filters: canonical ingredient (matches all aliases and languages), cuisine, dish type, tags, dietary flags, max total time, source type. Dietary flags are **computed** from ingredient `dietary_flags` (vegan/vegetarian/GF/contains-alcohol), not hand-tagged. Full-text search over title/description/ingredients. "What can I make with X, Y" = ingredient-overlap query. Collections (user-defined folders).
+Filters: canonical ingredient (matches all aliases and languages), cuisine, dish type, tags, dietary flags, max total time, source type. Dietary flags are **computed** from ingredient `dietary_flags` (vegan/vegetarian/GF/contains-alcohol), not hand-tagged. Full-text search over title/description/ingredients; because Postgres FTS has no Hebrew stemmer, pair FTS with trigram matching (`pg_trgm`) so non-English text searches well. "What can I make with X, Y" = ingredient-overlap query. Collections (user-defined folders).
 
 ### Scaling
 Deterministic; by factor or by target servings. Normalized amounts scale exactly; original-quantity display recomputes into sensible fractions ("2¼ cups"). Unconvertible lines ("salt to taste") pass through unchanged and are visibly flagged. Scaling is a **view**, never a mutation; original recipe is immutable. A scaled view can be saved as a variant (`derived_from`).
 
+**Known limitation (state it in the UI):** step text is preserved verbatim, so quantities mentioned inside steps ("add the 2 cups of flour") do not scale. The scaled view shows a visible disclaimer that step text reflects original quantities. (Roadmap, not v1: use `ingredient_line_refs` to annotate scaled amounts inline in steps.)
+
 ### Sharing
 - **Copy-on-share:** recipient gets an independent snapshot copy with `provenance` set. No live propagation, no permission system.
-- **Shared cookbooks:** a cookbook co-owned by invited members; recipes added to it are co-owned by the cookbook (members can add/edit); members' personal cookbooks are unaffected.
+- **Shared cookbooks:** a cookbook co-owned by invited members; recipes added to it are co-owned by the cookbook (members can add/edit); members' personal cookbooks are unaffected. Concurrent edits: **last write wins, no version history in v1**; `last_edited_by`/`last_edited_at` (§5) are shown on co-owned recipes so members can see who changed what last.
 - **Public links:** tokenized read-only URL per recipe or cookbook; revocable; no account required to view; shows the same dual-quantity rendering.
 
 ### AI features (all through `ai` module / `LLMClient`)
