@@ -1578,6 +1578,47 @@
         ]
       }
     },
+    "/api/files/{ref}": {
+      "get": {
+        "description": "Serve a stored file by its content-addressed ref.\n\nReturns the raw bytes with a guessed media type.\nInvalid or missing refs produce a 404 envelope (no detail leaked).",
+        "operationId": "serve_file_api_files__ref__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Serve File",
+        "tags": [
+          "files"
+        ]
+      }
+    },
     "/api/health": {
       "get": {
         "operationId": "health_api_health_get",
