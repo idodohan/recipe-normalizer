@@ -164,6 +164,159 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ingest/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ingest File */
+        post: operations["ingest_file_api_ingest_file_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ingest/text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ingest Text */
+        post: operations["ingest_text_api_ingest_text_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ingest/url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ingest Url */
+        post: operations["ingest_url_api_ingest_url_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Jobs */
+        get: operations["list_jobs_api_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/accept-high-confidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept High Confidence */
+        post: operations["accept_high_confidence_api_jobs_accept_high_confidence_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Job */
+        get: operations["get_job_api_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/recipes/{recipe_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept Draft */
+        post: operations["accept_draft_api_jobs__job_id__recipes__recipe_id__accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/recipes/{recipe_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject Draft */
+        post: operations["reject_draft_api_jobs__job_id__recipes__recipe_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Job */
+        post: operations["retry_job_api_jobs__job_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recipes": {
         parameters: {
             query?: never;
@@ -245,6 +398,11 @@ export interface components {
             alias: string;
             /** Language */
             language: string;
+        };
+        /** Body_ingest_file_api_ingest_file_post */
+        Body_ingest_file_api_ingest_file_post: {
+            /** File */
+            file: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -371,6 +529,132 @@ export interface components {
          * @enum {string}
          */
         IngredientStatus: "seeded" | "unreviewed" | "reviewed";
+        /**
+         * InputType
+         * @enum {string}
+         */
+        InputType: "url" | "pdf" | "image" | "text";
+        /**
+         * JobDetailOut
+         * @description Extended job output that also embeds the list of draft recipe summaries.
+         */
+        JobDetailOut: {
+            /**
+             * Artifacts
+             * @default {}
+             */
+            artifacts: {
+                [key: string]: string;
+            };
+            /** Attempts */
+            attempts: number;
+            /**
+             * Cost Usd
+             * @default 0
+             */
+            cost_usd: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Drafts
+             * @default []
+             */
+            drafts: components["schemas"]["RecipeSummary"][];
+            /** Error */
+            error?: string | null;
+            /** Extraction Meta */
+            extraction_meta?: {
+                [key: string]: unknown;
+            } | null;
+            /** Filename */
+            filename?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            input_type: components["schemas"]["InputType"];
+            /**
+             * Produced Recipe Ids
+             * @default []
+             */
+            produced_recipe_ids: string[];
+            /** Reason */
+            reason?: string | null;
+            status: components["schemas"]["JobStatus"];
+            /** Text Preview */
+            text_preview?: string | null;
+            /** Url */
+            url?: string | null;
+        };
+        /**
+         * JobOut
+         * @description Serialisable representation of a Job row.
+         *
+         *     ``source_fingerprint`` is intentionally EXCLUDED (internal implementation
+         *     detail — do not expose to clients).
+         *
+         *     ``url``, ``filename``, and ``text_preview`` are derived from *payload*
+         *     at validation time (never the full raw payload).
+         *
+         *     ``artifacts`` maps store keys to /api/files/{ref} URL paths.
+         *     ``cost_usd`` is exposed as ``float`` for JSON friendliness.
+         */
+        JobOut: {
+            /**
+             * Artifacts
+             * @default {}
+             */
+            artifacts: {
+                [key: string]: string;
+            };
+            /** Attempts */
+            attempts: number;
+            /**
+             * Cost Usd
+             * @default 0
+             */
+            cost_usd: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Error */
+            error?: string | null;
+            /** Extraction Meta */
+            extraction_meta?: {
+                [key: string]: unknown;
+            } | null;
+            /** Filename */
+            filename?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            input_type: components["schemas"]["InputType"];
+            /**
+             * Produced Recipe Ids
+             * @default []
+             */
+            produced_recipe_ids: string[];
+            /** Reason */
+            reason?: string | null;
+            status: components["schemas"]["JobStatus"];
+            /** Text Preview */
+            text_preview?: string | null;
+            /** Url */
+            url?: string | null;
+        };
+        /**
+         * JobStatus
+         * @enum {string}
+         */
+        JobStatus: "queued" | "running" | "needs_review" | "done" | "failed" | "not_a_recipe";
         /** LoginIn */
         LoginIn: {
             /**
@@ -675,6 +959,16 @@ export interface components {
             ingredient_line_refs: string[];
             /** Original Text */
             original_text: string;
+        };
+        /** SubmitTextIn */
+        SubmitTextIn: {
+            /** Text */
+            text: string;
+        };
+        /** SubmitUrlIn */
+        SubmitUrlIn: {
+            /** Url */
+            url: string;
         };
         /** UserOut */
         UserOut: {
@@ -997,6 +1291,291 @@ export interface operations {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+        };
+    };
+    ingest_file_api_ingest_file_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_ingest_file_api_ingest_file_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ingest_text_api_ingest_text_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitTextIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ingest_url_api_ingest_url_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitUrlIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_jobs_api_jobs_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["JobStatus"] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_high_confidence_api_jobs_accept_high_confidence_post: {
+        parameters: {
+            query?: {
+                threshold?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: number;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_api_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_draft_api_jobs__job_id__recipes__recipe_id__accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+                recipe_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reject_draft_api_jobs__job_id__recipes__recipe_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+                recipe_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_job_api_jobs__job_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

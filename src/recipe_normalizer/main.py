@@ -15,6 +15,7 @@ from recipe_normalizer.cookbook import service as cookbook_service
 from recipe_normalizer.cookbook.router import router as cookbook_router
 from recipe_normalizer.errors import ApiError, install_error_handlers
 from recipe_normalizer.filestore import FileStore, get_file_store
+from recipe_normalizer.ingestion.router import router as ingestion_router
 from recipe_normalizer.users.models import User
 from recipe_normalizer.users.router import router as users_router
 
@@ -47,6 +48,7 @@ def create_app() -> FastAPI:
     app.include_router(users_router)
     app.include_router(catalog_router)
     app.include_router(cookbook_router)
+    app.include_router(ingestion_router)
 
     @app.get("/api/health", tags=["health"])
     def health() -> dict[str, str]:

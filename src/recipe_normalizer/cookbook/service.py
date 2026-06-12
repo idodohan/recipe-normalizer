@@ -40,13 +40,16 @@ from recipe_normalizer.errors import ApiError
 __all__ = [
     "DuplicateRecipeError",
     "SourceType",
+    "are_verified",
     "create_recipe",
     "delete_recipe",
+    "find_recipe_id_by_fingerprint",
     "get_recipe",
     "list_recipes",
     "register_hooks",
     "repoint_ingredient_lines",
     "update_recipe",
+    "verify_recipe",
 ]
 
 
@@ -408,6 +411,73 @@ def delete_recipe(
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
     db.delete(recipe)
     db.flush()
+
+
+# ---------------------------------------------------------------------------
+# Fingerprint helpers (used by ingestion dedupe)
+# ---------------------------------------------------------------------------
+
+
+def find_recipe_id_by_fingerprint(
+    db: Session,
+    owner_id: uuid.UUID,
+    fingerprint: str,
+) -> uuid.UUID | None:
+    """Return the id of the owner's recipe with *fingerprint*, or None.
+
+    Owner-scoped single-query lookup.
+    """
+    row = db.scalars(
+        select(Recipe.id).where(
+            Recipe.owner_id == owner_id,
+            Recipe.source_fingerprint == fingerprint,
+        )
+    ).first()
+    return row  # type: ignore[return-value]
+
+
+# ---------------------------------------------------------------------------
+# Verification helpers
+# ---------------------------------------------------------------------------
+
+
+def verify_recipe(
+    db: Session,
+    owner_id: uuid.UUID,
+    recipe_id: uuid.UUID,
+) -> None:
+    """Mark a recipe as verified (is_verified = True).
+
+    Owner-scoped. Raises ApiError 404 if not found or wrong owner.
+    Flushes; caller owns commit.
+    """
+    recipe = db.scalars(
+        select(Recipe).where(Recipe.id == recipe_id, Recipe.owner_id == owner_id)
+    ).first()
+    if recipe is None:
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+    recipe.is_verified = True
+    db.flush()
+
+
+def are_verified(
+    db: Session,
+    owner_id: uuid.UUID,
+    recipe_ids: list[uuid.UUID],
+) -> dict[uuid.UUID, bool]:
+    """Return a mapping of recipe_id → is_verified for the given owner-scoped ids.
+
+    Missing (deleted) recipes are omitted from the result.
+    """
+    if not recipe_ids:
+        return {}
+    rows = db.execute(
+        select(Recipe.id, Recipe.is_verified).where(
+            Recipe.owner_id == owner_id,
+            Recipe.id.in_(recipe_ids),
+        )
+    ).all()
+    return {row.id: row.is_verified for row in rows}
 
 
 # ---------------------------------------------------------------------------
