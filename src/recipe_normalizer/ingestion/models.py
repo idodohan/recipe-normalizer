@@ -26,6 +26,7 @@ produced_recipe_ids:
 
 import enum
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -75,11 +76,9 @@ class Job(TimestampMixin, Base):
 
     attempts: Mapped[int] = mapped_column(default=0, server_default="0")
 
-    next_attempt_at: Mapped[Any] = mapped_column(
-        DateTime(timezone=True), nullable=True, default=None
-    )
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    locked_at: Mapped[Any] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     locked_by: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
 
