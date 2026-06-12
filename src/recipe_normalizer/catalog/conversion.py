@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -5,10 +6,17 @@ from recipe_normalizer.catalog.units import UnitKind, parse_unit
 
 
 class IngredientConversionData(Protocol):
-    """The slice of CanonicalIngredient the converter needs (keeps this module ORM-free)."""
+    """The slice of CanonicalIngredient the converter needs (keeps this module ORM-free).
 
-    preferred_measure: str
-    density_g_per_ml: float | None
+    All members are read-only properties so the ORM model (with ``Mapped[...]``
+    attributes) structurally satisfies the protocol under mypy.
+    """
+
+    @property
+    def preferred_measure(self) -> str: ...
+
+    @property
+    def density_g_per_ml(self) -> float | None: ...
 
     @property
     def gram_weights(self) -> dict[str, float]: ...
@@ -30,6 +38,8 @@ def convert_to_normalized(
 ) -> Converted | None:
     if quantity is None or unit_text is None:
         return None
+    if quantity <= 0 or math.isnan(quantity):
+        return None
     unit = parse_unit(unit_text)
     if unit is None or unit.kind is UnitKind.ratio:
         return None
@@ -44,17 +54,13 @@ def convert_to_normalized(
         grams = quantity * grams_each
         if target_mass:
             return Converted(_round2(grams), "g", is_approx=True)
-        return (
-            None if density is None else Converted(_round2(grams / density), "ml", is_approx=True)
-        )
+        return None if not density else Converted(_round2(grams / density), "ml", is_approx=True)
 
     if unit.kind is UnitKind.mass:
         grams = quantity * unit.base_factor
         if target_mass:
             return Converted(_round2(grams), "g", is_approx=unit.is_inherently_approx)
-        return (
-            None if density is None else Converted(_round2(grams / density), "ml", is_approx=True)
-        )
+        return None if not density else Converted(_round2(grams / density), "ml", is_approx=True)
 
     # volume
     ml = quantity * unit.base_factor

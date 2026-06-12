@@ -1,4 +1,11 @@
+import math
+
 from recipe_normalizer.catalog.conversion import Converted, convert_to_normalized
+from recipe_normalizer.catalog.models import (
+    CanonicalIngredient,
+    IngredientStatus,
+    PreferredMeasure,
+)
 
 
 def ing(preferred="mass", density=None, gram_weights=None):
@@ -89,3 +96,42 @@ def test_solid_pinch_is_approx_mass():
 def test_rounding_two_decimals():
     out = convert_to_normalized(1, "tsp", ing("volume"))
     assert out is not None and out.amount == 4.93
+
+
+def test_real_canonical_ingredient_satisfies_protocol():
+    """Typing regression: the ORM model must structurally satisfy the protocol.
+
+    No DB needed — mypy checking this call enforces the structural match.
+    """
+    flour = CanonicalIngredient(
+        name="flour",
+        category="baking",
+        preferred_measure=PreferredMeasure.mass,
+        status=IngredientStatus.seeded,
+        dietary_flags=[],
+        density_g_per_ml=0.53,
+        gram_weights={"cup": 120},
+    )
+    assert convert_to_normalized(1, "cup", flour) == Converted(120, "g", is_approx=True)
+
+
+def test_zero_density_yields_none_not_division_error():
+    assert convert_to_normalized(100, "g", ing("volume", density=0.0)) is None
+    egg = ing("volume", density=0.0, gram_weights={"unit": 50})
+    assert convert_to_normalized(2, "unit", egg) is None
+
+
+def test_non_positive_or_nan_quantity_returns_none():
+    assert convert_to_normalized(0, "g", ing("mass")) is None
+    assert convert_to_normalized(-5, "g", ing("mass")) is None
+    assert convert_to_normalized(math.nan, "g", ing("mass")) is None
+
+
+def test_count_to_ml_via_gram_weights_and_density():
+    egg = ing("volume", density=1.0, gram_weights={"unit": 50})
+    assert convert_to_normalized(2, "unit", egg) == Converted(100, "ml", is_approx=True)
+
+
+def test_count_to_ml_without_density_returns_none():
+    egg = ing("volume", gram_weights={"unit": 50})
+    assert convert_to_normalized(2, "unit", egg) is None
