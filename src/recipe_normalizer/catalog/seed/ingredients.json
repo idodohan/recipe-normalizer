@@ -1,0 +1,5228 @@
+[
+  {
+    "name": "all-purpose flour",
+    "aliases": [
+      {
+        "alias": "AP flour",
+        "language": "en"
+      },
+      {
+        "alias": "plain flour",
+        "language": "en"
+      },
+      {
+        "alias": "קמח",
+        "language": "he"
+      },
+      {
+        "alias": "קמח לבן",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "contains-gluten"
+    ],
+    "density_g_per_ml": 0.51,
+    "gram_weights": {
+      "cup": 120,
+      "tbsp": 8,
+      "tsp": 2.6
+    }
+  },
+  {
+    "name": "bread flour",
+    "aliases": [
+      {
+        "alias": "strong flour",
+        "language": "en"
+      },
+      {
+        "alias": "strong white flour",
+        "language": "en"
+      },
+      {
+        "alias": "קמח לחם",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "contains-gluten"
+    ],
+    "density_g_per_ml": 0.51,
+    "gram_weights": {
+      "cup": 120,
+      "tbsp": 8
+    }
+  },
+  {
+    "name": "whole wheat flour",
+    "aliases": [
+      {
+        "alias": "wholemeal flour",
+        "language": "en"
+      },
+      {
+        "alias": "whole-wheat flour",
+        "language": "en"
+      },
+      {
+        "alias": "קמח מלא",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "contains-gluten"
+    ],
+    "density_g_per_ml": 0.48,
+    "gram_weights": {
+      "cup": 113,
+      "tbsp": 7
+    }
+  },
+  {
+    "name": "almond flour",
+    "aliases": [
+      {
+        "alias": "almond meal",
+        "language": "en"
+      },
+      {
+        "alias": "ground almonds",
+        "language": "en"
+      },
+      {
+        "alias": "קמח שקדים",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "nut"
+    ],
+    "density_g_per_ml": 0.41,
+    "gram_weights": {
+      "cup": 96,
+      "tbsp": 6
+    }
+  },
+  {
+    "name": "gluten-free flour blend",
+    "aliases": [
+      {
+        "alias": "GF flour",
+        "language": "en"
+      },
+      {
+        "alias": "gluten free all-purpose flour",
+        "language": "en"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.66,
+    "gram_weights": {
+      "cup": 156,
+      "tbsp": 10
+    }
+  },
+  {
+    "name": "cornstarch",
+    "aliases": [
+      {
+        "alias": "corn starch",
+        "language": "en"
+      },
+      {
+        "alias": "cornflour",
+        "language": "en"
+      },
+      {
+        "alias": "קורנפלור",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.54,
+    "gram_weights": {
+      "cup": 128,
+      "tbsp": 8,
+      "tsp": 2.7
+    }
+  },
+  {
+    "name": "cornmeal",
+    "aliases": [
+      {
+        "alias": "polenta",
+        "language": "en"
+      },
+      {
+        "alias": "קמח תירס",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.58,
+    "gram_weights": {
+      "cup": 138,
+      "tbsp": 8.6
+    }
+  },
+  {
+    "name": "semolina",
+    "aliases": [
+      {
+        "alias": "semolina flour",
+        "language": "en"
+      },
+      {
+        "alias": "סולת",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "contains-gluten"
+    ],
+    "density_g_per_ml": 0.71,
+    "gram_weights": {
+      "cup": 167,
+      "tbsp": 10
+    }
+  },
+  {
+    "name": "granulated sugar",
+    "aliases": [
+      {
+        "alias": "white sugar",
+        "language": "en"
+      },
+      {
+        "alias": "sugar",
+        "language": "en"
+      },
+      {
+        "alias": "סוכר",
+        "language": "he"
+      },
+      {
+        "alias": "סוכר לבן",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.85,
+    "gram_weights": {
+      "cup": 200,
+      "tbsp": 12.5,
+      "tsp": 4.2
+    }
+  },
+  {
+    "name": "brown sugar",
+    "aliases": [
+      {
+        "alias": "light brown sugar",
+        "language": "en"
+      },
+      {
+        "alias": "dark brown sugar",
+        "language": "en"
+      },
+      {
+        "alias": "סוכר חום",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.93,
+    "gram_weights": {
+      "cup": 220,
+      "tbsp": 13.8,
+      "tsp": 4.6
+    }
+  },
+  {
+    "name": "powdered sugar",
+    "aliases": [
+      {
+        "alias": "confectioners' sugar",
+        "language": "en"
+      },
+      {
+        "alias": "icing sugar",
+        "language": "en"
+      },
+      {
+        "alias": "אבקת סוכר",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.51,
+    "gram_weights": {
+      "cup": 120,
+      "tbsp": 7.5,
+      "tsp": 2.5
+    }
+  },
+  {
+    "name": "butter",
+    "aliases": [
+      {
+        "alias": "unsalted butter",
+        "language": "en"
+      },
+      {
+        "alias": "salted butter",
+        "language": "en"
+      },
+      {
+        "alias": "חמאה",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "dairy",
+      "animal-product"
+    ],
+    "density_g_per_ml": 0.96,
+    "gram_weights": {
+      "cup": 227,
+      "tbsp": 14.2,
+      "tsp": 4.7
+    }
+  },
+  {
+    "name": "vegetable shortening",
+    "aliases": [
+      {
+        "alias": "shortening",
+        "language": "en"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.81,
+    "gram_weights": {
+      "cup": 192,
+      "tbsp": 12
+    }
+  },
+  {
+    "name": "egg",
+    "aliases": [
+      {
+        "alias": "large egg",
+        "language": "en"
+      },
+      {
+        "alias": "eggs",
+        "language": "en"
+      },
+      {
+        "alias": "ביצה",
+        "language": "he"
+      },
+      {
+        "alias": "ביצים",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "egg",
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 50
+    }
+  },
+  {
+    "name": "egg yolk",
+    "aliases": [
+      {
+        "alias": "yolk",
+        "language": "en"
+      },
+      {
+        "alias": "חלמון",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "egg",
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 17
+    }
+  },
+  {
+    "name": "egg white",
+    "aliases": [
+      {
+        "alias": "חלבון ביצה",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "egg",
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 33
+    }
+  },
+  {
+    "name": "instant yeast",
+    "aliases": [
+      {
+        "alias": "rapid rise yeast",
+        "language": "en"
+      },
+      {
+        "alias": "bread machine yeast",
+        "language": "en"
+      },
+      {
+        "alias": "שמרים",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 3.1,
+      "tbsp": 9.3
+    }
+  },
+  {
+    "name": "active dry yeast",
+    "aliases": [
+      {
+        "alias": "dry yeast",
+        "language": "en"
+      },
+      {
+        "alias": "שמרים יבשים",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 3.1,
+      "tbsp": 9.3
+    }
+  },
+  {
+    "name": "baking soda",
+    "aliases": [
+      {
+        "alias": "bicarbonate of soda",
+        "language": "en"
+      },
+      {
+        "alias": "sodium bicarbonate",
+        "language": "en"
+      },
+      {
+        "alias": "סודה לשתייה",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 4.8,
+      "tbsp": 14.4
+    }
+  },
+  {
+    "name": "baking powder",
+    "aliases": [
+      {
+        "alias": "אבקת אפייה",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 4.6,
+      "tbsp": 13.8
+    }
+  },
+  {
+    "name": "cream of tartar",
+    "aliases": [],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 3
+    }
+  },
+  {
+    "name": "table salt",
+    "aliases": [
+      {
+        "alias": "salt",
+        "language": "en"
+      },
+      {
+        "alias": "fine salt",
+        "language": "en"
+      },
+      {
+        "alias": "מלח",
+        "language": "he"
+      },
+      {
+        "alias": "מלח שולחן",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.22,
+    "gram_weights": {
+      "tsp": 6,
+      "tbsp": 18
+    }
+  },
+  {
+    "name": "kosher salt",
+    "aliases": [
+      {
+        "alias": "coarse salt",
+        "language": "en"
+      },
+      {
+        "alias": "flaky salt",
+        "language": "en"
+      },
+      {
+        "alias": "מלח גס",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 3,
+      "tbsp": 9
+    }
+  },
+  {
+    "name": "cocoa powder",
+    "aliases": [
+      {
+        "alias": "unsweetened cocoa powder",
+        "language": "en"
+      },
+      {
+        "alias": "dutch-process cocoa",
+        "language": "en"
+      },
+      {
+        "alias": "קקאו",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.36,
+    "gram_weights": {
+      "cup": 84,
+      "tbsp": 5.3,
+      "tsp": 1.8
+    }
+  },
+  {
+    "name": "chocolate chips",
+    "aliases": [
+      {
+        "alias": "semisweet chocolate chips",
+        "language": "en"
+      },
+      {
+        "alias": "שוקולד צ'יפס",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "dairy",
+      "soy"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 170,
+      "tbsp": 11
+    }
+  },
+  {
+    "name": "dark chocolate",
+    "aliases": [
+      {
+        "alias": "bittersweet chocolate",
+        "language": "en"
+      },
+      {
+        "alias": "70% chocolate",
+        "language": "en"
+      },
+      {
+        "alias": "שוקולד מריר",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "soy"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 100
+    }
+  },
+  {
+    "name": "vanilla extract",
+    "aliases": [
+      {
+        "alias": "pure vanilla extract",
+        "language": "en"
+      },
+      {
+        "alias": "תמצית וניל",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 0.88,
+    "gram_weights": {}
+  },
+  {
+    "name": "vanilla sugar",
+    "aliases": [
+      {
+        "alias": "סוכר וניל",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 4
+    }
+  },
+  {
+    "name": "honey",
+    "aliases": [
+      {
+        "alias": "דבש",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "animal-product"
+    ],
+    "density_g_per_ml": 1.42,
+    "gram_weights": {
+      "cup": 340,
+      "tbsp": 21,
+      "tsp": 7
+    }
+  },
+  {
+    "name": "olive oil",
+    "aliases": [
+      {
+        "alias": "extra virgin olive oil",
+        "language": "en"
+      },
+      {
+        "alias": "EVOO",
+        "language": "en"
+      },
+      {
+        "alias": "שמן זית",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.91,
+    "gram_weights": {}
+  },
+  {
+    "name": "vegetable oil",
+    "aliases": [
+      {
+        "alias": "neutral oil",
+        "language": "en"
+      },
+      {
+        "alias": "sunflower oil",
+        "language": "en"
+      },
+      {
+        "alias": "שמן",
+        "language": "he"
+      },
+      {
+        "alias": "שמן צמחי",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.92,
+    "gram_weights": {}
+  },
+  {
+    "name": "canola oil",
+    "aliases": [
+      {
+        "alias": "rapeseed oil",
+        "language": "en"
+      },
+      {
+        "alias": "שמן קנולה",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.92,
+    "gram_weights": {}
+  },
+  {
+    "name": "coconut oil",
+    "aliases": [
+      {
+        "alias": "virgin coconut oil",
+        "language": "en"
+      },
+      {
+        "alias": "שמן קוקוס",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.92,
+    "gram_weights": {}
+  },
+  {
+    "name": "sesame oil",
+    "aliases": [
+      {
+        "alias": "toasted sesame oil",
+        "language": "en"
+      },
+      {
+        "alias": "שמן שומשום",
+        "language": "he"
+      }
+    ],
+    "category": "baking",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "sesame"
+    ],
+    "density_g_per_ml": 0.92,
+    "gram_weights": {}
+  },
+  {
+    "name": "onion",
+    "aliases": [
+      {
+        "alias": "yellow onion",
+        "language": "en"
+      },
+      {
+        "alias": "brown onion",
+        "language": "en"
+      },
+      {
+        "alias": "בצל",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 110,
+      "cup": 160
+    }
+  },
+  {
+    "name": "red onion",
+    "aliases": [
+      {
+        "alias": "purple onion",
+        "language": "en"
+      },
+      {
+        "alias": "בצל סגול",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 110,
+      "cup": 160
+    }
+  },
+  {
+    "name": "garlic",
+    "aliases": [
+      {
+        "alias": "garlic clove",
+        "language": "en"
+      },
+      {
+        "alias": "fresh garlic",
+        "language": "en"
+      },
+      {
+        "alias": "שום",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "clove": 5,
+      "tsp": 3,
+      "unit": 50
+    }
+  },
+  {
+    "name": "tomato",
+    "aliases": [
+      {
+        "alias": "fresh tomato",
+        "language": "en"
+      },
+      {
+        "alias": "עגבנייה",
+        "language": "he"
+      },
+      {
+        "alias": "עגבניה",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 123,
+      "cup": 180
+    }
+  },
+  {
+    "name": "cherry tomatoes",
+    "aliases": [
+      {
+        "alias": "grape tomatoes",
+        "language": "en"
+      },
+      {
+        "alias": "עגבניות שרי",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 17,
+      "cup": 149
+    }
+  },
+  {
+    "name": "lemon",
+    "aliases": [
+      {
+        "alias": "fresh lemon",
+        "language": "en"
+      },
+      {
+        "alias": "לימון",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 84
+    }
+  },
+  {
+    "name": "lime",
+    "aliases": [
+      {
+        "alias": "fresh lime",
+        "language": "en"
+      },
+      {
+        "alias": "ליים",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 67
+    }
+  },
+  {
+    "name": "lemon juice",
+    "aliases": [
+      {
+        "alias": "fresh lemon juice",
+        "language": "en"
+      },
+      {
+        "alias": "juice of lemon",
+        "language": "en"
+      },
+      {
+        "alias": "מיץ לימון",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.03,
+    "gram_weights": {}
+  },
+  {
+    "name": "lime juice",
+    "aliases": [
+      {
+        "alias": "fresh lime juice",
+        "language": "en"
+      },
+      {
+        "alias": "מיץ ליים",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.03,
+    "gram_weights": {}
+  },
+  {
+    "name": "orange",
+    "aliases": [
+      {
+        "alias": "navel orange",
+        "language": "en"
+      },
+      {
+        "alias": "תפוז",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 131
+    }
+  },
+  {
+    "name": "orange juice",
+    "aliases": [
+      {
+        "alias": "fresh orange juice",
+        "language": "en"
+      },
+      {
+        "alias": "OJ",
+        "language": "en"
+      },
+      {
+        "alias": "מיץ תפוזים",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.04,
+    "gram_weights": {}
+  },
+  {
+    "name": "apple",
+    "aliases": [
+      {
+        "alias": "תפוח",
+        "language": "he"
+      },
+      {
+        "alias": "תפוח עץ",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 182,
+      "cup": 125
+    }
+  },
+  {
+    "name": "banana",
+    "aliases": [
+      {
+        "alias": "ripe banana",
+        "language": "en"
+      },
+      {
+        "alias": "בננה",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 118,
+      "cup": 150
+    }
+  },
+  {
+    "name": "strawberries",
+    "aliases": [
+      {
+        "alias": "strawberry",
+        "language": "en"
+      },
+      {
+        "alias": "תות שדה",
+        "language": "he"
+      },
+      {
+        "alias": "תותים",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 12,
+      "cup": 152
+    }
+  },
+  {
+    "name": "blueberries",
+    "aliases": [
+      {
+        "alias": "אוכמניות",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 148
+    }
+  },
+  {
+    "name": "raspberries",
+    "aliases": [
+      {
+        "alias": "פטל",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 123
+    }
+  },
+  {
+    "name": "grapes",
+    "aliases": [
+      {
+        "alias": "ענבים",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 151
+    }
+  },
+  {
+    "name": "avocado",
+    "aliases": [
+      {
+        "alias": "אבוקדו",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 150,
+      "cup": 150
+    }
+  },
+  {
+    "name": "carrot",
+    "aliases": [
+      {
+        "alias": "carrots",
+        "language": "en"
+      },
+      {
+        "alias": "גזר",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 61,
+      "cup": 128
+    }
+  },
+  {
+    "name": "potato",
+    "aliases": [
+      {
+        "alias": "russet potato",
+        "language": "en"
+      },
+      {
+        "alias": "potatoes",
+        "language": "en"
+      },
+      {
+        "alias": "תפוח אדמה",
+        "language": "he"
+      },
+      {
+        "alias": "תפוחי אדמה",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 213,
+      "cup": 150
+    }
+  },
+  {
+    "name": "sweet potato",
+    "aliases": [
+      {
+        "alias": "yam",
+        "language": "en"
+      },
+      {
+        "alias": "בטטה",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 130,
+      "cup": 133
+    }
+  },
+  {
+    "name": "bell pepper",
+    "aliases": [
+      {
+        "alias": "red bell pepper",
+        "language": "en"
+      },
+      {
+        "alias": "capsicum",
+        "language": "en"
+      },
+      {
+        "alias": "פלפל",
+        "language": "he"
+      },
+      {
+        "alias": "גמבה",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 119,
+      "cup": 149
+    }
+  },
+  {
+    "name": "cucumber",
+    "aliases": [
+      {
+        "alias": "persian cucumber",
+        "language": "en"
+      },
+      {
+        "alias": "מלפפון",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 201,
+      "cup": 119
+    }
+  },
+  {
+    "name": "zucchini",
+    "aliases": [
+      {
+        "alias": "courgette",
+        "language": "en"
+      },
+      {
+        "alias": "קישוא",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 196,
+      "cup": 124
+    }
+  },
+  {
+    "name": "eggplant",
+    "aliases": [
+      {
+        "alias": "aubergine",
+        "language": "en"
+      },
+      {
+        "alias": "חציל",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 458,
+      "cup": 82
+    }
+  },
+  {
+    "name": "spinach",
+    "aliases": [
+      {
+        "alias": "baby spinach",
+        "language": "en"
+      },
+      {
+        "alias": "fresh spinach",
+        "language": "en"
+      },
+      {
+        "alias": "תרד",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 30
+    }
+  },
+  {
+    "name": "lettuce",
+    "aliases": [
+      {
+        "alias": "romaine lettuce",
+        "language": "en"
+      },
+      {
+        "alias": "iceberg lettuce",
+        "language": "en"
+      },
+      {
+        "alias": "חסה",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 47,
+      "unit": 626
+    }
+  },
+  {
+    "name": "cabbage",
+    "aliases": [
+      {
+        "alias": "green cabbage",
+        "language": "en"
+      },
+      {
+        "alias": "כרוב",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 70,
+      "unit": 908
+    }
+  },
+  {
+    "name": "broccoli",
+    "aliases": [
+      {
+        "alias": "broccoli florets",
+        "language": "en"
+      },
+      {
+        "alias": "ברוקולי",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 91,
+      "unit": 608
+    }
+  },
+  {
+    "name": "cauliflower",
+    "aliases": [
+      {
+        "alias": "cauliflower florets",
+        "language": "en"
+      },
+      {
+        "alias": "כרובית",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 107,
+      "unit": 588
+    }
+  },
+  {
+    "name": "mushrooms",
+    "aliases": [
+      {
+        "alias": "white mushrooms",
+        "language": "en"
+      },
+      {
+        "alias": "button mushrooms",
+        "language": "en"
+      },
+      {
+        "alias": "cremini mushrooms",
+        "language": "en"
+      },
+      {
+        "alias": "פטריות",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 70,
+      "unit": 18
+    }
+  },
+  {
+    "name": "celery",
+    "aliases": [
+      {
+        "alias": "celery stalk",
+        "language": "en"
+      },
+      {
+        "alias": "סלרי",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 40,
+      "cup": 101
+    }
+  },
+  {
+    "name": "scallion",
+    "aliases": [
+      {
+        "alias": "green onion",
+        "language": "en"
+      },
+      {
+        "alias": "spring onion",
+        "language": "en"
+      },
+      {
+        "alias": "בצל ירוק",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 15,
+      "cup": 100
+    }
+  },
+  {
+    "name": "ginger",
+    "aliases": [
+      {
+        "alias": "fresh ginger",
+        "language": "en"
+      },
+      {
+        "alias": "ginger root",
+        "language": "en"
+      },
+      {
+        "alias": "ג'ינג'ר",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tbsp": 6,
+      "tsp": 2
+    }
+  },
+  {
+    "name": "shallot",
+    "aliases": [
+      {
+        "alias": "shallots",
+        "language": "en"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 40,
+      "tbsp": 10
+    }
+  },
+  {
+    "name": "leek",
+    "aliases": [
+      {
+        "alias": "leeks",
+        "language": "en"
+      },
+      {
+        "alias": "כרישה",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 89,
+      "cup": 89
+    }
+  },
+  {
+    "name": "jalapeno",
+    "aliases": [
+      {
+        "alias": "jalapeño",
+        "language": "en"
+      },
+      {
+        "alias": "jalapeno pepper",
+        "language": "en"
+      },
+      {
+        "alias": "חלפיניו",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 14
+    }
+  },
+  {
+    "name": "kale",
+    "aliases": [
+      {
+        "alias": "curly kale",
+        "language": "en"
+      },
+      {
+        "alias": "קייל",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 21
+    }
+  },
+  {
+    "name": "beet",
+    "aliases": [
+      {
+        "alias": "beetroot",
+        "language": "en"
+      },
+      {
+        "alias": "סלק",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 82,
+      "cup": 136
+    }
+  },
+  {
+    "name": "radish",
+    "aliases": [
+      {
+        "alias": "radishes",
+        "language": "en"
+      },
+      {
+        "alias": "צנונית",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 4.5,
+      "cup": 116
+    }
+  },
+  {
+    "name": "green peas",
+    "aliases": [
+      {
+        "alias": "frozen peas",
+        "language": "en"
+      },
+      {
+        "alias": "אפונה",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 145
+    }
+  },
+  {
+    "name": "corn kernels",
+    "aliases": [
+      {
+        "alias": "sweet corn",
+        "language": "en"
+      },
+      {
+        "alias": "תירס",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 145
+    }
+  },
+  {
+    "name": "butternut squash",
+    "aliases": [
+      {
+        "alias": "דלעת",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 140
+    }
+  },
+  {
+    "name": "parsley",
+    "aliases": [
+      {
+        "alias": "fresh parsley",
+        "language": "en"
+      },
+      {
+        "alias": "flat-leaf parsley",
+        "language": "en"
+      },
+      {
+        "alias": "פטרוזיליה",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 60,
+      "tbsp": 3.8
+    }
+  },
+  {
+    "name": "cilantro",
+    "aliases": [
+      {
+        "alias": "fresh coriander",
+        "language": "en"
+      },
+      {
+        "alias": "coriander leaves",
+        "language": "en"
+      },
+      {
+        "alias": "כוסברה",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 16,
+      "tbsp": 1
+    }
+  },
+  {
+    "name": "basil",
+    "aliases": [
+      {
+        "alias": "fresh basil",
+        "language": "en"
+      },
+      {
+        "alias": "basil leaves",
+        "language": "en"
+      },
+      {
+        "alias": "בזיליקום",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 24,
+      "tbsp": 2.7
+    }
+  },
+  {
+    "name": "mint",
+    "aliases": [
+      {
+        "alias": "fresh mint",
+        "language": "en"
+      },
+      {
+        "alias": "mint leaves",
+        "language": "en"
+      },
+      {
+        "alias": "נענע",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 25,
+      "tbsp": 1.6
+    }
+  },
+  {
+    "name": "dill",
+    "aliases": [
+      {
+        "alias": "fresh dill",
+        "language": "en"
+      },
+      {
+        "alias": "שמיר",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 9,
+      "tbsp": 1
+    }
+  },
+  {
+    "name": "rosemary",
+    "aliases": [
+      {
+        "alias": "fresh rosemary",
+        "language": "en"
+      },
+      {
+        "alias": "רוזמרין",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tbsp": 1.7,
+      "tsp": 0.6
+    }
+  },
+  {
+    "name": "thyme",
+    "aliases": [
+      {
+        "alias": "fresh thyme",
+        "language": "en"
+      },
+      {
+        "alias": "טימין",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tbsp": 2.4,
+      "tsp": 0.8
+    }
+  },
+  {
+    "name": "pomegranate seeds",
+    "aliases": [
+      {
+        "alias": "pomegranate arils",
+        "language": "en"
+      },
+      {
+        "alias": "רימון",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 174
+    }
+  },
+  {
+    "name": "dates",
+    "aliases": [
+      {
+        "alias": "medjool dates",
+        "language": "en"
+      },
+      {
+        "alias": "תמרים",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 24,
+      "cup": 147
+    }
+  },
+  {
+    "name": "raisins",
+    "aliases": [
+      {
+        "alias": "צימוקים",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 145,
+      "tbsp": 9
+    }
+  },
+  {
+    "name": "peach",
+    "aliases": [
+      {
+        "alias": "אפרסק",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 150
+    }
+  },
+  {
+    "name": "pear",
+    "aliases": [
+      {
+        "alias": "אגס",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 178
+    }
+  },
+  {
+    "name": "mango",
+    "aliases": [
+      {
+        "alias": "מנגו",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 336,
+      "cup": 165
+    }
+  },
+  {
+    "name": "pineapple",
+    "aliases": [
+      {
+        "alias": "pineapple chunks",
+        "language": "en"
+      },
+      {
+        "alias": "אננס",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 165
+    }
+  },
+  {
+    "name": "watermelon",
+    "aliases": [
+      {
+        "alias": "אבטיח",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 152
+    }
+  },
+  {
+    "name": "kiwi",
+    "aliases": [
+      {
+        "alias": "kiwifruit",
+        "language": "en"
+      },
+      {
+        "alias": "קיווי",
+        "language": "he"
+      }
+    ],
+    "category": "produce",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 69
+    }
+  },
+  {
+    "name": "milk",
+    "aliases": [
+      {
+        "alias": "whole milk",
+        "language": "en"
+      },
+      {
+        "alias": "2% milk",
+        "language": "en"
+      },
+      {
+        "alias": "חלב",
+        "language": "he"
+      }
+    ],
+    "category": "dairy",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "dairy",
+      "animal-product"
+    ],
+    "density_g_per_ml": 1.03,
+    "gram_weights": {}
+  },
+  {
+    "name": "heavy cream",
+    "aliases": [
+      {
+        "alias": "heavy whipping cream",
+        "language": "en"
+      },
+      {
+        "alias": "double cream",
+        "language": "en"
+      },
+      {
+        "alias": "שמנת מתוקה",
+        "language": "he"
+      }
+    ],
+    "category": "dairy",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "dairy",
+      "animal-product"
+    ],
+    "density_g_per_ml": 1.0,
+    "gram_weights": {}
+  },
+  {
+    "name": "buttermilk",
+    "aliases": [
+      {
+        "alias": "cultured buttermilk",
+        "language": "en"
+      },
+      {
+        "alias": "ריוויון",
+        "language": "he"
+      }
+    ],
+    "category": "dairy",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "dairy",
+      "animal-product"
+    ],
+    "density_g_per_ml": 1.03,
+    "gram_weights": {}
+  },
+  {
+    "name": "sour cream",
+    "aliases": [
+      {
+        "alias": "שמנת חמוצה",
+        "language": "he"
+      }
+    ],
+    "category": "dairy",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "dairy",
+      "animal-product"
+    ],
+    "density_g_per_ml": 0.97,
+    "gram_weights": {}
+  },
+  {
+    "name": "yogurt",
+    "aliases": [
+      {
+        "alias": "plain yogurt",
+        "language": "en"
+      },
+      {
+        "alias": "natural yogurt",
+        "language": "en"
+      },
+      {
+        "alias": "יוגורט",
+        "language": "he"
+      }
+    ],
+    "category": "dairy",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "dairy",
+      "animal-product"
+    ],
+    "density_g_per_ml": 1.04,
+    "gram_weights": {}
+  },
+  {
+    "name": "greek yogurt",
+    "aliases": [
+      {
+        "alias": "strained yogurt",
+        "language": "en"
+      },
+      {
+        "alias": "יוגורט יווני",
+        "language": "he"
+      }
+    ],
+    "category": "dairy",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "dairy",
+      "animal-product"
+    ],
+    "density_g_per_ml": 1.04,
+    "gram_weights": {}
+  },
+  {
+    "name": "cream cheese",
+    "aliases": [
+      {
+        "alias": "גבינת שמנת",
+        "language": "he"
+      }
+    ],
+    "category": "dairy",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "dairy",
+      "animal-product"
+    ],
+    "density_g_per_ml": 0.98,
+    "gram_weights": {
+      "cup": 232,
+      "tbsp": 14.5
+    }
+  },
+  {
+    "name": "cottage cheese",
+    "aliases": [
+      {
+        "alias": "קוטג'",
+        "language": "he"
+      }
+    ],
+    "category": "dairy",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "dairy",
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 226
+    }
+  },
+  {
+    "name": "ricotta",
+    "aliases": [
+      {
+        "alias": "ricotta cheese",
+        "language": "en"
+      },
+      {
+        "alias": "ריקוטה",
+        "language": "he"
+      }
+    ],
+    "category": "dairy",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "dairy",
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 246
+    }
+  },
+  {
+    "name": "mascarpone",
+    "aliases": [
+      {
+        "alias": "mascarpone cheese",
+        "language": "en"
+      },
+      {
+        "alias": "מסקרפונה",
+        "language": "he"
+      }
+    ],
+    "category": "dairy",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "dairy",
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 225
+    }
+  },
+  {
+    "name": "parmesan",
+    "aliases": [
+      {
+        "alias": "parmesan cheese",
+        "language": "en"
+      },
+      {
+        "alias": "parmigiano reggiano",
+        "language": "en"
+      },
+      {
+        "alias": "grated parmesan",
+        "language": "en"
+      },
+      {
+        "alias": "פרמזן",
+        "language": "he"
+      }
+    ],
+    "category": "dairy",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "dairy",
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 100,
+      "tbsp": 6
+    }
+  },
+  {
+    "name": "cheddar",
+    "aliases": [
+      {
+        "alias": "cheddar cheese",
+        "language": "en"
+      },
+      {
+        "alias": "shredded cheddar",
+        "language": "en"
+      },
+      {
+        "alias": "צ'דר",
+        "language": "he"
+      },
+      {
+        "alias": "גבינה צהובה",
+        "language": "he"
+      }
+    ],
+    "category": "dairy",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "dairy",
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 113
+    }
+  },
+  {
+    "name": "mozzarella",
+    "aliases": [
+      {
+        "alias": "mozzarella cheese",
+        "language": "en"
+      },
+      {
+        "alias": "fresh mozzarella",
+        "language": "en"
+      },
+      {
+        "alias": "מוצרלה",
+        "language": "he"
+      }
+    ],
+    "category": "dairy",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "dairy",
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 113,
+      "unit": 125
+    }
+  },
+  {
+    "name": "feta",
+    "aliases": [
+      {
+        "alias": "feta cheese",
+        "language": "en"
+      },
+      {
+        "alias": "crumbled feta",
+        "language": "en"
+      },
+      {
+        "alias": "פטה",
+        "language": "he"
+      },
+      {
+        "alias": "גבינה בולגרית",
+        "language": "he"
+      }
+    ],
+    "category": "dairy",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "dairy",
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 150
+    }
+  },
+  {
+    "name": "sweetened condensed milk",
+    "aliases": [
+      {
+        "alias": "condensed milk",
+        "language": "en"
+      },
+      {
+        "alias": "חלב מרוכז",
+        "language": "he"
+      }
+    ],
+    "category": "dairy",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "dairy",
+      "animal-product"
+    ],
+    "density_g_per_ml": 1.29,
+    "gram_weights": {}
+  },
+  {
+    "name": "evaporated milk",
+    "aliases": [],
+    "category": "dairy",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "dairy",
+      "animal-product"
+    ],
+    "density_g_per_ml": 1.07,
+    "gram_weights": {}
+  },
+  {
+    "name": "ground beef",
+    "aliases": [
+      {
+        "alias": "minced beef",
+        "language": "en"
+      },
+      {
+        "alias": "ground chuck",
+        "language": "en"
+      },
+      {
+        "alias": "hamburger meat",
+        "language": "en"
+      },
+      {
+        "alias": "בשר טחון",
+        "language": "he"
+      }
+    ],
+    "category": "meat",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {}
+  },
+  {
+    "name": "chicken breast",
+    "aliases": [
+      {
+        "alias": "boneless skinless chicken breast",
+        "language": "en"
+      },
+      {
+        "alias": "chicken breasts",
+        "language": "en"
+      },
+      {
+        "alias": "חזה עוף",
+        "language": "he"
+      },
+      {
+        "alias": "עוף",
+        "language": "he"
+      }
+    ],
+    "category": "meat",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 174
+    }
+  },
+  {
+    "name": "chicken thigh",
+    "aliases": [
+      {
+        "alias": "boneless chicken thighs",
+        "language": "en"
+      },
+      {
+        "alias": "פרגית",
+        "language": "he"
+      },
+      {
+        "alias": "ירך עוף",
+        "language": "he"
+      }
+    ],
+    "category": "meat",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 116
+    }
+  },
+  {
+    "name": "whole chicken",
+    "aliases": [
+      {
+        "alias": "עוף שלם",
+        "language": "he"
+      }
+    ],
+    "category": "meat",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 1600
+    }
+  },
+  {
+    "name": "ground turkey",
+    "aliases": [
+      {
+        "alias": "minced turkey",
+        "language": "en"
+      },
+      {
+        "alias": "הודו טחון",
+        "language": "he"
+      }
+    ],
+    "category": "meat",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {}
+  },
+  {
+    "name": "ground lamb",
+    "aliases": [
+      {
+        "alias": "minced lamb",
+        "language": "en"
+      },
+      {
+        "alias": "טלה טחון",
+        "language": "he"
+      }
+    ],
+    "category": "meat",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {}
+  },
+  {
+    "name": "lamb shoulder",
+    "aliases": [
+      {
+        "alias": "כתף טלה",
+        "language": "he"
+      }
+    ],
+    "category": "meat",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {}
+  },
+  {
+    "name": "beef chuck",
+    "aliases": [
+      {
+        "alias": "chuck roast",
+        "language": "en"
+      },
+      {
+        "alias": "stewing beef",
+        "language": "en"
+      }
+    ],
+    "category": "meat",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {}
+  },
+  {
+    "name": "beef steak",
+    "aliases": [
+      {
+        "alias": "sirloin steak",
+        "language": "en"
+      },
+      {
+        "alias": "ribeye",
+        "language": "en"
+      },
+      {
+        "alias": "סטייק",
+        "language": "he"
+      }
+    ],
+    "category": "meat",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 225
+    }
+  },
+  {
+    "name": "beef brisket",
+    "aliases": [
+      {
+        "alias": "brisket",
+        "language": "en"
+      }
+    ],
+    "category": "meat",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {}
+  },
+  {
+    "name": "pork shoulder",
+    "aliases": [
+      {
+        "alias": "pork butt",
+        "language": "en"
+      },
+      {
+        "alias": "boston butt",
+        "language": "en"
+      }
+    ],
+    "category": "meat",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {}
+  },
+  {
+    "name": "pork chop",
+    "aliases": [
+      {
+        "alias": "pork chops",
+        "language": "en"
+      }
+    ],
+    "category": "meat",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 170
+    }
+  },
+  {
+    "name": "bacon",
+    "aliases": [
+      {
+        "alias": "bacon strips",
+        "language": "en"
+      },
+      {
+        "alias": "בייקון",
+        "language": "he"
+      }
+    ],
+    "category": "meat",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "slice": 28
+    }
+  },
+  {
+    "name": "sausage",
+    "aliases": [
+      {
+        "alias": "italian sausage",
+        "language": "en"
+      },
+      {
+        "alias": "נקניקייה",
+        "language": "he"
+      }
+    ],
+    "category": "meat",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 85
+    }
+  },
+  {
+    "name": "salmon",
+    "aliases": [
+      {
+        "alias": "salmon fillet",
+        "language": "en"
+      },
+      {
+        "alias": "סלמון",
+        "language": "he"
+      }
+    ],
+    "category": "seafood",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "fish",
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 170
+    }
+  },
+  {
+    "name": "canned tuna",
+    "aliases": [
+      {
+        "alias": "tuna",
+        "language": "en"
+      },
+      {
+        "alias": "tinned tuna",
+        "language": "en"
+      },
+      {
+        "alias": "טונה",
+        "language": "he"
+      }
+    ],
+    "category": "seafood",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "fish",
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 120
+    }
+  },
+  {
+    "name": "cod",
+    "aliases": [
+      {
+        "alias": "cod fillet",
+        "language": "en"
+      },
+      {
+        "alias": "white fish fillet",
+        "language": "en"
+      }
+    ],
+    "category": "seafood",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "fish",
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 180
+    }
+  },
+  {
+    "name": "shrimp",
+    "aliases": [
+      {
+        "alias": "prawns",
+        "language": "en"
+      },
+      {
+        "alias": "שרימפס",
+        "language": "he"
+      }
+    ],
+    "category": "seafood",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "shellfish",
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 12
+    }
+  },
+  {
+    "name": "anchovies",
+    "aliases": [
+      {
+        "alias": "anchovy fillets",
+        "language": "en"
+      },
+      {
+        "alias": "אנשובי",
+        "language": "he"
+      }
+    ],
+    "category": "seafood",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "fish",
+      "animal-product"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 4
+    }
+  },
+  {
+    "name": "white rice",
+    "aliases": [
+      {
+        "alias": "long-grain white rice",
+        "language": "en"
+      },
+      {
+        "alias": "אורז",
+        "language": "he"
+      },
+      {
+        "alias": "אורז לבן",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.78,
+    "gram_weights": {
+      "cup": 185
+    }
+  },
+  {
+    "name": "basmati rice",
+    "aliases": [
+      {
+        "alias": "אורז בסמטי",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.76,
+    "gram_weights": {
+      "cup": 180
+    }
+  },
+  {
+    "name": "brown rice",
+    "aliases": [
+      {
+        "alias": "אורז מלא",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.8,
+    "gram_weights": {
+      "cup": 190
+    }
+  },
+  {
+    "name": "arborio rice",
+    "aliases": [
+      {
+        "alias": "risotto rice",
+        "language": "en"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.85,
+    "gram_weights": {
+      "cup": 200
+    }
+  },
+  {
+    "name": "pasta",
+    "aliases": [
+      {
+        "alias": "spaghetti",
+        "language": "en"
+      },
+      {
+        "alias": "penne",
+        "language": "en"
+      },
+      {
+        "alias": "fusilli",
+        "language": "en"
+      },
+      {
+        "alias": "פסטה",
+        "language": "he"
+      },
+      {
+        "alias": "ספגטי",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "contains-gluten"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {}
+  },
+  {
+    "name": "macaroni",
+    "aliases": [
+      {
+        "alias": "elbow macaroni",
+        "language": "en"
+      },
+      {
+        "alias": "מקרוני",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "contains-gluten"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 105
+    }
+  },
+  {
+    "name": "egg noodles",
+    "aliases": [
+      {
+        "alias": "אטריות ביצים",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "contains-gluten",
+      "egg"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 38
+    }
+  },
+  {
+    "name": "couscous",
+    "aliases": [
+      {
+        "alias": "קוסקוס",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "contains-gluten"
+    ],
+    "density_g_per_ml": 0.73,
+    "gram_weights": {
+      "cup": 173
+    }
+  },
+  {
+    "name": "pearl couscous",
+    "aliases": [
+      {
+        "alias": "israeli couscous",
+        "language": "en"
+      },
+      {
+        "alias": "ptitim",
+        "language": "en"
+      },
+      {
+        "alias": "פתיתים",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "contains-gluten"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 170
+    }
+  },
+  {
+    "name": "bulgur",
+    "aliases": [
+      {
+        "alias": "bulgur wheat",
+        "language": "en"
+      },
+      {
+        "alias": "בורגול",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "contains-gluten"
+    ],
+    "density_g_per_ml": 0.59,
+    "gram_weights": {
+      "cup": 140
+    }
+  },
+  {
+    "name": "quinoa",
+    "aliases": [
+      {
+        "alias": "קינואה",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.72,
+    "gram_weights": {
+      "cup": 170
+    }
+  },
+  {
+    "name": "oats",
+    "aliases": [
+      {
+        "alias": "rolled oats",
+        "language": "en"
+      },
+      {
+        "alias": "old-fashioned oats",
+        "language": "en"
+      },
+      {
+        "alias": "שיבולת שועל",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.38,
+    "gram_weights": {
+      "cup": 90,
+      "tbsp": 5.6
+    }
+  },
+  {
+    "name": "pearl barley",
+    "aliases": [
+      {
+        "alias": "barley",
+        "language": "en"
+      },
+      {
+        "alias": "גריסי פנינה",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "contains-gluten"
+    ],
+    "density_g_per_ml": 0.85,
+    "gram_weights": {
+      "cup": 200
+    }
+  },
+  {
+    "name": "lentils",
+    "aliases": [
+      {
+        "alias": "brown lentils",
+        "language": "en"
+      },
+      {
+        "alias": "green lentils",
+        "language": "en"
+      },
+      {
+        "alias": "עדשים",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.81,
+    "gram_weights": {
+      "cup": 192
+    }
+  },
+  {
+    "name": "red lentils",
+    "aliases": [
+      {
+        "alias": "split red lentils",
+        "language": "en"
+      },
+      {
+        "alias": "עדשים אדומות",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.81,
+    "gram_weights": {
+      "cup": 192
+    }
+  },
+  {
+    "name": "dried chickpeas",
+    "aliases": [
+      {
+        "alias": "garbanzo beans",
+        "language": "en"
+      },
+      {
+        "alias": "חומוס יבש",
+        "language": "he"
+      },
+      {
+        "alias": "גרגרי חומוס",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.85,
+    "gram_weights": {
+      "cup": 200
+    }
+  },
+  {
+    "name": "canned chickpeas",
+    "aliases": [
+      {
+        "alias": "chickpeas",
+        "language": "en"
+      },
+      {
+        "alias": "חומוס משומר",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 164
+    }
+  },
+  {
+    "name": "black beans",
+    "aliases": [
+      {
+        "alias": "dried black beans",
+        "language": "en"
+      },
+      {
+        "alias": "שעועית שחורה",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.82,
+    "gram_weights": {
+      "cup": 194
+    }
+  },
+  {
+    "name": "canned kidney beans",
+    "aliases": [
+      {
+        "alias": "kidney beans",
+        "language": "en"
+      },
+      {
+        "alias": "שעועית אדומה",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 175
+    }
+  },
+  {
+    "name": "white beans",
+    "aliases": [
+      {
+        "alias": "cannellini beans",
+        "language": "en"
+      },
+      {
+        "alias": "navy beans",
+        "language": "en"
+      },
+      {
+        "alias": "שעועית לבנה",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.85,
+    "gram_weights": {
+      "cup": 202
+    }
+  },
+  {
+    "name": "breadcrumbs",
+    "aliases": [
+      {
+        "alias": "dried breadcrumbs",
+        "language": "en"
+      },
+      {
+        "alias": "פירורי לחם",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "contains-gluten"
+    ],
+    "density_g_per_ml": 0.46,
+    "gram_weights": {
+      "cup": 108,
+      "tbsp": 6.8
+    }
+  },
+  {
+    "name": "panko",
+    "aliases": [
+      {
+        "alias": "panko breadcrumbs",
+        "language": "en"
+      },
+      {
+        "alias": "פנקו",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "contains-gluten"
+    ],
+    "density_g_per_ml": 0.25,
+    "gram_weights": {
+      "cup": 60
+    }
+  },
+  {
+    "name": "white bread",
+    "aliases": [
+      {
+        "alias": "sandwich bread",
+        "language": "en"
+      },
+      {
+        "alias": "לחם",
+        "language": "he"
+      },
+      {
+        "alias": "לחם לבן",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "contains-gluten"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "slice": 28
+    }
+  },
+  {
+    "name": "pita",
+    "aliases": [
+      {
+        "alias": "pita bread",
+        "language": "en"
+      },
+      {
+        "alias": "פיתה",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "contains-gluten"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 60
+    }
+  },
+  {
+    "name": "flour tortilla",
+    "aliases": [
+      {
+        "alias": "tortillas",
+        "language": "en"
+      },
+      {
+        "alias": "טורטייה",
+        "language": "he"
+      }
+    ],
+    "category": "grains",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "contains-gluten"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 45
+    }
+  },
+  {
+    "name": "tahini",
+    "aliases": [
+      {
+        "alias": "sesame paste",
+        "language": "en"
+      },
+      {
+        "alias": "tehina",
+        "language": "en"
+      },
+      {
+        "alias": "טחינה",
+        "language": "he"
+      },
+      {
+        "alias": "טחינה גולמית",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "sesame"
+    ],
+    "density_g_per_ml": 1.02,
+    "gram_weights": {
+      "cup": 240,
+      "tbsp": 15
+    }
+  },
+  {
+    "name": "soy sauce",
+    "aliases": [
+      {
+        "alias": "shoyu",
+        "language": "en"
+      },
+      {
+        "alias": "רוטב סויה",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "soy",
+      "contains-gluten"
+    ],
+    "density_g_per_ml": 1.08,
+    "gram_weights": {}
+  },
+  {
+    "name": "white vinegar",
+    "aliases": [
+      {
+        "alias": "distilled vinegar",
+        "language": "en"
+      },
+      {
+        "alias": "חומץ",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.01,
+    "gram_weights": {}
+  },
+  {
+    "name": "apple cider vinegar",
+    "aliases": [
+      {
+        "alias": "cider vinegar",
+        "language": "en"
+      },
+      {
+        "alias": "חומץ תפוחים",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.01,
+    "gram_weights": {}
+  },
+  {
+    "name": "balsamic vinegar",
+    "aliases": [
+      {
+        "alias": "חומץ בלסמי",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.06,
+    "gram_weights": {}
+  },
+  {
+    "name": "red wine vinegar",
+    "aliases": [
+      {
+        "alias": "חומץ יין אדום",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.01,
+    "gram_weights": {}
+  },
+  {
+    "name": "rice vinegar",
+    "aliases": [
+      {
+        "alias": "rice wine vinegar",
+        "language": "en"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.02,
+    "gram_weights": {}
+  },
+  {
+    "name": "dijon mustard",
+    "aliases": [
+      {
+        "alias": "mustard",
+        "language": "en"
+      },
+      {
+        "alias": "prepared mustard",
+        "language": "en"
+      },
+      {
+        "alias": "חרדל",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 5,
+      "tbsp": 15
+    }
+  },
+  {
+    "name": "ketchup",
+    "aliases": [
+      {
+        "alias": "tomato ketchup",
+        "language": "en"
+      },
+      {
+        "alias": "קטשופ",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.15,
+    "gram_weights": {
+      "tbsp": 17
+    }
+  },
+  {
+    "name": "mayonnaise",
+    "aliases": [
+      {
+        "alias": "mayo",
+        "language": "en"
+      },
+      {
+        "alias": "מיונז",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "egg"
+    ],
+    "density_g_per_ml": 0.93,
+    "gram_weights": {
+      "tbsp": 13.8
+    }
+  },
+  {
+    "name": "tomato paste",
+    "aliases": [
+      {
+        "alias": "tomato puree (double concentrate)",
+        "language": "en"
+      },
+      {
+        "alias": "רסק עגבניות",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.1,
+    "gram_weights": {
+      "tbsp": 16,
+      "cup": 262
+    }
+  },
+  {
+    "name": "canned crushed tomatoes",
+    "aliases": [
+      {
+        "alias": "canned tomatoes",
+        "language": "en"
+      },
+      {
+        "alias": "crushed tomatoes",
+        "language": "en"
+      },
+      {
+        "alias": "עגבניות מרוסקות",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.02,
+    "gram_weights": {
+      "cup": 242
+    }
+  },
+  {
+    "name": "tomato sauce",
+    "aliases": [
+      {
+        "alias": "passata",
+        "language": "en"
+      },
+      {
+        "alias": "tomato puree",
+        "language": "en"
+      },
+      {
+        "alias": "רוטב עגבניות",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.04,
+    "gram_weights": {}
+  },
+  {
+    "name": "chicken stock",
+    "aliases": [
+      {
+        "alias": "chicken broth",
+        "language": "en"
+      },
+      {
+        "alias": "ציר עוף",
+        "language": "he"
+      },
+      {
+        "alias": "מרק עוף",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "animal-product"
+    ],
+    "density_g_per_ml": 1.0,
+    "gram_weights": {}
+  },
+  {
+    "name": "vegetable stock",
+    "aliases": [
+      {
+        "alias": "vegetable broth",
+        "language": "en"
+      },
+      {
+        "alias": "ציר ירקות",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.0,
+    "gram_weights": {}
+  },
+  {
+    "name": "beef stock",
+    "aliases": [
+      {
+        "alias": "beef broth",
+        "language": "en"
+      },
+      {
+        "alias": "ציר בקר",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "animal-product"
+    ],
+    "density_g_per_ml": 1.0,
+    "gram_weights": {}
+  },
+  {
+    "name": "coconut milk",
+    "aliases": [
+      {
+        "alias": "canned coconut milk",
+        "language": "en"
+      },
+      {
+        "alias": "חלב קוקוס",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 0.96,
+    "gram_weights": {}
+  },
+  {
+    "name": "peanut butter",
+    "aliases": [
+      {
+        "alias": "smooth peanut butter",
+        "language": "en"
+      },
+      {
+        "alias": "חמאת בוטנים",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "peanut"
+    ],
+    "density_g_per_ml": 1.09,
+    "gram_weights": {
+      "cup": 258,
+      "tbsp": 16
+    }
+  },
+  {
+    "name": "jam",
+    "aliases": [
+      {
+        "alias": "strawberry jam",
+        "language": "en"
+      },
+      {
+        "alias": "fruit preserves",
+        "language": "en"
+      },
+      {
+        "alias": "ריבה",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.33,
+    "gram_weights": {
+      "tbsp": 20,
+      "cup": 320
+    }
+  },
+  {
+    "name": "maple syrup",
+    "aliases": [
+      {
+        "alias": "pure maple syrup",
+        "language": "en"
+      },
+      {
+        "alias": "סירופ מייפל",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.32,
+    "gram_weights": {
+      "tbsp": 20,
+      "cup": 312
+    }
+  },
+  {
+    "name": "molasses",
+    "aliases": [
+      {
+        "alias": "blackstrap molasses",
+        "language": "en"
+      },
+      {
+        "alias": "מולסה",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.4,
+    "gram_weights": {
+      "tbsp": 21,
+      "cup": 337
+    }
+  },
+  {
+    "name": "date syrup",
+    "aliases": [
+      {
+        "alias": "silan",
+        "language": "en"
+      },
+      {
+        "alias": "סילאן",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.38,
+    "gram_weights": {}
+  },
+  {
+    "name": "worcestershire sauce",
+    "aliases": [
+      {
+        "alias": "worcestershire",
+        "language": "en"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "fish"
+    ],
+    "density_g_per_ml": 1.15,
+    "gram_weights": {}
+  },
+  {
+    "name": "fish sauce",
+    "aliases": [
+      {
+        "alias": "nam pla",
+        "language": "en"
+      },
+      {
+        "alias": "רוטב דגים",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "fish"
+    ],
+    "density_g_per_ml": 1.2,
+    "gram_weights": {}
+  },
+  {
+    "name": "hot sauce",
+    "aliases": [
+      {
+        "alias": "sriracha",
+        "language": "en"
+      },
+      {
+        "alias": "tabasco",
+        "language": "en"
+      },
+      {
+        "alias": "רוטב חריף",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.0,
+    "gram_weights": {}
+  },
+  {
+    "name": "miso paste",
+    "aliases": [
+      {
+        "alias": "white miso",
+        "language": "en"
+      },
+      {
+        "alias": "מיסו",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "soy"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tbsp": 17
+    }
+  },
+  {
+    "name": "capers",
+    "aliases": [
+      {
+        "alias": "צלפים",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tbsp": 8.6
+    }
+  },
+  {
+    "name": "olives",
+    "aliases": [
+      {
+        "alias": "green olives",
+        "language": "en"
+      },
+      {
+        "alias": "kalamata olives",
+        "language": "en"
+      },
+      {
+        "alias": "זיתים",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 4,
+      "cup": 134
+    }
+  },
+  {
+    "name": "pickles",
+    "aliases": [
+      {
+        "alias": "dill pickles",
+        "language": "en"
+      },
+      {
+        "alias": "מלפפון חמוץ",
+        "language": "he"
+      },
+      {
+        "alias": "חמוצים",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 35
+    }
+  },
+  {
+    "name": "sesame seeds",
+    "aliases": [
+      {
+        "alias": "toasted sesame seeds",
+        "language": "en"
+      },
+      {
+        "alias": "שומשום",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "sesame"
+    ],
+    "density_g_per_ml": 0.61,
+    "gram_weights": {
+      "tbsp": 9,
+      "tsp": 3,
+      "cup": 144
+    }
+  },
+  {
+    "name": "walnuts",
+    "aliases": [
+      {
+        "alias": "walnut halves",
+        "language": "en"
+      },
+      {
+        "alias": "chopped walnuts",
+        "language": "en"
+      },
+      {
+        "alias": "אגוזי מלך",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "nut"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 117,
+      "tbsp": 7.3
+    }
+  },
+  {
+    "name": "almonds",
+    "aliases": [
+      {
+        "alias": "whole almonds",
+        "language": "en"
+      },
+      {
+        "alias": "sliced almonds",
+        "language": "en"
+      },
+      {
+        "alias": "שקדים",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "nut"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 143,
+      "tbsp": 9
+    }
+  },
+  {
+    "name": "pine nuts",
+    "aliases": [
+      {
+        "alias": "pignoli",
+        "language": "en"
+      },
+      {
+        "alias": "צנוברים",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "nut"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 135,
+      "tbsp": 8.4
+    }
+  },
+  {
+    "name": "peanuts",
+    "aliases": [
+      {
+        "alias": "roasted peanuts",
+        "language": "en"
+      },
+      {
+        "alias": "בוטנים",
+        "language": "he"
+      }
+    ],
+    "category": "pantry",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "peanut"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "cup": 146
+    }
+  },
+  {
+    "name": "black pepper",
+    "aliases": [
+      {
+        "alias": "ground black pepper",
+        "language": "en"
+      },
+      {
+        "alias": "freshly ground pepper",
+        "language": "en"
+      },
+      {
+        "alias": "פלפל שחור",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 2.3,
+      "tbsp": 6.9
+    }
+  },
+  {
+    "name": "white pepper",
+    "aliases": [
+      {
+        "alias": "פלפל לבן",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 2.4
+    }
+  },
+  {
+    "name": "cumin",
+    "aliases": [
+      {
+        "alias": "ground cumin",
+        "language": "en"
+      },
+      {
+        "alias": "כמון",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 2.1,
+      "tbsp": 6.3
+    }
+  },
+  {
+    "name": "paprika",
+    "aliases": [
+      {
+        "alias": "sweet paprika",
+        "language": "en"
+      },
+      {
+        "alias": "פפריקה",
+        "language": "he"
+      },
+      {
+        "alias": "פפריקה מתוקה",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 2.3,
+      "tbsp": 6.9
+    }
+  },
+  {
+    "name": "smoked paprika",
+    "aliases": [
+      {
+        "alias": "pimenton",
+        "language": "en"
+      },
+      {
+        "alias": "פפריקה מעושנת",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 2.3
+    }
+  },
+  {
+    "name": "turmeric",
+    "aliases": [
+      {
+        "alias": "ground turmeric",
+        "language": "en"
+      },
+      {
+        "alias": "כורכום",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 3,
+      "tbsp": 9
+    }
+  },
+  {
+    "name": "cinnamon",
+    "aliases": [
+      {
+        "alias": "ground cinnamon",
+        "language": "en"
+      },
+      {
+        "alias": "קינמון",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 2.6,
+      "tbsp": 7.8
+    }
+  },
+  {
+    "name": "ground coriander",
+    "aliases": [
+      {
+        "alias": "coriander",
+        "language": "en"
+      },
+      {
+        "alias": "כוסברה טחונה",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 1.8
+    }
+  },
+  {
+    "name": "cardamom",
+    "aliases": [
+      {
+        "alias": "ground cardamom",
+        "language": "en"
+      },
+      {
+        "alias": "הל",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 2
+    }
+  },
+  {
+    "name": "sumac",
+    "aliases": [
+      {
+        "alias": "ground sumac",
+        "language": "en"
+      },
+      {
+        "alias": "סומק",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 2.5
+    }
+  },
+  {
+    "name": "za'atar",
+    "aliases": [
+      {
+        "alias": "zaatar",
+        "language": "en"
+      },
+      {
+        "alias": "zatar",
+        "language": "en"
+      },
+      {
+        "alias": "זעתר",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [
+      "sesame"
+    ],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 2.5,
+      "tbsp": 7.5
+    }
+  },
+  {
+    "name": "chili flakes",
+    "aliases": [
+      {
+        "alias": "red pepper flakes",
+        "language": "en"
+      },
+      {
+        "alias": "crushed red pepper",
+        "language": "en"
+      },
+      {
+        "alias": "פתיתי צ'ילי",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 1.8
+    }
+  },
+  {
+    "name": "dried oregano",
+    "aliases": [
+      {
+        "alias": "oregano",
+        "language": "en"
+      },
+      {
+        "alias": "אורגנו",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 1,
+      "tbsp": 3
+    }
+  },
+  {
+    "name": "dried thyme",
+    "aliases": [
+      {
+        "alias": "טימין מיובש",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 1
+    }
+  },
+  {
+    "name": "bay leaf",
+    "aliases": [
+      {
+        "alias": "bay leaves",
+        "language": "en"
+      },
+      {
+        "alias": "עלה דפנה",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "unit": 0.2
+    }
+  },
+  {
+    "name": "nutmeg",
+    "aliases": [
+      {
+        "alias": "ground nutmeg",
+        "language": "en"
+      },
+      {
+        "alias": "אגוז מוסקט",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 2.2
+    }
+  },
+  {
+    "name": "ground ginger",
+    "aliases": [
+      {
+        "alias": "ginger powder",
+        "language": "en"
+      },
+      {
+        "alias": "ג'ינג'ר טחון",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 1.8
+    }
+  },
+  {
+    "name": "ground cloves",
+    "aliases": [
+      {
+        "alias": "cloves",
+        "language": "en"
+      },
+      {
+        "alias": "ציפורן",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 2.1
+    }
+  },
+  {
+    "name": "allspice",
+    "aliases": [
+      {
+        "alias": "ground allspice",
+        "language": "en"
+      },
+      {
+        "alias": "פלפל אנגלי",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 1.9
+    }
+  },
+  {
+    "name": "cayenne pepper",
+    "aliases": [
+      {
+        "alias": "cayenne",
+        "language": "en"
+      },
+      {
+        "alias": "פלפל קאיין",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 1.8
+    }
+  },
+  {
+    "name": "chili powder",
+    "aliases": [
+      {
+        "alias": "אבקת צ'ילי",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 2.7
+    }
+  },
+  {
+    "name": "curry powder",
+    "aliases": [
+      {
+        "alias": "קארי",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 2,
+      "tbsp": 6
+    }
+  },
+  {
+    "name": "garam masala",
+    "aliases": [
+      {
+        "alias": "גראם מסאלה",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 2.2
+    }
+  },
+  {
+    "name": "garlic powder",
+    "aliases": [
+      {
+        "alias": "granulated garlic",
+        "language": "en"
+      },
+      {
+        "alias": "אבקת שום",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 3.1
+    }
+  },
+  {
+    "name": "onion powder",
+    "aliases": [
+      {
+        "alias": "אבקת בצל",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 2.4
+    }
+  },
+  {
+    "name": "saffron",
+    "aliases": [
+      {
+        "alias": "saffron threads",
+        "language": "en"
+      },
+      {
+        "alias": "זעפרן",
+        "language": "he"
+      }
+    ],
+    "category": "spices",
+    "preferred_measure": "mass",
+    "dietary_flags": [],
+    "density_g_per_ml": null,
+    "gram_weights": {
+      "tsp": 0.7
+    }
+  },
+  {
+    "name": "gin",
+    "aliases": [
+      {
+        "alias": "london dry gin",
+        "language": "en"
+      },
+      {
+        "alias": "ג'ין",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 0.95,
+    "gram_weights": {}
+  },
+  {
+    "name": "vodka",
+    "aliases": [
+      {
+        "alias": "וודקה",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 0.95,
+    "gram_weights": {}
+  },
+  {
+    "name": "white rum",
+    "aliases": [
+      {
+        "alias": "light rum",
+        "language": "en"
+      },
+      {
+        "alias": "silver rum",
+        "language": "en"
+      },
+      {
+        "alias": "רום לבן",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 0.95,
+    "gram_weights": {}
+  },
+  {
+    "name": "dark rum",
+    "aliases": [
+      {
+        "alias": "aged rum",
+        "language": "en"
+      },
+      {
+        "alias": "רום כהה",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 0.97,
+    "gram_weights": {}
+  },
+  {
+    "name": "tequila",
+    "aliases": [
+      {
+        "alias": "blanco tequila",
+        "language": "en"
+      },
+      {
+        "alias": "טקילה",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 0.95,
+    "gram_weights": {}
+  },
+  {
+    "name": "whiskey",
+    "aliases": [
+      {
+        "alias": "bourbon",
+        "language": "en"
+      },
+      {
+        "alias": "scotch",
+        "language": "en"
+      },
+      {
+        "alias": "rye whiskey",
+        "language": "en"
+      },
+      {
+        "alias": "וויסקי",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 0.95,
+    "gram_weights": {}
+  },
+  {
+    "name": "brandy",
+    "aliases": [
+      {
+        "alias": "cognac",
+        "language": "en"
+      },
+      {
+        "alias": "ברנדי",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 0.95,
+    "gram_weights": {}
+  },
+  {
+    "name": "arak",
+    "aliases": [
+      {
+        "alias": "ערק",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 0.94,
+    "gram_weights": {}
+  },
+  {
+    "name": "dry vermouth",
+    "aliases": [
+      {
+        "alias": "french vermouth",
+        "language": "en"
+      },
+      {
+        "alias": "ורמוט יבש",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 0.99,
+    "gram_weights": {}
+  },
+  {
+    "name": "sweet vermouth",
+    "aliases": [
+      {
+        "alias": "italian vermouth",
+        "language": "en"
+      },
+      {
+        "alias": "red vermouth",
+        "language": "en"
+      },
+      {
+        "alias": "ורמוט מתוק",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 1.04,
+    "gram_weights": {}
+  },
+  {
+    "name": "campari",
+    "aliases": [
+      {
+        "alias": "קמפרי",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 1.05,
+    "gram_weights": {}
+  },
+  {
+    "name": "aperol",
+    "aliases": [
+      {
+        "alias": "אפרול",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 1.04,
+    "gram_weights": {}
+  },
+  {
+    "name": "triple sec",
+    "aliases": [
+      {
+        "alias": "cointreau",
+        "language": "en"
+      },
+      {
+        "alias": "orange liqueur",
+        "language": "en"
+      },
+      {
+        "alias": "curacao",
+        "language": "en"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 1.04,
+    "gram_weights": {}
+  },
+  {
+    "name": "coffee liqueur",
+    "aliases": [
+      {
+        "alias": "kahlua",
+        "language": "en"
+      },
+      {
+        "alias": "ליקר קפה",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 1.12,
+    "gram_weights": {}
+  },
+  {
+    "name": "amaretto",
+    "aliases": [
+      {
+        "alias": "almond liqueur",
+        "language": "en"
+      },
+      {
+        "alias": "אמרטו",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 1.07,
+    "gram_weights": {}
+  },
+  {
+    "name": "angostura bitters",
+    "aliases": [
+      {
+        "alias": "aromatic bitters",
+        "language": "en"
+      },
+      {
+        "alias": "bitters",
+        "language": "en"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 0.95,
+    "gram_weights": {}
+  },
+  {
+    "name": "simple syrup",
+    "aliases": [
+      {
+        "alias": "sugar syrup",
+        "language": "en"
+      },
+      {
+        "alias": "סירופ סוכר",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.3,
+    "gram_weights": {}
+  },
+  {
+    "name": "grenadine",
+    "aliases": [
+      {
+        "alias": "pomegranate syrup",
+        "language": "en"
+      },
+      {
+        "alias": "גרנדין",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.3,
+    "gram_weights": {}
+  },
+  {
+    "name": "prosecco",
+    "aliases": [
+      {
+        "alias": "sparkling wine",
+        "language": "en"
+      },
+      {
+        "alias": "champagne",
+        "language": "en"
+      },
+      {
+        "alias": "פרוסקו",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 0.99,
+    "gram_weights": {}
+  },
+  {
+    "name": "red wine",
+    "aliases": [
+      {
+        "alias": "dry red wine",
+        "language": "en"
+      },
+      {
+        "alias": "יין אדום",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 0.99,
+    "gram_weights": {}
+  },
+  {
+    "name": "white wine",
+    "aliases": [
+      {
+        "alias": "dry white wine",
+        "language": "en"
+      },
+      {
+        "alias": "יין לבן",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol"
+    ],
+    "density_g_per_ml": 0.99,
+    "gram_weights": {}
+  },
+  {
+    "name": "beer",
+    "aliases": [
+      {
+        "alias": "lager",
+        "language": "en"
+      },
+      {
+        "alias": "pale ale",
+        "language": "en"
+      },
+      {
+        "alias": "בירה",
+        "language": "he"
+      }
+    ],
+    "category": "bar",
+    "preferred_measure": "volume",
+    "dietary_flags": [
+      "alcohol",
+      "contains-gluten"
+    ],
+    "density_g_per_ml": 1.01,
+    "gram_weights": {}
+  },
+  {
+    "name": "water",
+    "aliases": [
+      {
+        "alias": "cold water",
+        "language": "en"
+      },
+      {
+        "alias": "warm water",
+        "language": "en"
+      },
+      {
+        "alias": "מים",
+        "language": "he"
+      }
+    ],
+    "category": "beverages",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.0,
+    "gram_weights": {}
+  },
+  {
+    "name": "coffee",
+    "aliases": [
+      {
+        "alias": "brewed coffee",
+        "language": "en"
+      },
+      {
+        "alias": "espresso",
+        "language": "en"
+      },
+      {
+        "alias": "קפה",
+        "language": "he"
+      }
+    ],
+    "category": "beverages",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.0,
+    "gram_weights": {}
+  },
+  {
+    "name": "tea",
+    "aliases": [
+      {
+        "alias": "brewed tea",
+        "language": "en"
+      },
+      {
+        "alias": "black tea",
+        "language": "en"
+      },
+      {
+        "alias": "תה",
+        "language": "he"
+      }
+    ],
+    "category": "beverages",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.0,
+    "gram_weights": {}
+  },
+  {
+    "name": "club soda",
+    "aliases": [
+      {
+        "alias": "soda water",
+        "language": "en"
+      },
+      {
+        "alias": "sparkling water",
+        "language": "en"
+      },
+      {
+        "alias": "סודה",
+        "language": "he"
+      }
+    ],
+    "category": "beverages",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.0,
+    "gram_weights": {}
+  },
+  {
+    "name": "tonic water",
+    "aliases": [
+      {
+        "alias": "tonic",
+        "language": "en"
+      },
+      {
+        "alias": "מי טוניק",
+        "language": "he"
+      }
+    ],
+    "category": "beverages",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.03,
+    "gram_weights": {}
+  },
+  {
+    "name": "cola",
+    "aliases": [
+      {
+        "alias": "coke",
+        "language": "en"
+      },
+      {
+        "alias": "קולה",
+        "language": "he"
+      }
+    ],
+    "category": "beverages",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.04,
+    "gram_weights": {}
+  },
+  {
+    "name": "ginger beer",
+    "aliases": [
+      {
+        "alias": "ג'ינג'ר ביר",
+        "language": "he"
+      }
+    ],
+    "category": "beverages",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.04,
+    "gram_weights": {}
+  },
+  {
+    "name": "cranberry juice",
+    "aliases": [
+      {
+        "alias": "מיץ חמוציות",
+        "language": "he"
+      }
+    ],
+    "category": "beverages",
+    "preferred_measure": "volume",
+    "dietary_flags": [],
+    "density_g_per_ml": 1.05,
+    "gram_weights": {}
+  }
+]
