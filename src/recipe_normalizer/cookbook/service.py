@@ -39,6 +39,7 @@ from recipe_normalizer.errors import ApiError
 
 __all__ = [
     "DuplicateRecipeError",
+    "SourceType",
     "create_recipe",
     "delete_recipe",
     "get_recipe",
@@ -261,12 +262,15 @@ def create_recipe(
     source: str | None = None,
     source_type: SourceType = SourceType.manual,
     llm: LLMClient | None = None,
+    extraction_meta: dict[str, Any] | None = None,
+    image_ref: str | None = None,
 ) -> RecipeOut:
     """Create a new recipe and return a fully-populated RecipeOut.
 
     - Fingerprint check first → DuplicateRecipeError if already exists for this owner.
     - Vocab rows get-or-created.
     - Ingredient lines: catalog-matched (or unreviewed created), normalized when possible.
+    - extraction_meta / image_ref: provenance from the extraction pipeline (None for manual).
     - Flushes; caller owns commit.
     """
     # Fingerprint uniqueness check
@@ -288,6 +292,8 @@ def create_recipe(
         source=source,
         source_type=source_type,
         source_fingerprint=source_fingerprint,
+        extraction_meta=extraction_meta,
+        image_ref=image_ref,
         servings_amount=data.servings.amount if data.servings else None,
         servings_unit_text=data.servings.unit_text if data.servings else None,
         prep_min=data.prep_min,

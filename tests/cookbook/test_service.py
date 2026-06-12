@@ -267,6 +267,36 @@ def test_create_recipe_duplicate_vocab_in_request_deduped(seeded: Session, owner
     assert out.tags == ["quick"]
 
 
+def test_create_recipe_extraction_meta_and_image_ref_persisted(
+    seeded: Session, owner: User
+) -> None:
+    """extraction_meta and image_ref thread through to the persisted recipe."""
+    data = _simple_recipe_in(lines=[IngredientLineIn(original_text="water")])
+    out = cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=data,
+        extraction_meta={"tier_used": 2, "actions_log": ["scrolled"]},
+        image_ref="ab/cd.png",
+    )
+    assert out.extraction_meta == {"tier_used": 2, "actions_log": ["scrolled"]}
+    assert out.image_ref == "ab/cd.png"
+
+    row = seeded.get(Recipe, out.id)
+    assert row is not None
+    assert row.extraction_meta == {"tier_used": 2, "actions_log": ["scrolled"]}
+    assert row.image_ref == "ab/cd.png"
+
+
+def test_create_recipe_extraction_meta_and_image_ref_default_none(
+    seeded: Session, owner: User
+) -> None:
+    data = _simple_recipe_in(lines=[IngredientLineIn(original_text="water")])
+    out = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=data)
+    assert out.extraction_meta is None
+    assert out.image_ref is None
+
+
 # ---------------------------------------------------------------------------
 # get_recipe
 # ---------------------------------------------------------------------------

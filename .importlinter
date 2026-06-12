@@ -36,6 +36,20 @@ ignore_imports =
     recipe_normalizer.catalog.service -> recipe_normalizer.catalog.models
     recipe_normalizer.cookbook.router -> recipe_normalizer.api_deps
 
+[importlinter:contract:extraction-boundaries]
+name = extraction must not import sibling models nor ingestion (stateless; spec section 4)
+type = forbidden
+source_modules =
+    recipe_normalizer.extraction
+forbidden_modules =
+    recipe_normalizer.users.models
+    recipe_normalizer.catalog.models
+    recipe_normalizer.cookbook.models
+    recipe_normalizer.ingestion
+ignore_imports =
+    recipe_normalizer.cookbook.service -> recipe_normalizer.cookbook.models
+    recipe_normalizer.catalog.service -> recipe_normalizer.catalog.models
+
 [importlinter:contract:ingestion-cannot-import-sibling-models]
 name = ingestion module must not import sibling models
 type = forbidden
