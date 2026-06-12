@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
+from recipe_normalizer.errors import ApiError
 from recipe_normalizer.users.auth import (
     PasswordAuthProvider,
     hash_token,
@@ -9,6 +10,8 @@ from recipe_normalizer.users.auth import (
 )
 from recipe_normalizer.users.models import Session as DbSession
 from recipe_normalizer.users.models import User
+
+__all__ = ["AuthError", "User", "get_user_by_token", "login", "logout", "register"]
 
 _provider = PasswordAuthProvider()
 
@@ -18,11 +21,11 @@ _DUMMY_HASH: str = _provider.hash_password("__dummy_constant_password__")
 _AUTH_ERROR_MSG = "Invalid email or password."
 
 
-class AuthError(Exception):
+class AuthError(ApiError):
     """Raised for authentication and registration failures."""
 
     def __init__(self, message: str = _AUTH_ERROR_MSG) -> None:
-        super().__init__(message)
+        super().__init__(status_code=401, code="auth_error", message=message)
 
 
 def register(

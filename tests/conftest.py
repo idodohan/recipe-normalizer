@@ -1,3 +1,4 @@
+import os
 from collections.abc import Iterator
 
 import pytest
@@ -6,6 +7,10 @@ from sqlalchemy.orm import Session
 from testcontainers.postgres import PostgresContainer
 
 from recipe_normalizer.db import Base
+
+# Disable the Ryuk reaper container — it can fail to bind its port in some
+# Docker-in-Docker / macOS environments, causing spurious test suite errors.
+os.environ.setdefault("TESTCONTAINERS_RYUK_DISABLED", "true")
 
 
 @pytest.fixture(scope="session")
