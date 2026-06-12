@@ -30,6 +30,11 @@ jobs:
       - name: Test (pytest)
         run: uv run pytest -q
 
+      - name: Export OpenAPI schema and check for drift
+        run: |
+          uv run python scripts/export_openapi.py
+          git diff --exit-code web/openapi.json
+
   frontend:
     runs-on: ubuntu-latest
     steps:
@@ -53,5 +58,5 @@ jobs:
       - name: Regenerate API client and check for drift
         run: |
           npm run generate:client
-          git diff --exit-code web/src/api/schema.d.ts
+          git diff --exit-code src/api/schema.d.ts
         working-directory: web
