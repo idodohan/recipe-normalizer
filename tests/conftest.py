@@ -1,8 +1,8 @@
 from collections.abc import Iterator
 
 import pytest
-from sqlalchemy import Engine, create_engine
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.orm import Session
 from testcontainers.postgres import PostgresContainer
 
 from recipe_normalizer.db import Base
@@ -22,14 +22,19 @@ def engine(pg_url: str) -> Iterator[Engine]:
     import recipe_normalizer.users.models  # noqa: F401
 
     Base.metadata.create_all(eng)
+    # Throwaway table used by tests asserting db_session transaction isolation.
+    with eng.begin() as conn:
+        conn.execute(text("create table if not exists _scratch (id int)"))
     yield eng
+    eng.dispose()
 
 
 @pytest.fixture()
 def db_session(engine: Engine) -> Iterator[Session]:
     connection = engine.connect()
     txn = connection.begin()
-    session = sessionmaker(bind=connection, expire_on_commit=False)()
+    session = Session(bind=connection, expire_on_commit=False)
+    session.begin_nested()
     yield session
     session.close()
     txn.rollback()

@@ -1,8 +1,8 @@
 import uuid
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import UTC, datetime
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from recipe_normalizer.config import settings
@@ -13,8 +13,14 @@ class Base(DeclarativeBase):
 
 
 class TimestampMixin:
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(UTC), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(UTC),
+        server_default=func.now(),
+        onupdate=lambda: datetime.now(UTC),
+    )
 
 
 def new_uuid() -> uuid.UUID:
