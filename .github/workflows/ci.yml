@@ -81,7 +81,7 @@ jobs:
           --health-retries 5
 
     env:
-      RN_DATABASE_URL: postgresql+asyncpg://rn:rn@localhost:5432/rn
+      RN_DATABASE_URL: postgresql+psycopg://rn:rn@localhost:5432/rn
 
     steps:
       - uses: actions/checkout@v4
