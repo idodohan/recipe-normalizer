@@ -266,3 +266,47 @@ def test_duplicate_recipe_error_envelope_has_existing_id(
     body = resp.json()
     assert body["error"]["code"] == "duplicate_recipe"
     assert body["error"]["existing_id"] == str(fake_id)
+
+
+# ---------------------------------------------------------------------------
+# Scaled endpoint edge cases: factor bounds and missing servings
+# ---------------------------------------------------------------------------
+
+
+def test_scaled_factor_zero_returns_422(app_client: TestClient) -> None:
+    """factor=0 violates the Query(gt=0) bound → 422 validation_error envelope."""
+    import uuid
+
+    resp = app_client.get(f"/api/recipes/{uuid.uuid4()}/scaled", params={"factor": 0})
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["error"]["code"] == "validation_error"
+
+
+def test_scaled_factor_too_large_returns_422(app_client: TestClient) -> None:
+    """factor=200 violates the Query(le=100) bound → 422 validation_error envelope."""
+    import uuid
+
+    resp = app_client.get(f"/api/recipes/{uuid.uuid4()}/scaled", params={"factor": 200})
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["error"]["code"] == "validation_error"
+
+
+def test_scaled_target_servings_without_recipe_servings_returns_422(
+    app_client: TestClient,
+) -> None:
+    """target_servings against a recipe with no servings_amount → 422 envelope."""
+    payload = {
+        "title": "No Servings Recipe",
+        "groups": [{"name": "Main", "lines": [{"original_text": "water"}]}],
+    }
+    create_resp = app_client.post("/api/recipes", json=payload)
+    assert create_resp.status_code == 201
+    recipe_id = create_resp.json()["id"]
+
+    resp = app_client.get(f"/api/recipes/{recipe_id}/scaled", params={"target_servings": 6})
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["error"]["code"] == "validation_error"
+    assert "servings" in body["error"]["message"]
