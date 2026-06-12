@@ -8,6 +8,7 @@ from decimal import Decimal
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy.orm import Session
 
 from recipe_normalizer.cookbook.schemas import (
     RecipeIn,
@@ -293,6 +294,141 @@ def test_recipe_out_servings_built() -> None:
     assert out.servings is not None
     assert out.servings.amount == 2.0
     assert out.servings.unit_text == "glasses"
+
+
+# ---------------------------------------------------------------------------
+# RecipeOut from a real persisted ORM Recipe (round-trip through the DB)
+# ---------------------------------------------------------------------------
+
+
+def test_recipe_out_from_persisted_orm_recipe(db_session: Session) -> None:
+    """Persist a full aggregate, re-query it, and validate into RecipeOut.
+
+    This guards against silent ORM-mapping regressions (e.g. relationship
+    attributes not being picked up, producing groups=[] on a 200 response).
+    """
+    from sqlalchemy import select
+
+    from recipe_normalizer.cookbook.models import (
+        Cuisine,
+        DishType,
+        IngredientGroup,
+        IngredientLine,
+        Recipe,
+        SourceType,
+        Step,
+        Tag,
+    )
+    from recipe_normalizer.users.models import User
+
+    owner = User(
+        email=f"schema-test-{uuid.uuid4()}@example.com",
+        password_hash="hash",
+        display_name="Schema Tester",
+    )
+    db_session.add(owner)
+    db_session.flush()
+
+    cuisine = Cuisine(name=f"Cuisine-{uuid.uuid4()}")
+    dish_type = DishType(name=f"Dish-{uuid.uuid4()}")
+    tag = Tag(name=f"Tag-{uuid.uuid4()}")
+    db_session.add_all([cuisine, dish_type, tag])
+    db_session.flush()
+
+    recipe = Recipe(
+        owner_id=owner.id,
+        title="Persisted Recipe",
+        source_type=SourceType.manual,
+        servings_amount=4.0,
+        servings_unit_text="servings",
+        total_min=45,
+    )
+    db_session.add(recipe)
+    db_session.flush()
+
+    group0 = IngredientGroup(recipe_id=recipe.id, name="Dough", order_index=0)
+    group1 = IngredientGroup(recipe_id=recipe.id, name="Topping", order_index=1)
+    db_session.add_all([group0, group1])
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            IngredientLine(
+                group_id=group0.id,
+                order_index=0,
+                original_text="1 cup flour",
+                quantity=Decimal("1"),
+                unit="cup",
+                normalized_amount=120.0,
+                normalized_unit="g",
+                is_approx=True,
+            ),
+            IngredientLine(
+                group_id=group0.id,
+                order_index=1,
+                original_text="salt to taste",
+            ),
+            IngredientLine(
+                group_id=group1.id,
+                order_index=0,
+                original_text="1 oz gin",
+                quantity=Decimal("1"),
+                unit="oz",
+                normalized_amount=29.57,
+                normalized_unit="ml",
+                is_approx=False,
+            ),
+        ]
+    )
+    db_session.add_all(
+        [
+            Step(recipe_id=recipe.id, order_index=0, original_text="Mix."),
+            Step(recipe_id=recipe.id, order_index=1, original_text="Bake."),
+        ]
+    )
+    recipe.cuisines.append(cuisine)
+    recipe.dish_types.append(dish_type)
+    recipe.tags.append(tag)
+    db_session.flush()
+
+    recipe_id = recipe.id
+    cuisine_name = cuisine.name
+    dish_type_name = dish_type.name
+    tag_name = tag.name
+
+    db_session.expire_all()
+    loaded = db_session.execute(select(Recipe).where(Recipe.id == recipe_id)).scalar_one()
+
+    out = RecipeOut.model_validate(loaded)
+
+    # groups + lines populated in order
+    assert [g.name for g in out.groups] == ["Dough", "Topping"]
+    assert [ln.original_text for ln in out.groups[0].lines] == ["1 cup flour", "salt to taste"]
+    assert out.groups[0].lines[0].quantity == 1.0  # Decimal -> float
+
+    # display rule applied per-line
+    assert out.groups[0].lines[0].display == "1 cup flour → ~120 g (approx.)"
+    assert out.groups[0].lines[1].display == "salt to taste"
+    assert out.groups[1].lines[0].display == "1 oz gin → 29.57 ml"
+
+    # steps in order
+    assert [s.original_text for s in out.steps] == ["Mix.", "Bake."]
+
+    # servings built from flat columns
+    assert out.servings is not None
+    assert out.servings.amount == 4.0
+    assert out.servings.unit_text == "servings"
+
+    # vocab as name lists
+    assert out.cuisines == [cuisine_name]
+    assert out.dish_types == [dish_type_name]
+    assert out.tags == [tag_name]
+
+    # raw servings columns excluded from serialized output; computed servings present
+    dumped = out.model_dump()
+    assert "servings_amount" not in dumped
+    assert "servings_unit_text" not in dumped
+    assert dumped["servings"] == {"amount": 4.0, "unit_text": "servings"}
 
 
 # ---------------------------------------------------------------------------

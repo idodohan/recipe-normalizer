@@ -6,18 +6,17 @@ Routers and services MUST call this function — never hand-roll the arrow strin
 
 from __future__ import annotations
 
-import contextlib
 import uuid
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
 from pydantic import (
+    AliasChoices,
     BaseModel,
     Field,
     computed_field,
     field_validator,
-    model_validator,
 )
 
 # ---------------------------------------------------------------------------
@@ -124,6 +123,13 @@ class RecipeIn(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def extract_vocab_names(v: Any) -> list[str]:
+    """Extract `.name` from ORM vocab objects; pass plain strings through."""
+    if not v:
+        return []
+    return [item if isinstance(item, str) else item.name for item in v]
+
+
 class IngredientLineOut(BaseModel):
     id: uuid.UUID
     original_text: str
@@ -160,31 +166,12 @@ class IngredientLineOut(BaseModel):
 class IngredientGroupOut(BaseModel):
     id: uuid.UUID
     name: str | None = None
-    lines: list[IngredientLineOut] = []
+    # ORM relationship attribute is `ingredient_lines`; API field is `lines`.
+    lines: list[IngredientLineOut] = Field(
+        default=[], validation_alias=AliasChoices("lines", "ingredient_lines")
+    )
 
     model_config = {"from_attributes": True}
-
-    @field_validator("lines", mode="before")
-    @classmethod
-    def collect_lines(cls, v: Any) -> Any:
-        # ORM relationship is named ingredient_lines; accept either attribute name
-        return v
-
-    @model_validator(mode="before")
-    @classmethod
-    def remap_ingredient_lines(cls, data: Any) -> Any:
-        # When coming from ORM (from_attributes=True), pydantic reads attribute names
-        # directly, so we need to map ingredient_lines -> lines if it's an ORM object.
-        if hasattr(data, "ingredient_lines") and not hasattr(data, "lines"):
-            # Create a wrapper namespace so pydantic can read `lines`
-            import types
-
-            ns = types.SimpleNamespace(
-                **{k: getattr(data, k) for k in vars(data) if not k.startswith("_")}
-            )
-            ns.lines = data.ingredient_lines
-            return ns
-        return data
 
 
 class StepOut(BaseModel):
@@ -205,14 +192,19 @@ class RecipeOut(BaseModel):
     source: str | None = None
     source_type: str
     language: str = "en"
-    servings: ServingsOut | None = None
+    # Raw ORM columns; excluded from output. The public `servings` object is computed.
+    servings_amount: float | None = Field(default=None, exclude=True)
+    servings_unit_text: str | None = Field(default=None, exclude=True)
     prep_min: int | None = None
     cook_min: int | None = None
     total_min: int | None = None
     cuisines: list[str] = []
     dish_types: list[str] = []
     tags: list[str] = []
-    groups: list[IngredientGroupOut] = []
+    # ORM relationship attribute is `ingredient_groups`; API field is `groups`.
+    groups: list[IngredientGroupOut] = Field(
+        default=[], validation_alias=AliasChoices("groups", "ingredient_groups")
+    )
     steps: list[StepOut] = []
     extraction_meta: dict[str, Any] | None = None
     is_verified: bool = False
@@ -232,50 +224,15 @@ class RecipeOut(BaseModel):
 
     @field_validator("cuisines", "dish_types", "tags", mode="before")
     @classmethod
-    def extract_vocab_names(cls, v: Any) -> list[str]:
-        if not v:
-            return []
-        result: list[str] = []
-        for item in v:
-            if isinstance(item, str):
-                result.append(item)
-            elif hasattr(item, "name"):
-                result.append(item.name)
-            else:
-                result.append(str(item))
-        return result
+    def vocab_to_names(cls, v: Any) -> list[str]:
+        return extract_vocab_names(v)
 
-    @field_validator("groups", mode="before")
-    @classmethod
-    def collect_groups(cls, v: Any) -> Any:
-        # ORM attribute is ingredient_groups; accept either
-        return v
-
-    @model_validator(mode="before")
-    @classmethod
-    def remap_orm_fields(cls, data: Any) -> Any:
-        """Remap ORM attribute names and build servings sub-object."""
-        if hasattr(data, "__dict__") or hasattr(data, "ingredient_groups"):
-            attrs: dict[str, Any] = {}
-            for attr in dir(data):
-                if attr.startswith("_"):
-                    continue
-                with contextlib.suppress(Exception):
-                    attrs[attr] = getattr(data, attr)
-
-            # Remap ingredient_groups -> groups
-            if "ingredient_groups" in attrs and "groups" not in attrs:
-                attrs["groups"] = attrs["ingredient_groups"]
-
-            # Build servings from separate ORM columns if not already present
-            if "servings" not in attrs or attrs.get("servings") is None:
-                sa = attrs.get("servings_amount")
-                su = attrs.get("servings_unit_text")
-                if sa is not None or su is not None:
-                    attrs["servings"] = ServingsOut(amount=sa, unit_text=su)
-
-            return attrs
-        return data
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def servings(self) -> ServingsOut | None:
+        if self.servings_amount is None and self.servings_unit_text is None:
+            return None
+        return ServingsOut(amount=self.servings_amount, unit_text=self.servings_unit_text)
 
 
 class RecipeSummary(BaseModel):
@@ -291,15 +248,5 @@ class RecipeSummary(BaseModel):
 
     @field_validator("dish_types", mode="before")
     @classmethod
-    def extract_dish_type_names(cls, v: Any) -> list[str]:
-        if not v:
-            return []
-        result: list[str] = []
-        for item in v:
-            if isinstance(item, str):
-                result.append(item)
-            elif hasattr(item, "name"):
-                result.append(item.name)
-            else:
-                result.append(str(item))
-        return result
+    def vocab_to_names(cls, v: Any) -> list[str]:
+        return extract_vocab_names(v)
