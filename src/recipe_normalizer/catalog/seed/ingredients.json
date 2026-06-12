@@ -647,9 +647,7 @@
     ],
     "category": "baking",
     "preferred_measure": "volume",
-    "dietary_flags": [
-      "alcohol"
-    ],
+    "dietary_flags": [],
     "density_g_per_ml": 0.88,
     "gram_weights": {}
   },
