@@ -2,6 +2,9 @@
 
 import enum
 import uuid
+from datetime import datetime
+from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -153,16 +156,16 @@ class Recipe(TimestampMixin, Base):
     prep_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cook_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    extraction_meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    extraction_meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-    provenance: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    provenance: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     derived_from: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("recipes.id", ondelete="SET NULL"), nullable=True
     )
     last_edited_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    last_edited_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     source_fingerprint: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     # Relationships
@@ -217,7 +220,9 @@ class IngredientLine(Base):
     )
     order_index: Mapped[int] = mapped_column(Integer, nullable=False)
     original_text: Mapped[str] = mapped_column(Text, nullable=False)
-    quantity: Mapped[object | None] = mapped_column(Numeric(12, 4), nullable=True)
+    # quantity is Numeric (exact, as parsed from the source text); normalized_amount
+    # is Float (a derived approximation after unit conversion).
+    quantity: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)
     canonical_ingredient_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("canonical_ingredients.id", ondelete="SET NULL"),
@@ -247,6 +252,9 @@ class Step(Base):
     )
     order_index: Mapped[int] = mapped_column(Integer, nullable=False)
     original_text: Mapped[str] = mapped_column(Text, nullable=False)
-    ingredient_line_refs: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
+    # Deliberately a non-FK JSONB list of ingredient_line uuid strings (loose refs).
+    ingredient_line_refs: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default="[]"
+    )
 
     recipe: Mapped[Recipe] = relationship(back_populates="steps")

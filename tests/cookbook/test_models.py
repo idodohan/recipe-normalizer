@@ -2,7 +2,9 @@
 
 import uuid
 
-from sqlalchemy import select
+import pytest
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from recipe_normalizer.users.models import User
@@ -153,6 +155,8 @@ def test_recipe_cascade_delete(db_session: Session) -> None:
     recipe_id = recipe.id
     group_id = group.id
     cuisine_id = cuisine.id
+    dish_type_id = dish_type.id
+    tag_id = tag.id
     owner_id = owner.id
 
     # delete the recipe
@@ -172,5 +176,88 @@ def test_recipe_cascade_delete(db_session: Session) -> None:
 
     # vocab rows survive
     assert db_session.get(Cuisine, cuisine_id) is not None
+    assert db_session.get(DishType, dish_type_id) is not None
+    assert db_session.get(Tag, tag_id) is not None
     # user survives
     assert db_session.get(User, owner_id) is not None
+
+
+def test_owner_fingerprint_partial_unique_index(db_session: Session) -> None:
+    """Duplicate (owner_id, source_fingerprint) rejected; NULL fingerprints unrestricted."""
+    from recipe_normalizer.cookbook.models import Recipe, SourceType
+
+    owner = make_user(db_session, suffix=str(uuid.uuid4())[:8])
+
+    first = Recipe(
+        owner_id=owner.id,
+        title="First",
+        source_type=SourceType.web,
+        source_fingerprint="fp-123",
+    )
+    db_session.add(first)
+    db_session.flush()
+
+    # same (owner_id, source_fingerprint) -> IntegrityError on flush.
+    # Scope the rollback to a savepoint so the fixture's transaction survives.
+    duplicate = Recipe(
+        owner_id=owner.id,
+        title="Duplicate",
+        source_type=SourceType.web,
+        source_fingerprint="fp-123",
+    )
+    with pytest.raises(IntegrityError), db_session.begin_nested():
+        db_session.add(duplicate)
+        db_session.flush()
+
+    # two recipes with NULL fingerprints for the same owner -> allowed
+    owner2 = make_user(db_session, suffix=str(uuid.uuid4())[:8])
+    null_a = Recipe(owner_id=owner2.id, title="Null A", source_type=SourceType.manual)
+    null_b = Recipe(owner_id=owner2.id, title="Null B", source_type=SourceType.manual)
+    db_session.add_all([null_a, null_b])
+    db_session.flush()
+    count = db_session.execute(
+        select(func.count()).select_from(Recipe).where(Recipe.owner_id == owner2.id)
+    ).scalar_one()
+    assert count == 2
+
+
+def test_out_of_order_inserts_returned_sorted(db_session: Session) -> None:
+    """Groups/lines inserted out of order_index order are returned sorted by the relationship."""
+    from recipe_normalizer.cookbook.models import (
+        IngredientGroup,
+        IngredientLine,
+        Recipe,
+        SourceType,
+    )
+
+    owner = make_user(db_session, suffix=str(uuid.uuid4())[:8])
+    recipe = Recipe(owner_id=owner.id, title="Unordered", source_type=SourceType.manual)
+    db_session.add(recipe)
+    db_session.flush()
+
+    # insert group with order_index 1 BEFORE group 0
+    group_later = IngredientGroup(recipe_id=recipe.id, name="Second", order_index=1)
+    db_session.add(group_later)
+    db_session.flush()
+    group_first = IngredientGroup(recipe_id=recipe.id, name="First", order_index=0)
+    db_session.add(group_first)
+    db_session.flush()
+
+    # insert line with order_index 1 BEFORE line 0 within the same group
+    line_later = IngredientLine(group_id=group_first.id, order_index=1, original_text="second")
+    db_session.add(line_later)
+    db_session.flush()
+    line_first = IngredientLine(group_id=group_first.id, order_index=0, original_text="first")
+    db_session.add(line_first)
+    db_session.flush()
+
+    db_session.expire_all()
+    loaded = db_session.get(Recipe, recipe.id)
+    assert loaded is not None
+
+    assert [g.order_index for g in loaded.ingredient_groups] == [0, 1]
+    assert [g.name for g in loaded.ingredient_groups] == ["First", "Second"]
+
+    lines = loaded.ingredient_groups[0].ingredient_lines
+    assert [ln.order_index for ln in lines] == [0, 1]
+    assert [ln.original_text for ln in lines] == ["first", "second"]
