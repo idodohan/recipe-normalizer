@@ -61,6 +61,7 @@ class DuplicateRecipeError(ApiError):
             status_code=409,
             code="duplicate_recipe",
             message=f"A recipe with this fingerprint already exists (id={existing_id}).",
+            extra={"existing_id": str(existing_id)},
         )
         self.existing_id = existing_id
 

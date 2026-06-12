@@ -14,16 +14,31 @@ class ApiError(Exception):
 
     status_code: int
     code: str
+    extra: dict[str, object]
 
-    def __init__(self, status_code: int, code: str, message: str) -> None:
+    def __init__(
+        self,
+        status_code: int,
+        code: str,
+        message: str,
+        extra: dict[str, object] | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
+        self.extra = extra or {}
 
 
-def _envelope(code: str, message: str) -> dict[str, dict[str, str]]:
-    return {"error": {"code": code, "message": message}}
+def _envelope(
+    code: str,
+    message: str,
+    extra: dict[str, object] | None = None,
+) -> dict[str, dict[str, object]]:
+    payload: dict[str, object] = {"code": code, "message": message}
+    if extra:
+        payload.update(extra)
+    return {"error": payload}
 
 
 def install_error_handlers(app: FastAPI) -> None:
@@ -33,7 +48,7 @@ def install_error_handlers(app: FastAPI) -> None:
     async def api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
         return JSONResponse(
             status_code=exc.status_code,
-            content=_envelope(exc.code, exc.message),
+            content=_envelope(exc.code, exc.message, exc.extra or None),
         )
 
     @app.exception_handler(RequestValidationError)

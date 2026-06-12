@@ -60,7 +60,6 @@ def patch_ingredient(
         else service.UNSET,
         gram_weights=body.gram_weights,
     )
-    db.commit()
     return IngredientOut.model_validate(ing)
 
 
@@ -72,5 +71,4 @@ def merge_ingredient(
     _user: object = Depends(get_current_user),  # noqa: B008
 ) -> IngredientOut:
     target = service.merge(db, source_id=ingredient_id, target_id=body.target_id)
-    db.commit()
     return IngredientOut.model_validate(target)

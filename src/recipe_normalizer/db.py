@@ -42,4 +42,9 @@ SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 def get_db() -> Iterator[Session]:
     with SessionLocal() as session:
-        yield session
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise

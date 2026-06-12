@@ -43,7 +43,7 @@ def register(
     password_hash = _provider.hash_password(password)
     user = User(email=normalized, password_hash=password_hash, display_name=display_name)
     db.add(user)
-    db.commit()
+    db.flush()
     return user
 
 
@@ -60,7 +60,7 @@ def login(db: Session, *, email: str, password: str) -> tuple[str, User]:
     token = new_session_token()
     session = DbSession(user_id=user.id, token_hash=hash_token(token))
     db.add(session)
-    db.commit()
+    db.flush()
     return token, user
 
 
@@ -70,7 +70,7 @@ def logout(db: Session, token: str) -> None:
     session = db.query(DbSession).filter(DbSession.token_hash == token_h).first()
     if session is not None:
         db.delete(session)
-        db.commit()
+        db.flush()
 
 
 def get_user_by_token(db: Session, token: str) -> User | None:
