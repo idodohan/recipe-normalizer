@@ -123,8 +123,8 @@ def test_create_recipe_happy_path(seeded: Session, owner: User) -> None:
     assert line.normalized_amount == pytest.approx(120.0, abs=0.1)
     assert line.normalized_unit == "g"
     assert line.is_approx is True
-    # Display string should contain the arrow
-    assert "→" in line.display
+    # Exact dual-quantity display string (spec §5 format)
+    assert line.display == "1 cup flour → ~120 g (approx.)"
 
     # Steps
     assert len(out.steps) == 1
@@ -231,6 +231,40 @@ def test_create_recipe_vocab_get_or_create_idempotent(seeded: Session, owner: Us
         select(func.count()).select_from(Cuisine).where(Cuisine.name == "TestCuisine")
     ).scalar_one()
     assert count == 1
+
+
+def test_create_recipe_vocab_case_insensitive(seeded: Session, owner: User) -> None:
+    """ "Italian" and "italian" resolve to a single cuisine row (first-seen casing kept)."""
+    from sqlalchemy import func, select
+
+    from recipe_normalizer.cookbook.models import Cuisine
+
+    for i, name in enumerate(["Italian", "italian"]):
+        data = _simple_recipe_in(
+            title=f"Recipe {i}",
+            cuisines=[name],
+            lines=[IngredientLineIn(original_text="water")],
+        )
+        out = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=data)
+        # First-seen casing is preserved on both recipes
+        assert out.cuisines == ["Italian"]
+
+    count = seeded.execute(
+        select(func.count()).select_from(Cuisine).where(func.lower(Cuisine.name) == "italian")
+    ).scalar_one()
+    assert count == 1
+
+
+def test_create_recipe_duplicate_vocab_in_request_deduped(seeded: Session, owner: User) -> None:
+    """Duplicate vocab names within one request are deduped (no association PK violation)."""
+    data = _simple_recipe_in(
+        cuisines=["Italian", "Italian", "italian"],
+        tags=["quick", "Quick"],
+        lines=[IngredientLineIn(original_text="water")],
+    )
+    out = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=data)
+    assert out.cuisines == ["Italian"]
+    assert out.tags == ["quick"]
 
 
 # ---------------------------------------------------------------------------

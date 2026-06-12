@@ -11,7 +11,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from recipe_normalizer.catalog import service as catalog_service
@@ -88,11 +88,15 @@ def register_hooks() -> None:
 
 
 def _get_or_create_vocab(db: Session, model: Any, name: str) -> Any:
-    """Get or create a vocab row (Cuisine/DishType/Tag) by exact name (case-normalized strip)."""
-    normalized = name.strip()
-    row = db.scalars(select(model).where(model.name == normalized)).first()
+    """Get or create a vocab row (Cuisine/DishType/Tag) by case-insensitive name.
+
+    Lookup is case-insensitive (stripped + lowered); on insert the first-seen
+    casing is preserved as given (stripped only).
+    """
+    stripped = name.strip()
+    row = db.scalars(select(model).where(func.lower(model.name) == stripped.lower())).first()
     if row is None:
-        row = model(name=normalized)
+        row = model(name=stripped)
         db.add(row)
         db.flush()
     return row
@@ -200,11 +204,22 @@ def _apply_groups(db: Session, recipe: Recipe, data: RecipeIn) -> None:
     db.flush()
 
 
+def _dedupe_names(names: list[str]) -> list[str]:
+    """Dedupe names case-insensitively, preserving order and first-seen casing."""
+    seen: dict[str, str] = {}
+    for n in names:
+        stripped = n.strip()
+        seen.setdefault(stripped.lower(), stripped)
+    return list(seen.values())
+
+
 def _apply_vocab(db: Session, recipe: Recipe, data: RecipeIn) -> None:
-    """Sync vocab many-to-many relationships from RecipeIn."""
-    recipe.cuisines = [_get_or_create_vocab(db, Cuisine, n) for n in data.cuisines]
-    recipe.dish_types = [_get_or_create_vocab(db, DishType, n) for n in data.dish_types]
-    recipe.tags = [_get_or_create_vocab(db, Tag, n) for n in data.tags]
+    """Sync vocab many-to-many relationships from RecipeIn (deduped per request)."""
+    recipe.cuisines = [_get_or_create_vocab(db, Cuisine, n) for n in _dedupe_names(data.cuisines)]
+    recipe.dish_types = [
+        _get_or_create_vocab(db, DishType, n) for n in _dedupe_names(data.dish_types)
+    ]
+    recipe.tags = [_get_or_create_vocab(db, Tag, n) for n in _dedupe_names(data.tags)]
 
 
 def _apply_steps(db: Session, recipe: Recipe, data: RecipeIn) -> None:
