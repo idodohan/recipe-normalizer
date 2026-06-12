@@ -24,6 +24,7 @@ from recipe_normalizer.catalog.units import parse_unit
 from recipe_normalizer.errors import ApiError
 
 __all__ = [
+    "UNSET",
     "CanonicalIngredient",
     "IngredientStatus",
     "PreferredMeasure",
@@ -35,6 +36,10 @@ __all__ = [
     "search",
     "update_ingredient",
 ]
+
+# Public sentinel for "field not provided" in update_ingredient, allowing
+# callers to explicitly pass None (e.g. to clear density_g_per_ml).
+UNSET: Any = object()
 
 # ---------------------------------------------------------------------------
 # Merge hook registry (module-level list; mutated by register_merge_hook)
@@ -57,8 +62,13 @@ def register_merge_hook(cb: Callable[[Session, uuid.UUID, uuid.UUID], None]) -> 
 
 
 def _normalise(text: str) -> str:
-    """Strip, collapse internal whitespace, and casefold."""
-    return " ".join(text.strip().split()).casefold()
+    """Strip, collapse internal whitespace, and lowercase.
+
+    Uses str.lower() — NOT casefold() — so the Python-side normalisation
+    agrees with the SQL ``func.lower()`` comparisons it is matched against
+    (casefold diverges from SQL lower, e.g. German ß → "ss").
+    """
+    return " ".join(text.strip().split()).lower()
 
 
 # ---------------------------------------------------------------------------
@@ -93,15 +103,17 @@ def match(db: Session, text: str) -> CanonicalIngredient | None:
     if ingredient is None:
         return None
 
-    # Follow merged_into_id chain; guard against cycles
-    visited: set[uuid.UUID] = set()
+    # Follow merged_into_id chain; on a cycle there is no live target,
+    # so return None rather than a dead (merged) node.
+    visited: set[uuid.UUID] = {ingredient.id}
     while ingredient.merged_into_id is not None:
-        if ingredient.id in visited:
-            break  # cycle detected — stop here
-        visited.add(ingredient.id)
-        next_ing = db.get(CanonicalIngredient, ingredient.merged_into_id)
+        next_id = ingredient.merged_into_id
+        if next_id in visited:
+            return None  # cycle detected — no live ingredient exists
+        visited.add(next_id)
+        next_ing = db.get(CanonicalIngredient, next_id)
         if next_ing is None:
-            break
+            return None  # dangling pointer — no live ingredient exists
         ingredient = next_ing
 
     return ingredient
@@ -171,14 +183,17 @@ def search(
     stmt = select(CanonicalIngredient)
 
     if q:
-        norm_q = f"%{q.casefold()}%"
+        # lower() (not casefold) to agree with the SQL func.lower() side;
+        # escape LIKE wildcards so user input is matched literally.
+        escaped = q.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        norm_q = f"%{escaped}%"
         # Match on name OR any alias
         alias_match = select(IngredientAlias.ingredient_id).where(
-            func.lower(IngredientAlias.alias).like(norm_q)
+            func.lower(IngredientAlias.alias).like(norm_q, escape="\\")
         )
         stmt = stmt.where(
             or_(
-                func.lower(CanonicalIngredient.name).like(norm_q),
+                func.lower(CanonicalIngredient.name).like(norm_q, escape="\\"),
                 CanonicalIngredient.id.in_(alias_match),
             )
         )
@@ -236,8 +251,13 @@ def merge(
     for alias in list(source.aliases):
         alias.ingredient_id = target_id
 
-    # Add source name as alias on target
-    db.add(IngredientAlias(ingredient_id=target_id, alias=source.name, language="und"))
+    # Add source name as alias on target — but only if not already present
+    # (case-normalized) among target's aliases after re-pointing, otherwise
+    # a source alias equal to source.name would be duplicated.
+    existing_aliases = {_normalise(a.alias) for a in target.aliases}
+    existing_aliases |= {_normalise(a.alias) for a in source.aliases}
+    if _normalise(source.name) not in existing_aliases:
+        db.add(IngredientAlias(ingredient_id=target_id, alias=source.name, language="und"))
 
     # Mark source as merged
     source.merged_into_id = target_id
@@ -258,8 +278,6 @@ def merge(
 # update_ingredient
 # ---------------------------------------------------------------------------
 
-_SENTINEL = object()
-
 
 def update_ingredient(
     db: Session,
@@ -270,13 +288,14 @@ def update_ingredient(
     preferred_measure: PreferredMeasure | None = None,
     status: IngredientStatus | None = None,
     dietary_flags: list[str] | None = None,
-    density_g_per_ml: float | Any = _SENTINEL,
+    density_g_per_ml: float | None | Any = UNSET,
     gram_weights: dict[str, float] | None = None,
 ) -> CanonicalIngredient:
     """Patch *ingredient_id* with the supplied fields.
 
-    Only supplied (non-None) fields are updated.  ``density_g_per_ml`` uses a
-    sentinel so callers can explicitly set it to ``None`` (clearing it).
+    Only supplied (non-None) fields are updated.  ``density_g_per_ml`` uses
+    the public ``UNSET`` sentinel so callers can explicitly set it to ``None``
+    (clearing it).
 
     Raises ApiError 404 if the ingredient does not exist.
     Raises ApiError 422 for invalid gram_weights keys or zero/negative density.
@@ -299,8 +318,8 @@ def update_ingredient(
     if dietary_flags is not None:
         ing.dietary_flags = list(dietary_flags)
 
-    # density_g_per_ml: use sentinel to distinguish "not provided" from None
-    if density_g_per_ml is not _SENTINEL:
+    # density_g_per_ml: UNSET sentinel distinguishes "not provided" from None
+    if density_g_per_ml is not UNSET:
         if density_g_per_ml is not None and density_g_per_ml <= 0:
             raise ApiError(
                 422,

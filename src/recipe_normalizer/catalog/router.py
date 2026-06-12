@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from recipe_normalizer.api_deps import get_current_user
@@ -20,10 +20,11 @@ router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 def list_ingredients(
     q: str = "",
     status: IngredientStatus | None = None,
+    limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),  # noqa: B008
     _user: object = Depends(get_current_user),  # noqa: B008
 ) -> list[IngredientOut]:
-    results = service.search(db, q, status=status)
+    results = service.search(db, q, status=status, limit=limit)
     return [IngredientOut.model_validate(r) for r in results]
 
 
@@ -52,9 +53,11 @@ def patch_ingredient(
         preferred_measure=body.preferred_measure,
         status=body.status,
         dietary_flags=body.dietary_flags,
+        # model_fields_set distinguishes an absent field from an explicit
+        # null: {"density_g_per_ml": null} clears the value.
         density_g_per_ml=body.density_g_per_ml
-        if body.density_g_per_ml is not None
-        else service._SENTINEL,
+        if "density_g_per_ml" in body.model_fields_set
+        else service.UNSET,
         gram_weights=body.gram_weights,
     )
     db.commit()

@@ -240,3 +240,49 @@ def test_get_ingredient_missing_raises_404(db_session) -> None:
     with pytest.raises(ApiError) as exc_info:
         service.get_ingredient(db_session, uuid.uuid4())
     assert exc_info.value.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Review fixes: merge dedupe, cycle-safe match, search wildcard escaping
+# ---------------------------------------------------------------------------
+
+
+def test_merge_no_duplicate_alias_pairs(db_session) -> None:
+    # create_unreviewed stores the name itself as an alias, so after merge the
+    # re-pointed source alias and the "source name as target alias" step would
+    # collide unless merge dedupes.
+    source = service.create_unreviewed(db_session, name="dup source")
+    target = service.create_unreviewed(db_session, name="dup target")
+    result = service.merge(db_session, source_id=source.id, target_id=target.id)
+    pairs = [(a.ingredient_id, a.alias) for a in result.aliases]
+    assert len(pairs) == len(set(pairs)), f"duplicate alias rows: {pairs}"
+    alias_texts = [a.alias for a in result.aliases]
+    assert alias_texts.count("dup source") == 1
+
+
+def test_match_merge_cycle_returns_none(db_session) -> None:
+    # Manually create a corrupt A→B→A merge cycle: there is no live target,
+    # so match must return None rather than a dead (merged) node.
+    a = service.create_unreviewed(db_session, name="cycle a")
+    b = service.create_unreviewed(db_session, name="cycle b")
+    a.merged_into_id = b.id
+    b.merged_into_id = a.id
+    db_session.flush()
+    assert service.match(db_session, "cycle a") is None
+    assert service.match(db_session, "cycle b") is None
+
+
+def test_search_percent_is_literal(seeded) -> None:
+    # "%" in the query must not act as an SQL wildcard.
+    assert service.search(seeded, "fl%ur") == []
+
+
+def test_search_underscore_is_literal(seeded) -> None:
+    # "_" in the query must not act as a single-char SQL wildcard.
+    assert service.search(seeded, "flou_") == []
+
+
+def test_search_literal_percent_matches(seeded) -> None:
+    # Seed data has alias "70% chocolate" on dark chocolate.
+    names = [r.name for r in service.search(seeded, "70%")]
+    assert "dark chocolate" in names

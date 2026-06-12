@@ -216,3 +216,56 @@ def test_merge_already_merged_returns_409(auth_client: TestClient, db_session) -
         json={"target_id": str(third.id)},
     )
     assert resp.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Review fixes: PATCH null density semantics, bounded limit param
+# ---------------------------------------------------------------------------
+
+
+def test_patch_density_null_clears_it(auth_client: TestClient, db_session) -> None:  # type: ignore[no-untyped-def]
+    ing = service.create_unreviewed(db_session, name="density herb")
+    set_resp = auth_client.patch(
+        f"/api/catalog/ingredients/{ing.id}",
+        json={"density_g_per_ml": 0.5},
+    )
+    assert set_resp.status_code == 200
+    assert set_resp.json()["density_g_per_ml"] == 0.5
+
+    clear_resp = auth_client.patch(
+        f"/api/catalog/ingredients/{ing.id}",
+        json={"density_g_per_ml": None},
+    )
+    assert clear_resp.status_code == 200
+    assert clear_resp.json()["density_g_per_ml"] is None
+
+
+def test_patch_without_density_leaves_it_unchanged(
+    auth_client: TestClient,
+    db_session,  # type: ignore[no-untyped-def]
+) -> None:
+    ing = service.create_unreviewed(db_session, name="density herb2")
+    auth_client.patch(
+        f"/api/catalog/ingredients/{ing.id}",
+        json={"density_g_per_ml": 0.5},
+    )
+    resp = auth_client.patch(
+        f"/api/catalog/ingredients/{ing.id}",
+        json={"category": "spices"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["density_g_per_ml"] == 0.5
+    assert resp.json()["category"] == "spices"
+
+
+def test_list_limit_caps_results(seeded_auth_client: TestClient) -> None:
+    resp = seeded_auth_client.get("/api/catalog/ingredients", params={"limit": 1})
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+
+def test_list_limit_out_of_bounds_returns_422(auth_client: TestClient) -> None:
+    resp = auth_client.get("/api/catalog/ingredients", params={"limit": 0})
+    assert resp.status_code == 422
+    resp = auth_client.get("/api/catalog/ingredients", params={"limit": 201})
+    assert resp.status_code == 422
