@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from recipe_normalizer.catalog import service as catalog_service
 from recipe_normalizer.catalog.service import convert_to_normalized
+
+if TYPE_CHECKING:
+    from recipe_normalizer.llm.client import LLMClient
 from recipe_normalizer.cookbook.models import (
     Cuisine,
     DishType,
@@ -138,10 +141,16 @@ def _load_recipe_full(db: Session, recipe_id: uuid.UUID) -> Recipe | None:
 # ---------------------------------------------------------------------------
 
 
-def _process_line(db: Session, line_in: IngredientLineIn) -> dict[str, Any]:
+def _process_line(
+    db: Session,
+    line_in: IngredientLineIn,
+    *,
+    llm: LLMClient | None = None,
+) -> dict[str, Any]:
     """Resolve catalog match + normalization for a single ingredient line.
 
     Returns a dict of column values (excluding group_id and order_index).
+    Uses match_or_create for fuzzy + LLM-assisted matching when *llm* is provided.
     """
     canonical_ingredient_id: uuid.UUID | None = None
     normalized_amount: float | None = None
@@ -149,11 +158,7 @@ def _process_line(db: Session, line_in: IngredientLineIn) -> dict[str, Any]:
     is_approx: bool = False
 
     if line_in.name:
-        # Attempt catalog match
-        ingredient = catalog_service.match(db, line_in.name)
-        if ingredient is None:
-            # Auto-create unreviewed entry
-            ingredient = catalog_service.create_unreviewed(db, name=line_in.name)
+        ingredient = catalog_service.match_or_create(db, line_in.name, llm=llm)
         canonical_ingredient_id = ingredient.id
 
         # Attempt unit conversion when quantity + unit are present
@@ -177,11 +182,18 @@ def _process_line(db: Session, line_in: IngredientLineIn) -> dict[str, Any]:
     }
 
 
-def _apply_groups(db: Session, recipe: Recipe, data: RecipeIn) -> None:
+def _apply_groups(
+    db: Session,
+    recipe: Recipe,
+    data: RecipeIn,
+    *,
+    llm: LLMClient | None = None,
+) -> None:
     """Build/replace ingredient groups and lines from RecipeIn.
 
     Existing groups/lines are not touched here — caller must ensure a clean state
     (either new recipe or after removing old groups via delete-orphan cascade).
+    Passes *llm* to _process_line for fuzzy + LLM-assisted catalog matching.
     """
     for g_idx, group_in in enumerate(data.groups):
         group = IngredientGroup(
@@ -193,7 +205,7 @@ def _apply_groups(db: Session, recipe: Recipe, data: RecipeIn) -> None:
         db.flush()  # get group.id
 
         for l_idx, line_in in enumerate(group_in.lines):
-            line_data = _process_line(db, line_in)
+            line_data = _process_line(db, line_in, llm=llm)
             line = IngredientLine(
                 group_id=group.id,
                 order_index=l_idx,
@@ -248,6 +260,7 @@ def create_recipe(
     source_fingerprint: str | None = None,
     source: str | None = None,
     source_type: SourceType = SourceType.manual,
+    llm: LLMClient | None = None,
 ) -> RecipeOut:
     """Create a new recipe and return a fully-populated RecipeOut.
 
@@ -284,7 +297,7 @@ def create_recipe(
     db.add(recipe)
     db.flush()  # get recipe.id
 
-    _apply_groups(db, recipe, data)
+    _apply_groups(db, recipe, data, llm=llm)
     _apply_steps(db, recipe, data)
     _apply_vocab(db, recipe, data)
     db.flush()
@@ -331,6 +344,7 @@ def update_recipe(
     recipe_id: uuid.UUID,
     data: RecipeIn,
     editor_id: uuid.UUID,
+    llm: LLMClient | None = None,
 ) -> RecipeOut:
     """Replace a recipe's content wholesale; returns updated RecipeOut.
 
@@ -364,7 +378,7 @@ def update_recipe(
 
     db.flush()
 
-    _apply_groups(db, recipe, data)
+    _apply_groups(db, recipe, data, llm=llm)
     _apply_steps(db, recipe, data)
     _apply_vocab(db, recipe, data)
     db.flush()

@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel
+from rapidfuzz import fuzz, process
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
@@ -25,21 +27,36 @@ from recipe_normalizer.catalog.models import (
 from recipe_normalizer.catalog.units import parse_unit
 from recipe_normalizer.errors import ApiError
 
+if TYPE_CHECKING:
+    from recipe_normalizer.llm.client import LLMClient
+
 __all__ = [
     "UNSET",
     "CanonicalIngredient",
     "Converted",
     "IngredientStatus",
     "PreferredMeasure",
+    "_MatchChoice",
     "convert_to_normalized",
     "create_unreviewed",
     "get_ingredient",
     "match",
+    "match_or_create",
     "merge",
     "register_merge_hook",
     "search",
     "update_ingredient",
 ]
+
+
+# ---------------------------------------------------------------------------
+# LLM output model for catalog matching
+# ---------------------------------------------------------------------------
+
+
+class _MatchChoice(BaseModel):
+    index: int | None  # 0-based index into the candidate list, or null if none match
+
 
 # Public sentinel for "field not provided" in update_ingredient, allowing
 # callers to explicitly pass None (e.g. to clear density_g_per_ml).
@@ -151,6 +168,117 @@ def create_unreviewed(db: Session, *, name: str) -> CanonicalIngredient:
     ingredient.aliases = [IngredientAlias(alias=name, language="und")]
     db.add(ingredient)
     db.flush()
+    return ingredient
+
+
+# ---------------------------------------------------------------------------
+# match_or_create
+# ---------------------------------------------------------------------------
+
+
+def match_or_create(
+    db: Session,
+    name: str,
+    *,
+    llm: LLMClient | None = None,
+) -> CanonicalIngredient:
+    """Return the best matching live ingredient for *name*, or create an unreviewed one.
+
+    Resolution order:
+    1. Exact / alias match via ``match()`` → return immediately.
+    2. Build a corpus of (normalised_string, ingredient_id) for all live ingredients
+       — fetched once per call (~1 000 rows fine; add a caching layer later if needed).
+    3. ``rapidfuzz`` ``WRatio ≥ 90`` hit → follow merge chain and return.
+    4. Top-5 candidates in the 70–90 band → if *llm* is provided, ask once:
+       valid index in range → follow merge chain and return.
+    5. ``create_unreviewed(db, name=name)`` — idempotent.
+    """
+    # Step 1: exact / alias match
+    exact = match(db, name)
+    if exact is not None:
+        return exact
+
+    norm_name = _normalise(name)
+
+    # Step 2: build corpus — all (alias_or_name, ingredient_id) for live ingredients
+    # Fetch every (alias_text, ingredient_id) pair, plus (name, ingredient_id) as fallback.
+    alias_rows = db.execute(select(IngredientAlias.alias, IngredientAlias.ingredient_id)).all()
+    # Include canonical names that have no aliases (alias table may omit them).
+    name_rows = db.execute(
+        select(CanonicalIngredient.name, CanonicalIngredient.id).where(
+            CanonicalIngredient.merged_into_id.is_(None)
+        )
+    ).all()
+
+    # corpus: list of normalised strings; corpus_ids: parallel list of ingredient UUIDs
+    corpus: list[str] = []
+    corpus_ids: list[uuid.UUID] = []
+    for alias_text, ing_id in alias_rows:
+        corpus.append(_normalise(alias_text))
+        corpus_ids.append(ing_id)
+    for ing_name, ing_id in name_rows:
+        corpus.append(_normalise(ing_name))
+        corpus_ids.append(ing_id)
+
+    if not corpus:
+        return create_unreviewed(db, name=name)
+
+    # Step 3: fuzzy ≥ 90 → direct link
+    best = process.extractOne(norm_name, corpus, scorer=fuzz.WRatio, score_cutoff=90)
+    if best is not None:
+        _match_string, _score, corpus_idx = best
+        ing_id = corpus_ids[corpus_idx]
+        ingredient = _follow_merge_chain(db, ing_id)
+        if ingredient is not None:
+            return ingredient
+
+    # Step 4: collect 70–90 band candidates
+    band_results = process.extract(norm_name, corpus, scorer=fuzz.WRatio, limit=5, score_cutoff=70)
+    band_candidates = [r for r in band_results if r[1] < 90]
+
+    if band_candidates and llm is not None:
+        numbered = "\n".join(f"{i}. {r[0]}" for i, r in enumerate(band_candidates))
+        content = (
+            f"Ingredient: '{name}'. Candidates:\n{numbered}\n"
+            "Which candidate (0-based index) IS this ingredient "
+            "(same food, ignoring qualifiers like fat % or brand)? null if none."
+        )
+        choice = llm.structured(
+            feature="catalog.match",
+            fast=True,
+            output_model=_MatchChoice,
+            system="You match a recipe ingredient name to a catalog entry.",
+            content=content,
+        )
+        if choice.index is not None and 0 <= choice.index < len(band_candidates):
+            _match_string, _score, corpus_idx = band_candidates[choice.index]
+            ing_id = corpus_ids[corpus_idx]
+            ingredient = _follow_merge_chain(db, ing_id)
+            if ingredient is not None:
+                return ingredient
+
+    # Step 5: fallthrough — create unreviewed (idempotent)
+    return create_unreviewed(db, name=name)
+
+
+def _follow_merge_chain(db: Session, ingredient_id: uuid.UUID) -> CanonicalIngredient | None:
+    """Follow merged_into_id chain from *ingredient_id* to a live ingredient.
+
+    Returns None on dangling pointers or cycles.
+    """
+    ingredient = db.get(CanonicalIngredient, ingredient_id)
+    if ingredient is None:
+        return None
+    visited: set[uuid.UUID] = {ingredient.id}
+    while ingredient.merged_into_id is not None:
+        next_id = ingredient.merged_into_id
+        if next_id in visited:
+            return None
+        visited.add(next_id)
+        next_ing = db.get(CanonicalIngredient, next_id)
+        if next_ing is None:
+            return None
+        ingredient = next_ing
     return ingredient
 
 

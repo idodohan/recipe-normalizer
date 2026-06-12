@@ -14,6 +14,7 @@ dependencies = [
     "argon2-cffi>=23.1",
     "anthropic>=0.109.1",
     "httpx>=0.28.1",
+    "rapidfuzz>=3.14.5",
 ]
 
 [dependency-groups]
