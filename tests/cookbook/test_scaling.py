@@ -184,6 +184,11 @@ def test_scale_factor_requires_positive_inputs() -> None:
         (5.33, "5⅓"),
         (2.4, "2.4"),  # not near a friendly fraction → decimal
         (0.1, "0.1"),
+        # positive near-zero must never render as "0" (e.g. ⅛ tsp × 0.25)
+        (0.04, "0.04"),
+        (0.031, "0.03"),
+        (0.004, "0.004"),
+        (0.0, "0"),  # true zero stays "0"
     ],
 )
 def test_format_quantity(value: float, expected: str) -> None:

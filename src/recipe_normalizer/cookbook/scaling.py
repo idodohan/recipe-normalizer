@@ -77,12 +77,19 @@ def format_quantity(x: float) -> str:
         glyph = FRACTION_GLYPHS[best_frac]
         return f"{whole}{glyph}" if whole else glyph
 
-    # frac_part is near zero but didn't snap (e.g. 0.0 exactly → whole int check)
-    if abs(frac_part) < _SNAP_TOLERANCE:
+    # frac_part is near zero but didn't snap (e.g. 0.0 exactly → whole int check).
+    # Guard: a positive quantity must never collapse to "0" — fall through to
+    # the decimal chain instead so e.g. 0.01 renders as "0.01", not "0".
+    if abs(frac_part) < _SNAP_TOLERANCE and not (whole == 0 and x > 0):
         return str(whole)
 
     # Fallback: one decimal place, trim trailing zero
     formatted = f"{x:.1f}".rstrip("0").rstrip(".")
+    if formatted == "0" and x > 0:
+        # 1 dp rounded a positive quantity to zero — try 2 dp, then 3 sig figs
+        formatted = f"{x:.2f}".rstrip("0").rstrip(".")
+        if formatted == "0":
+            formatted = f"{x:.3g}"
     return formatted
 
 
