@@ -271,7 +271,12 @@ def process_job(db: Session, job: Job, *, worker_id: str | None = None) -> None:
             job.artifacts = {**(job.artifacts or {}), "acquired_meta": dict(acquired.meta)}
             db.flush()
         image_ref = _save_source_image(acquired, store)
-        result = normalize(acquired, llm=llm)
+        # Deterministic tiers (URL tier 1) prebuild the NormalizeResult —
+        # use it directly and skip the full normalize() LLM pass.
+        if acquired.prebuilt is not None:
+            result = acquired.prebuilt
+        else:
+            result = normalize(acquired, llm=llm)
 
         if not result.is_recipe:
             queue.complete_not_a_recipe(

@@ -5,7 +5,10 @@ Extraction is stateless — it never imports ingestion; the worker wires jobs
 to plugins and persists results.
 """
 
-from recipe_normalizer.extraction import text_plugin  # noqa: F401  (registers TextExtractor)
+from recipe_normalizer.extraction import (
+    text_plugin,  # noqa: F401  (registers TextExtractor)
+    url_plugin,  # noqa: F401  (registers UrlExtractor)
+)
 from recipe_normalizer.extraction.base import (
     EXTRACTORS,
     Acquired,

@@ -1,0 +1,296 @@
+"""URL extractor plugin: tiers 1+2 of the spec §6.1 escalation ladder.
+
+Tier 1 — schema.org/Recipe JSON-LD: deterministic structure mapping (no LLM
+for the page), plus ONE cheap fast-model pass that parses the ingredient
+strings into name/quantity/unit/note. The result is a prebuilt
+NormalizeResult; the worker skips the full normalize() pass entirely.
+
+Tier 2 — readable HTML: trafilatura text + a cheap yes/no judge; the text
+then flows through the shared normalize stage.
+
+Tier 3 (agentic browser) is the NEXT task — until then exhausting tier 2
+raises TierFailed and the job fails gracefully with the reason.
+
+NO network in tests: ``fetch`` (page HTML) and ``fetch_bytes`` (images) are
+constructor-injected callables; the registered instance uses the real httpx
+implementations.
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Callable
+from dataclasses import dataclass
+from html.parser import HTMLParser
+from typing import TYPE_CHECKING, Any, ClassVar
+
+import httpx
+import trafilatura
+from pydantic import BaseModel, Field
+
+from recipe_normalizer.extraction.base import Acquired, TierFailed, register
+from recipe_normalizer.extraction.jsonld import (
+    find_recipe_jsonld,
+    is_complete,
+    jsonld_to_normalize_result,
+)
+from recipe_normalizer.llm.client import CostCapExceeded, LLMError
+
+if TYPE_CHECKING:
+    from recipe_normalizer.extraction.normalize import NormalizeResult
+    from recipe_normalizer.filestore import FileStore
+    from recipe_normalizer.llm.client import LLMClient
+
+__all__ = ["EnrichedLine", "EnrichedLines", "FetchResult", "UrlExtractor", "default_fetch"]
+
+logger = logging.getLogger(__name__)
+
+# Minimum readable-text length for tier 2 — anything shorter cannot plausibly
+# contain a complete recipe.
+_MIN_READABLE_CHARS = 200
+
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9,he;q=0.8",
+}
+
+_FETCH_TIMEOUT_S = 15.0
+
+
+# ---------------------------------------------------------------------------
+# Fetching (injectable seam — tests never touch the network)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FetchResult:
+    url: str  # final url after redirects
+    status: int
+    html: str
+    content_type: str
+
+
+def default_fetch(url: str, *, client: httpx.Client | None = None) -> FetchResult:
+    """Real page fetcher: browser-ish UA, redirects, 15s timeout.
+
+    Network/HTTP errors become a retryable TierFailed (the queue backs off and
+    retries). ``client`` exists so tests can inject an httpx.MockTransport.
+    """
+    try:
+        if client is not None:
+            with client:
+                response = client.get(url, headers=_HEADERS, follow_redirects=True)
+        else:
+            response = httpx.get(
+                url, headers=_HEADERS, follow_redirects=True, timeout=_FETCH_TIMEOUT_S
+            )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise TierFailed(f"could not fetch page: {exc}") from exc
+    return FetchResult(
+        url=str(response.url),
+        status=response.status_code,
+        html=response.text,
+        content_type=response.headers.get("content-type", ""),
+    )
+
+
+def default_fetch_bytes(url: str) -> tuple[bytes, str]:
+    """Real binary fetcher for hero images; returns (data, media_type)."""
+    response = httpx.get(url, headers=_HEADERS, follow_redirects=True, timeout=_FETCH_TIMEOUT_S)
+    response.raise_for_status()
+    media_type = response.headers.get("content-type", "application/octet-stream")
+    return response.content, media_type.split(";")[0].strip()
+
+
+# ---------------------------------------------------------------------------
+# Tier-1 ingredient-line enrichment (the one cheap LLM call)
+# ---------------------------------------------------------------------------
+
+
+class EnrichedLine(BaseModel):
+    name: str | None = None
+    quantity: float | None = None
+    unit: str | None = None
+    note: str | None = None
+    is_optional: bool = False
+
+
+class EnrichedLines(BaseModel):
+    lines: list[EnrichedLine] = Field(default_factory=list)
+
+
+_ENRICH_SYSTEM = """\
+You parse recipe ingredient lines. You receive a numbered list of ingredient lines, verbatim \
+from a recipe. Return one output entry PER input line, in the same order. Per line:
+- name: the canonical ingredient name in ENGLISH (translate when needed; e.g. קמח לכל מטרה → \
+"all-purpose flour"). Minimal: drop quantities, units, and preparation ("chopped", "sifted"). \
+Null only when the line names no identifiable ingredient.
+- quantity: a number. Fractions and unicode fractions become decimals (1/2 → 0.5, 1½ → 1.5). \
+For ranges ("2-3 cloves") use the lower bound and record the range in note. Null when no \
+quantity is given ("salt to taste").
+- unit: a short singular token ("cups" → cup, "tablespoons" → tbsp, "grams" → g); keep \
+non-English units in their source language (e.g. כוס). Null when there is no unit ("2 eggs").
+- note: qualifiers and preparation ("finely chopped", "room temperature", "to taste", "2-3"). \
+Null if none.
+- is_optional: true when the line marks the ingredient optional ("optional", "if desired", \
+"אופציונלי").
+Never invent values; missing stays null."""
+
+
+def _enrich_lines(result: NormalizeResult, llm: LLMClient) -> None:
+    """Parse the tier-1 ingredient strings with one cheap fast-model call.
+
+    Structure from JSON-LD stays authoritative — the LLM only fills per-line
+    name/quantity/unit/note/is_optional, zipped on defensively: a length
+    mismatch or any LLMError leaves the lines unparsed (tier 1 must not die
+    on the cheap call). CostCapExceeded still propagates: the cap is a
+    job-level abort, not a call failure.
+    """
+    lines = [line for group in result.recipes[0].groups for line in group.lines]
+    numbered = "\n".join(f"{i}. {line.original_text}" for i, line in enumerate(lines, start=1))
+    try:
+        enriched = llm.structured(
+            feature="extract.tier1_enrich",
+            output_model=EnrichedLines,
+            content=numbered,
+            system=_ENRICH_SYSTEM,
+            fast=True,
+        )
+    except CostCapExceeded:
+        raise
+    except LLMError:
+        logger.warning("tier-1 enrichment failed; proceeding with unparsed lines", exc_info=True)
+        return
+    if len(enriched.lines) != len(lines):
+        logger.warning(
+            "tier-1 enrichment returned %d lines for %d inputs; leaving lines unparsed",
+            len(enriched.lines),
+            len(lines),
+        )
+        return
+    for line, parsed in zip(lines, enriched.lines, strict=True):
+        line.name = parsed.name
+        line.quantity = parsed.quantity
+        line.unit = parsed.unit
+        line.note = parsed.note
+        line.is_optional = parsed.is_optional
+
+
+# ---------------------------------------------------------------------------
+# og:image (tier-2 hero image, best-effort)
+# ---------------------------------------------------------------------------
+
+
+class _OgImageCollector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.url: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "meta" or self.url is not None:
+            return
+        attr_map = dict(attrs)
+        if attr_map.get("property") == "og:image" and attr_map.get("content"):
+            self.url = attr_map["content"]
+
+
+def _og_image_url(html: str) -> str | None:
+    collector = _OgImageCollector()
+    collector.feed(html)
+    return collector.url
+
+
+# ---------------------------------------------------------------------------
+# The plugin
+# ---------------------------------------------------------------------------
+
+
+class UrlExtractor:
+    """payload {"url": str} → Acquired via tier 1 (JSON-LD) or tier 2 (readable)."""
+
+    input_type: ClassVar[str] = "url"
+
+    def __init__(
+        self,
+        fetch: Callable[[str], FetchResult] | None = None,
+        fetch_bytes: Callable[[str], tuple[bytes, str]] | None = None,
+    ) -> None:
+        self._fetch = fetch or default_fetch
+        self._fetch_bytes = fetch_bytes or default_fetch_bytes
+
+    def acquire(self, payload: dict[str, Any], *, llm: LLMClient, store: FileStore) -> Acquired:
+        url: str = payload["url"]
+        fetched = self._fetch(url)
+        if "text/html" not in fetched.content_type.lower():
+            raise TierFailed(f"not an HTML page (content-type: {fetched.content_type or '?'})")
+        # Retain the raw page first (spec §6.4) — even if every tier fails.
+        artifacts = {"raw_html_ref": store.save(fetched.html.encode("utf-8"), suffix="html")}
+
+        acquired = self._tier1(fetched.html, llm=llm, artifacts=artifacts)
+        if acquired is not None:
+            return acquired
+        return self._tier2(fetched.html, llm=llm, store=store, artifacts=artifacts)
+
+    # -- tier 1: deterministic JSON-LD ------------------------------------------
+
+    def _tier1(self, html: str, *, llm: LLMClient, artifacts: dict[str, str]) -> Acquired | None:
+        data = find_recipe_jsonld(html)
+        if data is None:
+            return None
+        result, image_url = jsonld_to_normalize_result(data)
+        if not is_complete(result):
+            return None  # fall through to tier 2 before spending on enrichment
+        _enrich_lines(result, llm)
+        return Acquired(
+            prebuilt=result,
+            source_image=self._fetch_image(image_url),
+            artifacts=artifacts,
+            meta={"tier_used": 1},
+        )
+
+    # -- tier 2: readable text + cheap judge -------------------------------------
+
+    def _tier2(
+        self, html: str, *, llm: LLMClient, store: FileStore, artifacts: dict[str, str]
+    ) -> Acquired:
+        readable: str | None = trafilatura.extract(html, favor_recall=True, include_tables=True)
+        if not readable or len(readable.strip()) < _MIN_READABLE_CHARS:
+            raise TierFailed("page has no readable recipe content")
+        has_recipe = llm.classify_bool(
+            feature="extract.tier2_judge",
+            question=(
+                "Does this text contain at least one complete cooking or drink recipe, "
+                "with both an ingredient list and preparation instructions?"
+            ),
+            content=readable,
+        )
+        if not has_recipe:
+            # Tier 3 (agentic browser) is the next task; fail gracefully until then.
+            raise TierFailed("no complete recipe found in page text (tier 3 not yet available)")
+        artifacts["readable_text_ref"] = store.save(readable.encode("utf-8"), suffix="txt")
+        return Acquired(
+            text=readable,
+            source_image=self._fetch_image(_og_image_url(html)),
+            artifacts=artifacts,
+            meta={"tier_used": 2},
+        )
+
+    # -- helpers -----------------------------------------------------------------
+
+    def _fetch_image(self, image_url: str | None) -> tuple[bytes, str] | None:
+        """Best-effort hero-image download — failures never sink the tier."""
+        if not image_url:
+            return None
+        try:
+            return self._fetch_bytes(image_url)
+        except Exception:
+            logger.warning("could not fetch recipe image %s", image_url, exc_info=True)
+            return None
+
+
+register(UrlExtractor())

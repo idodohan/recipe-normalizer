@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 
 if TYPE_CHECKING:
+    from recipe_normalizer.extraction.normalize import NormalizeResult
     from recipe_normalizer.filestore import FileStore
     from recipe_normalizer.llm.client import LLMClient
 
@@ -30,6 +31,9 @@ class Acquired:
     artifacts: dict[str, str] = field(default_factory=dict)
     # tier_used, actions_log, ... — lands in recipe.extraction_meta.
     meta: dict[str, Any] = field(default_factory=dict)
+    # Deterministic tiers (URL tier 1 JSON-LD) prebuild the NormalizeResult
+    # themselves; when set, the worker SKIPS the normalize() LLM pass entirely.
+    prebuilt: NormalizeResult | None = None
 
 
 class TierFailed(Exception):

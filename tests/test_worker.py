@@ -241,8 +241,8 @@ def test_process_job_missing_extractor_fails_non_retryable(
 ) -> None:
     job = Job(
         user_id=owner.id,
-        input_type=InputType.url,  # no url extractor registered yet
-        payload={"url": "https://example.test/recipe"},
+        input_type=InputType.pdf,  # no pdf extractor registered yet (Task 10)
+        payload={"filename": "recipe.pdf"},
         status=JobStatus.running,
     )
     db_session.add(job)
@@ -361,6 +361,36 @@ def test_process_job_saves_source_image(
     assert recipe.image_ref is not None
     assert recipe.image_ref.endswith(".png")
     assert store.open(recipe.image_ref) == png_bytes
+
+
+def test_process_job_prebuilt_result_skips_normalize(
+    db_session: Session, owner: User, store: LocalFileStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Tier-1 URL extraction returns a prebuilt NormalizeResult — the worker
+    must use it directly and never run the full normalize() LLM pass."""
+
+    class PrebuiltExtractor:
+        input_type = "text"
+
+        def acquire(self, payload: dict[str, Any], **kwargs: Any) -> Acquired:
+            return Acquired(prebuilt=_flour_result(confidence=0.95), meta={"tier_used": 1})
+
+    monkeypatch.setitem(EXTRACTORS, "text", PrebuiltExtractor())  # type: ignore[misc]
+    job = _text_job(db_session, owner)
+    # FakeLLM with NO canned result: any extract.normalize call would fail loudly.
+    fake = FakeLLM(result=None)
+    _patch_llm(monkeypatch, fake)
+
+    worker.process_job(db_session, job)
+
+    assert job.status == JobStatus.needs_review
+    assert "extract.normalize" not in [c["feature"] for c in fake.calls]
+    assert job.extraction_meta is not None
+    assert job.extraction_meta["confidence"] == 0.95  # from the prebuilt result
+    assert job.extraction_meta["tier_used"] == 1
+    recipe = db_session.get(Recipe, uuid.UUID(job.produced_recipe_ids[0]))
+    assert recipe is not None
+    assert recipe.title == "Flour Bread"
 
 
 # ---------------------------------------------------------------------------
