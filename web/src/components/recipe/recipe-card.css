@@ -1,0 +1,131 @@
+/* ------------------------------------------------------------------ */
+/*  RecipeCard — a typographic plate for the cookbook grid.            */
+/*  Magazine-index entries: a 2px ink rule on top, small-caps kicker   */
+/*  with an italic plate number, a large Fraunces drop initial, the    */
+/*  title, then a hairline footer with time + review flag. Initials    */
+/*  alternate terracotta / ink so the grid reads set, not stamped.     */
+/* ------------------------------------------------------------------ */
+
+.recipe-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-top: 2px solid var(--color-ink);
+  padding-top: var(--space-3);
+  color: var(--color-ink);
+  transition: border-color 160ms ease;
+}
+
+.recipe-card:hover {
+  text-decoration: none;
+  border-top-color: var(--color-accent);
+}
+
+/* -- Kicker: dish types + plate number ------------------------------- */
+
+.recipe-card__kicker {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  max-width: none;
+}
+
+.recipe-card__types {
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.recipe-card__no {
+  flex-shrink: 0;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: var(--text-small);
+  font-weight: 500;
+  font-feature-settings: "onum";
+  color: var(--color-accent);
+}
+
+/* -- The plate: drop initial (or photograph, once extraction lands) -- */
+
+.recipe-card__initial {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 4.75rem;
+  font-weight: 600;
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  color: var(--color-accent);
+  margin: var(--space-5) 0 var(--space-4);
+  transition: color 160ms ease;
+}
+
+.recipe-card--ink .recipe-card__initial {
+  color: var(--color-ink);
+}
+
+.recipe-card:hover .recipe-card__initial {
+  color: var(--color-accent-deep);
+}
+
+.recipe-card__image {
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  margin: var(--space-4) 0 var(--space-4);
+}
+
+/* -- Title ------------------------------------------------------------ */
+
+.recipe-card__title {
+  font-size: var(--text-heading);
+  font-weight: 560;
+  line-height: var(--leading-snug);
+  letter-spacing: -0.01em;
+  margin-bottom: var(--space-5);
+  transition: color 160ms ease;
+}
+
+.recipe-card:hover .recipe-card__title {
+  color: var(--color-accent-deep);
+}
+
+/* -- Footer: time + review flag ---------------------------------------- */
+
+.recipe-card__foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  max-width: none;
+  border-top: var(--hairline);
+  padding-top: var(--space-3);
+}
+
+.recipe-card__time {
+  font-size: var(--text-small);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+
+.recipe-card__flag {
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--color-accent-deep);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-2);
+  line-height: 1.7;
+  white-space: nowrap;
+}

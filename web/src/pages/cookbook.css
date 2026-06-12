@@ -1,0 +1,57 @@
+/* ------------------------------------------------------------------ */
+/*  Cookbook browse page — the index of the book.                      */
+/*  Responsive grid of typographic plates, plus quiet loading and      */
+/*  error states.                                                      */
+/* ------------------------------------------------------------------ */
+
+.cookbook-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-8) var(--space-6);
+}
+
+.cookbook-grid > li {
+  display: flex;
+  min-width: 0;
+}
+
+@media (max-width: 940px) {
+  .cookbook-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 580px) {
+  .cookbook-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-7);
+  }
+}
+
+/* -- Loading -------------------------------------------------------- */
+
+.cookbook-status {
+  margin: var(--space-9) auto;
+  text-align: center;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: var(--text-heading);
+  font-weight: 480;
+  color: var(--color-text-faint);
+}
+
+/* -- Error ----------------------------------------------------------- */
+
+.cookbook-error {
+  border-left: 2px solid var(--color-error);
+  background-color: var(--color-error-wash);
+  padding: var(--space-3) var(--space-4);
+}
+
+.cookbook-error__message {
+  color: var(--color-ink);
+  max-width: none;
+}
