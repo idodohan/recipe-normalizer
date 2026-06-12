@@ -33,7 +33,7 @@ def seeded(db_session: Session) -> Session:
 def _stub_llm(index: int | None) -> MagicMock:
     """Return a MagicMock whose .structured() method returns _MatchChoice(index=index)."""
     # We import here to avoid top-level import of the internal model.
-    from recipe_normalizer.catalog.service import _MatchChoice  # type: ignore[attr-defined]
+    from recipe_normalizer.catalog.service import _MatchChoice
 
     llm = MagicMock()
     llm.structured.return_value = _MatchChoice(index=index)
@@ -196,7 +196,7 @@ def test_match_or_create_idempotent_new(seeded: Session) -> None:
 
 def test_llm_call_structured_kwargs(seeded: Session) -> None:
     """Verify that structured() is called with the expected keyword arguments."""
-    from recipe_normalizer.catalog.service import _MatchChoice  # type: ignore[attr-defined]
+    from recipe_normalizer.catalog.service import _MatchChoice
 
     llm = _stub_llm(index=0)
     service.match_or_create(seeded, "thick cream", llm=llm)

@@ -202,7 +202,13 @@ def match_or_create(
 
     # Step 2: build corpus — all (alias_or_name, ingredient_id) for live ingredients
     # Fetch every (alias_text, ingredient_id) pair, plus (name, ingredient_id) as fallback.
-    alias_rows = db.execute(select(IngredientAlias.alias, IngredientAlias.ingredient_id)).all()
+    # JOIN filters to live (unmerged) ingredients — merge() re-points aliases so this
+    # holds by invariant today, but we enforce it here rather than relying on it.
+    alias_rows = db.execute(
+        select(IngredientAlias.alias, IngredientAlias.ingredient_id)
+        .join(CanonicalIngredient, IngredientAlias.ingredient_id == CanonicalIngredient.id)
+        .where(CanonicalIngredient.merged_into_id.is_(None))
+    ).all()
     # Include canonical names that have no aliases (alias table may omit them).
     name_rows = db.execute(
         select(CanonicalIngredient.name, CanonicalIngredient.id).where(
