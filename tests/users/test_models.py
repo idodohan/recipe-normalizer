@@ -13,3 +13,11 @@ def test_user_and_session_roundtrip(db_session):
     db_session.flush()
     assert isinstance(user.id, uuid.UUID)
     assert sess.user_id == user.id
+
+
+def test_user_created_at_is_timezone_aware(db_session):
+    user = User(email="tz@b.c", password_hash="x", display_name="TZ")
+    db_session.add(user)
+    db_session.flush()
+    db_session.refresh(user)
+    assert user.created_at.tzinfo is not None
