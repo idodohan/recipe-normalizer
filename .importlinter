@@ -1,0 +1,29 @@
+[importlinter]
+root_package = recipe_normalizer
+
+[importlinter:contract:users-cannot-import-sibling-models]
+name = users module must not import sibling models
+type = forbidden
+source_modules =
+    recipe_normalizer.users
+forbidden_modules =
+    recipe_normalizer.catalog.models
+    recipe_normalizer.cookbook.models
+
+[importlinter:contract:catalog-cannot-import-sibling-models]
+name = catalog module must not import sibling models
+type = forbidden
+source_modules =
+    recipe_normalizer.catalog
+forbidden_modules =
+    recipe_normalizer.users.models
+    recipe_normalizer.cookbook.models
+
+[importlinter:contract:cookbook-cannot-import-sibling-models]
+name = cookbook module must not import sibling models
+type = forbidden
+source_modules =
+    recipe_normalizer.cookbook
+forbidden_modules =
+    recipe_normalizer.users.models
+    recipe_normalizer.catalog.models
