@@ -13,6 +13,7 @@ from fractions import Fraction
 from pydantic import BaseModel
 
 from recipe_normalizer.cookbook.schemas import (
+    IngredientLineOut,
     RecipeOut,
     ServingsOut,
     StepOut,
@@ -181,16 +182,12 @@ def _build_scaled_display(
     return f"{left} → {prefix}{format_amount(normalized_amount)} {normalized_unit}{suffix}"
 
 
-def _scale_line(line_out: object, factor: float) -> ScaledLineOut:
+def _scale_line(line_out: IngredientLineOut, factor: float) -> ScaledLineOut:
     """Scale a single ``IngredientLineOut`` by *factor*.
 
     The *line_out* is treated as read-only; a new ``ScaledLineOut`` is
     returned.
     """
-    from recipe_normalizer.cookbook.schemas import IngredientLineOut
-
-    assert isinstance(line_out, IngredientLineOut)
-
     original_text: str = line_out.original_text
     quantity: float | None = line_out.quantity
     unit: str | None = line_out.unit

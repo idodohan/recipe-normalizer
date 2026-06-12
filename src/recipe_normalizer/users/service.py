@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from recipe_normalizer.errors import ApiError
@@ -37,7 +38,7 @@ def register(
 ) -> User:
     """Create a new user; raises AuthError on duplicate email."""
     normalized = email.strip().lower()
-    existing = db.query(User).filter(User.email == normalized).first()
+    existing = db.scalars(select(User).where(User.email == normalized)).first()
     if existing is not None:
         raise AuthError("An account with that email already exists.")
     password_hash = _provider.hash_password(password)
@@ -50,7 +51,7 @@ def register(
 def login(db: Session, *, email: str, password: str) -> tuple[str, User]:
     """Verify credentials, create a session, return (plaintext token, user)."""
     normalized = email.strip().lower()
-    user = db.query(User).filter(User.email == normalized).first()
+    user = db.scalars(select(User).where(User.email == normalized)).first()
     if user is None:
         # Timing-safe: always run a verify even on unknown email.
         _provider.verify_password(password, _DUMMY_HASH)
@@ -67,7 +68,7 @@ def login(db: Session, *, email: str, password: str) -> tuple[str, User]:
 def logout(db: Session, token: str) -> None:
     """Delete the session for the given plaintext token if it exists."""
     token_h = hash_token(token)
-    session = db.query(DbSession).filter(DbSession.token_hash == token_h).first()
+    session = db.scalars(select(DbSession).where(DbSession.token_hash == token_h)).first()
     if session is not None:
         db.delete(session)
         db.flush()
@@ -77,10 +78,9 @@ def get_user_by_token(db: Session, token: str) -> User | None:
     """Return the user for a valid, non-expired token; None otherwise."""
     token_h = hash_token(token)
     now = datetime.now(UTC)
-    result = (
-        db.query(User)
+    result = db.scalars(
+        select(User)
         .join(DbSession, DbSession.user_id == User.id)
-        .filter(DbSession.token_hash == token_h, DbSession.expires_at > now)
-        .first()
-    )
+        .where(DbSession.token_hash == token_h, DbSession.expires_at > now)
+    ).first()
     return result

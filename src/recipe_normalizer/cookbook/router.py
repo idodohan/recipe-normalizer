@@ -144,7 +144,7 @@ def get_vocab(
     db: Session = Depends(get_db),  # noqa: B008
     _current_user: Any = Depends(get_current_user),  # noqa: B008
 ) -> dict[str, list[str]]:
-    cuisines = sorted(db.scalars(select(Cuisine.name).order_by(func.lower(Cuisine.name))).all())
-    dish_types = sorted(db.scalars(select(DishType.name).order_by(func.lower(DishType.name))).all())
-    tags = sorted(db.scalars(select(Tag.name).order_by(func.lower(Tag.name))).all())
+    cuisines = list(db.scalars(select(Cuisine.name).order_by(func.lower(Cuisine.name))).all())
+    dish_types = list(db.scalars(select(DishType.name).order_by(func.lower(DishType.name))).all())
+    tags = list(db.scalars(select(Tag.name).order_by(func.lower(Tag.name))).all())
     return {"cuisines": cuisines, "dish_types": dish_types, "tags": tags}

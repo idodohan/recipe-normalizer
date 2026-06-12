@@ -1,8 +1,9 @@
 """Catalog service: matching, creation, search, merge, and update operations.
 
-Re-exports CanonicalIngredient and IngredientStatus so that non-catalog
-modules can import from here and never need to reach into catalog.models
-directly (import-linter enforces this boundary).
+Re-exports CanonicalIngredient, IngredientStatus, convert_to_normalized, and
+Converted so that non-catalog modules can import from here and never need to
+reach into catalog.models or catalog.conversion directly (import-linter
+enforces this boundary).
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from recipe_normalizer.catalog.conversion import Converted, convert_to_normalized
 from recipe_normalizer.catalog.models import (
     CanonicalIngredient,
     IngredientAlias,
@@ -26,8 +28,10 @@ from recipe_normalizer.errors import ApiError
 __all__ = [
     "UNSET",
     "CanonicalIngredient",
+    "Converted",
     "IngredientStatus",
     "PreferredMeasure",
+    "convert_to_normalized",
     "create_unreviewed",
     "get_ingredient",
     "match",

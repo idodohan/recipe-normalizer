@@ -2,7 +2,7 @@
 
 Transaction convention: service flushes; HTTP layer (or test) owns commit.
 Import-linter enforces that we never import catalog.models or users.models directly —
-we only import from catalog.service and catalog.conversion.
+we only import from catalog.service (which re-exports the conversion API).
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from recipe_normalizer.catalog import service as catalog_service
-from recipe_normalizer.catalog.conversion import convert_to_normalized
+from recipe_normalizer.catalog.service import convert_to_normalized
 from recipe_normalizer.cookbook.models import (
     Cuisine,
     DishType,
