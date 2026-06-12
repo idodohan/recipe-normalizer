@@ -61,29 +61,31 @@ class CapBlownLLM:
         raise CostCapExceeded("spent $1.500000 >= cost cap $1.500000")
 
 
-def _flour_result(confidence: float = 0.9) -> NormalizeResult:
-    return NormalizeResult(
-        is_recipe=True,
-        confidence=confidence,
-        recipes=[
-            NormalizedRecipe(
-                title="Flour Bread",
-                groups=[
-                    NormalizedGroup(
-                        lines=[
-                            NormalizedLine(
-                                original_text="2 cups all-purpose flour",
-                                name="all-purpose flour",
-                                quantity=2.0,
-                                unit="cup",
-                            )
-                        ]
+def _recipe(
+    title: str = "Flour Bread",
+    name: str = "all-purpose flour",
+    original_text: str = "2 cups all-purpose flour",
+) -> NormalizedRecipe:
+    return NormalizedRecipe(
+        title=title,
+        groups=[
+            NormalizedGroup(
+                lines=[
+                    NormalizedLine(
+                        original_text=original_text,
+                        name=name,
+                        quantity=2.0,
+                        unit="cup",
                     )
-                ],
-                steps=[NormalizedStep(original_text="Mix and bake.")],
+                ]
             )
         ],
+        steps=[NormalizedStep(original_text="Mix and bake.")],
     )
+
+
+def _flour_result(confidence: float = 0.9) -> NormalizeResult:
+    return NormalizeResult(is_recipe=True, confidence=confidence, recipes=[_recipe()])
 
 
 @pytest.fixture()
@@ -284,6 +286,55 @@ def test_process_job_retry_skips_acquire_with_retained_raw_text(
     assert normalize_call["content"][0]["text"] == "2 cups flour. Mix and bake."
 
 
+def test_process_job_retained_retry_rehydrates_acquired_meta(
+    db_session: Session, owner: User, store: LocalFileStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """tier_used/actions_log retained from the first attempt survive a retry."""
+    ref = store.save(b"2 cups flour. Mix and bake.", suffix="txt")
+    job = _text_job(db_session, owner)
+    job.artifacts = {
+        "raw_text_ref": ref,
+        "acquired_meta": {"tier_used": 3, "actions_log": ["scrolled", "clicked"]},
+    }
+    db_session.flush()
+    _patch_llm(monkeypatch, FakeLLM(result=_flour_result()))
+
+    worker.process_job(db_session, job)
+
+    assert job.status == JobStatus.needs_review
+    assert job.extraction_meta is not None
+    assert job.extraction_meta["tier_used"] == 3
+    assert job.extraction_meta["actions_log"] == ["scrolled", "clicked"]
+
+
+def test_process_job_persists_acquired_meta_into_artifacts(
+    db_session: Session, owner: User, store: LocalFileStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fresh acquire's meta is retained in job.artifacts for later retries."""
+    ref = store.save(b"2 cups flour. Mix and bake.", suffix="txt")
+
+    class MetaExtractor:
+        input_type = "text"
+
+        def acquire(self, payload: dict[str, Any], **kwargs: Any) -> Acquired:
+            return Acquired(
+                text="2 cups flour. Mix and bake.",
+                artifacts={"raw_text_ref": ref},
+                meta={"tier_used": 2, "actions_log": ["fetched"]},
+            )
+
+    monkeypatch.setitem(EXTRACTORS, "text", MetaExtractor())  # type: ignore[misc]
+    job = _text_job(db_session, owner)
+    _patch_llm(monkeypatch, FakeLLM(result=_flour_result()))
+
+    worker.process_job(db_session, job)
+
+    assert job.status == JobStatus.needs_review
+    assert job.artifacts["acquired_meta"] == {"tier_used": 2, "actions_log": ["fetched"]}
+    assert job.extraction_meta is not None
+    assert job.extraction_meta["tier_used"] == 2
+
+
 def test_process_job_saves_source_image(
     db_session: Session, owner: User, store: LocalFileStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -433,6 +484,85 @@ def test_run_worker_once_with_empty_queue_returns(committed_env: Any) -> None:
     worker.run_worker(once=True)  # no queued jobs — must return, not spin
 
 
+class CapOnCatalogMatchLLM:
+    """Answers extract.normalize fine, then blows the cost cap on catalog.match.
+
+    Reproduces the orphan-draft bug: persist_drafts creates draft #1 (carrying
+    the source_fingerprint), then the cap trips while matching draft #2's
+    ingredients — without a savepoint the half-built draft would be committed
+    alongside the failed job, permanently 409-ing future resubmits.
+    """
+
+    spent_usd = 1.5
+
+    def __init__(self) -> None:
+        self.features: list[str] = []
+
+    def structured(self, *, feature: str, **kwargs: Any) -> Any:
+        self.features.append(feature)
+        if feature == "extract.normalize":
+            return NormalizeResult(
+                is_recipe=True,
+                confidence=0.9,
+                recipes=[
+                    # Draft 1: creates ingredient "all-purpose flour" (no LLM call).
+                    _recipe("First Draft", "all-purpose flour", "2 cups all-purpose flour"),
+                    # Draft 2: "bread flour" fuzzes into the 70-90 band vs
+                    # "all-purpose flour" → catalog.match LLM call → cap trips.
+                    _recipe("Second Draft", "bread flour", "2 cups bread flour"),
+                ],
+            )
+        raise CostCapExceeded("spent $1.500000 >= cost cap $1.500000")
+
+
+def test_cost_cap_mid_persist_commits_no_orphan_drafts(
+    committed_env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CRITICAL regression: a failure inside persist_drafts must not commit
+    partial drafts — especially not the fingerprinted first draft."""
+    factory, user_id = committed_env
+    fingerprint = f"fp-{uuid.uuid4().hex[:12]}"
+    with factory() as s:
+        job = Job(
+            user_id=user_id,
+            input_type=InputType.text,
+            payload={"text": "two recipes"},
+            source_fingerprint=fingerprint,
+            status=JobStatus.running,
+        )
+        s.add(job)
+        s.commit()
+        job_id = job.id
+
+    llm = CapOnCatalogMatchLLM()
+    _patch_llm(monkeypatch, llm)
+
+    session = factory()
+    try:
+        job_attached = session.get(Job, job_id)
+        assert job_attached is not None
+        worker.process_job(session, job_attached)
+        session.commit()
+    finally:
+        session.close()
+
+    # The cap must have tripped INSIDE persist (during catalog matching).
+    assert "catalog.match" in llm.features
+
+    with factory() as s:
+        fresh = s.get(Job, job_id)
+        assert fresh is not None
+        assert fresh.status == JobStatus.failed
+        assert fresh.error is not None and "cost cap" in fresh.error
+        # No orphan drafts survive the commit...
+        assert s.scalars(select(Recipe).where(Recipe.owner_id == user_id)).all() == []
+        # ...and the fingerprint is NOT burned for future resubmits.
+        assert (
+            s.scalars(select(Recipe).where(Recipe.source_fingerprint == fingerprint)).first()
+            is None
+        )
+
+
 def test_run_worker_crash_fails_job_in_fresh_session(
     committed_env: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -449,7 +579,7 @@ def test_run_worker_crash_fails_job_in_fresh_session(
         s.commit()
         job_id = job.id
 
-    def explode(db: Session, job: Job) -> None:
+    def explode(db: Session, job: Job, **kwargs: Any) -> None:
         raise RuntimeError("kaboom mid-pipeline")
 
     monkeypatch.setattr(worker, "process_job", explode)

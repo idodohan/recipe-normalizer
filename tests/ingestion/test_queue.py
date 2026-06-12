@@ -350,3 +350,139 @@ def test_release_stale_flips_only_stale_running_jobs(
         assert fresh.status == JobStatus.running
         assert fresh.locked_by == "live-worker"
         assert queued.status == JobStatus.queued
+
+
+# ---------------------------------------------------------------------------
+# Compare-and-set on terminal transitions (stale-release double-claim race)
+# ---------------------------------------------------------------------------
+
+
+def _claim_then_steal(factory: sessionmaker[Session], user_id: uuid.UUID) -> uuid.UUID:
+    """Claim a job as w1, then simulate stale-release + reclaim by w2."""
+    with factory() as s:
+        _add_job(s, user_id)
+        claimed = claim_next(s, worker_id="w1")
+        assert claimed is not None
+        s.commit()
+        job_id = claimed.id
+
+    with factory() as s:
+        stolen = s.get(Job, job_id)
+        assert stolen is not None
+        stolen.locked_by = "w2"  # another worker reclaimed after stale release
+        s.commit()
+    return job_id
+
+
+def test_complete_needs_review_skipped_when_lock_stolen(
+    queue_env: tuple[sessionmaker[Session], uuid.UUID],
+) -> None:
+    factory, user_id = queue_env
+    job_id = _claim_then_steal(factory, user_id)
+
+    with factory() as s:
+        job = s.get(Job, job_id)
+        assert job is not None
+        complete_needs_review(
+            s,
+            job,
+            extraction_meta={"confidence": 0.9},
+            produced_ids=[str(uuid.uuid4())],
+            artifacts={},
+            cost_usd=Decimal("0.10"),
+            expected_locked_by="w1",
+        )
+        s.commit()
+
+    with factory() as s:
+        fresh = s.get(Job, job_id)
+        assert fresh is not None
+        assert fresh.status == JobStatus.running  # untouched — w2 owns it now
+        assert fresh.locked_by == "w2"
+        assert fresh.produced_recipe_ids == []
+        assert fresh.extraction_meta is None
+        assert fresh.cost_usd == Decimal("0")
+
+
+def test_fail_skipped_when_lock_stolen(
+    queue_env: tuple[sessionmaker[Session], uuid.UUID],
+) -> None:
+    factory, user_id = queue_env
+    job_id = _claim_then_steal(factory, user_id)
+
+    with factory() as s:
+        job = s.get(Job, job_id)
+        assert job is not None
+        fail(s, job, error="boom", expected_locked_by="w1")
+        s.commit()
+
+    with factory() as s:
+        fresh = s.get(Job, job_id)
+        assert fresh is not None
+        assert fresh.status == JobStatus.running
+        assert fresh.locked_by == "w2"
+        assert fresh.attempts == 0
+        assert fresh.error is None
+
+
+def test_complete_not_a_recipe_skipped_when_no_longer_running(
+    queue_env: tuple[sessionmaker[Session], uuid.UUID],
+) -> None:
+    """Status changed under us (e.g. stale-released back to queued) → skip."""
+    factory, user_id = queue_env
+    with factory() as s:
+        _add_job(s, user_id)
+        claimed = claim_next(s, worker_id="w1")
+        assert claimed is not None
+        s.commit()
+        job_id = claimed.id
+
+    with factory() as s:
+        released = s.get(Job, job_id)
+        assert released is not None
+        released.status = JobStatus.queued  # stale-released behind our back
+        released.locked_at = None
+        released.locked_by = None
+        s.commit()
+
+    with factory() as s:
+        job = s.get(Job, job_id)
+        assert job is not None
+        complete_not_a_recipe(
+            s,
+            job,
+            reason="not a recipe",
+            artifacts={},
+            cost_usd=Decimal("0.01"),
+            expected_locked_by="w1",
+        )
+        s.commit()
+
+    with factory() as s:
+        fresh = s.get(Job, job_id)
+        assert fresh is not None
+        assert fresh.status == JobStatus.queued
+        assert fresh.reason is None
+
+
+def test_complete_needs_review_applies_when_lock_matches(
+    queue_env: tuple[sessionmaker[Session], uuid.UUID],
+) -> None:
+    factory, user_id = queue_env
+    with factory() as s:
+        _add_job(s, user_id)
+        claimed = claim_next(s, worker_id="w1")
+        assert claimed is not None
+        s.commit()
+        complete_needs_review(
+            s,
+            claimed,
+            extraction_meta={"confidence": 0.9},
+            produced_ids=[],
+            artifacts={},
+            cost_usd=Decimal("0.10"),
+            expected_locked_by="w1",
+        )
+        s.commit()
+        assert claimed.status == JobStatus.needs_review
+        assert claimed.locked_by is None

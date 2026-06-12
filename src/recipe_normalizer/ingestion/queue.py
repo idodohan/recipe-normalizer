@@ -16,6 +16,7 @@ in-place JSONB mutation).
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, cast
@@ -24,6 +25,8 @@ from sqlalchemy import CursorResult, or_, select, update
 from sqlalchemy.orm import Session
 
 from recipe_normalizer.ingestion.models import Job, JobStatus
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "MAX_ATTEMPTS",
@@ -57,6 +60,30 @@ def _add_cost(job: Job, cost_usd: Decimal | None) -> None:
 def _clear_lock(job: Job) -> None:
     job.locked_at = None
     job.locked_by = None
+
+
+def _cas_guard(db: Session, job: Job, expected_locked_by: str | None) -> bool:
+    """Compare-and-set guard for transitions out of ``running``.
+
+    With ``expected_locked_by`` set, the row is re-read under FOR UPDATE and
+    the transition only proceeds if it is still running AND locked by that
+    worker — guarding against the stale-release double-claim race (job
+    released by release_stale and re-claimed by another worker while we were
+    still processing it). ``None`` skips the check.
+    """
+    if expected_locked_by is None:
+        return True
+    db.refresh(job, with_for_update=True)
+    if job.status != JobStatus.running or job.locked_by != expected_locked_by:
+        logger.warning(
+            "job=%s transition skipped: status=%s locked_by=%s (expected running/%s)",
+            job.id,
+            job.status.value,
+            job.locked_by,
+            expected_locked_by,
+        )
+        return False
+    return True
 
 
 def claim_next(db: Session, *, worker_id: str) -> Job | None:
@@ -94,8 +121,11 @@ def complete_needs_review(
     produced_ids: list[str],
     artifacts: dict[str, Any],
     cost_usd: Decimal,
+    expected_locked_by: str | None = None,
 ) -> None:
     """Extraction succeeded: drafts created, job awaits user review."""
+    if not _cas_guard(db, job, expected_locked_by):
+        return
     job.status = JobStatus.needs_review
     job.extraction_meta = dict(extraction_meta)
     job.produced_recipe_ids = list(produced_ids)
@@ -112,8 +142,11 @@ def complete_not_a_recipe(
     reason: str,
     artifacts: dict[str, Any],
     cost_usd: Decimal,
+    expected_locked_by: str | None = None,
 ) -> None:
     """Extraction ran but the content is not a recipe (terminal, retryable by user)."""
+    if not _cas_guard(db, job, expected_locked_by):
+        return
     job.status = JobStatus.not_a_recipe
     job.reason = reason
     _merge_artifacts(job, artifacts)
@@ -130,6 +163,7 @@ def fail(
     artifacts: dict[str, Any] | None = None,
     cost_usd: Decimal | None = None,
     retryable: bool = True,
+    expected_locked_by: str | None = None,
 ) -> None:
     """Record a failed attempt: requeue with exponential backoff or fail terminally.
 
@@ -137,6 +171,8 @@ def fail(
     second; the third failure is terminal. ``retryable=False`` (e.g.
     CostCapExceeded, duplicate recipe) fails immediately regardless of attempts.
     """
+    if not _cas_guard(db, job, expected_locked_by):
+        return
     job.attempts += 1
     _merge_artifacts(job, artifacts)
     _add_cost(job, cost_usd)

@@ -205,12 +205,15 @@ def _acquire(job: Job, *, llm: LLMClient, store: FileStore) -> Acquired:
 
     When ``job.artifacts.raw_text_ref`` exists (retained from a previous
     attempt), the text is reloaded from the filestore instead of running the
-    extractor again.
+    extractor again, and the retained ``acquired_meta`` (tier_used,
+    actions_log, ...) is rehydrated so extraction_meta stays complete.
     """
-    raw_text_ref = (job.artifacts or {}).get("raw_text_ref")
+    artifacts = job.artifacts or {}
+    raw_text_ref = artifacts.get("raw_text_ref")
     if raw_text_ref:
         text = store.open(raw_text_ref).decode("utf-8")
-        return Acquired(text=text, artifacts=cast(dict[str, str], dict(job.artifacts)))
+        meta = cast(dict[str, Any], artifacts.get("acquired_meta") or {})
+        return Acquired(text=text, artifacts=cast(dict[str, str], dict(artifacts)), meta=dict(meta))
     extractor = EXTRACTORS[job.input_type.value]
     return extractor.acquire(job.payload, llm=llm, store=store)
 
@@ -222,13 +225,23 @@ def _save_source_image(acquired: Acquired, store: FileStore) -> str | None:
     return store.save(data, suffix=_IMAGE_SUFFIX.get(media_type, "bin"))
 
 
-def process_job(db: Session, job: Job) -> None:
+def process_job(db: Session, job: Job, *, worker_id: str | None = None) -> None:
     """Run the full extraction pipeline for one claimed job.
 
     Flush-only — the CALLER commits. Known pipeline failures (TierFailed,
     CostCapExceeded, DuplicateRecipeError, missing extractor) are recorded via
     queue.fail here; unexpected exceptions propagate so run_worker can fail
     the job from a fresh session.
+
+    Draft persistence runs inside a SAVEPOINT: if persist_drafts raises after
+    flushing some drafts (e.g. the cost cap trips during catalog matching),
+    the partial drafts — including the fingerprinted first one — are rolled
+    back, so the failure never burns the source_fingerprint with a half-built
+    recipe. Acquire/normalize LlmUsage rows are flushed before the savepoint
+    and survive.
+
+    ``worker_id`` (when given) is passed as the compare-and-set guard for
+    every queue transition, so a job stolen via stale-release is left alone.
     """
     started = time.monotonic()
     input_type = job.input_type.value
@@ -237,7 +250,13 @@ def process_job(db: Session, job: Job) -> None:
     )
 
     if not (job.artifacts or {}).get("raw_text_ref") and input_type not in EXTRACTORS:
-        queue.fail(db, job, error=f"no extractor for input type {input_type!r}", retryable=False)
+        queue.fail(
+            db,
+            job,
+            error=f"no extractor for input type {input_type!r}",
+            retryable=False,
+            expected_locked_by=worker_id,
+        )
         _log_transition(job, started)
         return
 
@@ -246,6 +265,11 @@ def process_job(db: Session, job: Job) -> None:
 
     try:
         acquired = _acquire(job, llm=llm, store=store)
+        # Retain the acquire meta for future retries (rehydrated by _acquire);
+        # flushed BEFORE the persist savepoint so a failed persist keeps it.
+        if acquired.meta and "acquired_meta" not in (job.artifacts or {}):
+            job.artifacts = {**(job.artifacts or {}), "acquired_meta": dict(acquired.meta)}
+            db.flush()
         image_ref = _save_source_image(acquired, store)
         result = normalize(acquired, llm=llm)
 
@@ -256,6 +280,7 @@ def process_job(db: Session, job: Job) -> None:
                 reason=result.reason or "not a recipe",
                 artifacts=dict(acquired.artifacts),
                 cost_usd=_spent(llm),
+                expected_locked_by=worker_id,
             )
             _log_transition(job, started)
             return
@@ -266,17 +291,18 @@ def process_job(db: Session, job: Job) -> None:
             "model": settings.llm_model,
             "extracted_at": datetime.now(UTC).isoformat(),
         }
-        produced = persist_drafts(
-            db,
-            owner_id=job.user_id,
-            result=result,
-            llm=llm,
-            source=_source_of(job),
-            source_type=_SOURCE_TYPE_BY_INPUT[input_type],
-            source_fingerprint=job.source_fingerprint,
-            extraction_meta=extraction_meta,
-            image_ref=image_ref,
-        )
+        with db.begin_nested():  # savepoint: all drafts or none
+            produced = persist_drafts(
+                db,
+                owner_id=job.user_id,
+                result=result,
+                llm=llm,
+                source=_source_of(job),
+                source_type=_SOURCE_TYPE_BY_INPUT[input_type],
+                source_fingerprint=job.source_fingerprint,
+                extraction_meta=extraction_meta,
+                image_ref=image_ref,
+            )
         queue.complete_needs_review(
             db,
             job,
@@ -284,16 +310,30 @@ def process_job(db: Session, job: Job) -> None:
             produced_ids=[str(recipe_id) for recipe_id in produced],
             artifacts=dict(acquired.artifacts),
             cost_usd=_spent(llm),
+            expected_locked_by=worker_id,
         )
     except TierFailed as exc:
         artifacts: dict[str, Any] = (
             {"screenshot_ref": exc.screenshot_ref} if exc.screenshot_ref else {}
         )
         queue.fail(
-            db, job, error=exc.reason, artifacts=artifacts, cost_usd=_spent(llm), retryable=True
+            db,
+            job,
+            error=exc.reason,
+            artifacts=artifacts,
+            cost_usd=_spent(llm),
+            retryable=True,
+            expected_locked_by=worker_id,
         )
     except CostCapExceeded as exc:
-        queue.fail(db, job, error=str(exc), cost_usd=_spent(llm), retryable=False)
+        queue.fail(
+            db,
+            job,
+            error=str(exc),
+            cost_usd=_spent(llm),
+            retryable=False,
+            expected_locked_by=worker_id,
+        )
     except DuplicateRecipeError as exc:
         queue.fail(
             db,
@@ -301,6 +341,7 @@ def process_job(db: Session, job: Job) -> None:
             error=f"duplicate of existing recipe {exc.existing_id}",
             cost_usd=_spent(llm),
             retryable=False,
+            expected_locked_by=worker_id,
         )
     _log_transition(job, started)
 
@@ -334,21 +375,21 @@ def _claim_one(worker_id: str) -> uuid.UUID | None:
     return job_id
 
 
-def _fail_in_fresh_session(job_id: uuid.UUID, exc: Exception) -> None:
+def _fail_in_fresh_session(job_id: uuid.UUID, exc: Exception, worker_id: str) -> None:
     """Record an unexpected crash on a NEW session, isolated from the broken one."""
     try:
         with db_module.SessionLocal() as db:
             job = db.get(Job, job_id)
             if job is None:
                 return
-            queue.fail(db, job, error=f"{type(exc).__name__}: {exc}")
+            queue.fail(db, job, error=f"{type(exc).__name__}: {exc}", expected_locked_by=worker_id)
             db.commit()
             logger.info("job=%s status=%s after crash", job_id, job.status.value)
     except Exception:
         logger.exception("job=%s could not record crash failure", job_id)
 
 
-def _process_one(job_id: uuid.UUID) -> None:
+def _process_one(job_id: uuid.UUID, worker_id: str) -> None:
     """Process one claimed job in its own session; crash handling is isolated."""
     session = db_module.SessionLocal()
     try:
@@ -356,13 +397,13 @@ def _process_one(job_id: uuid.UUID) -> None:
         if job is None:
             logger.warning("job=%s vanished between claim and processing", job_id)
             return
-        process_job(session, job)
+        process_job(session, job, worker_id=worker_id)
         session.commit()
     except Exception as exc:
         session.rollback()
         logger.exception("job=%s crashed during processing", job_id)
         session.close()
-        _fail_in_fresh_session(job_id, exc)
+        _fail_in_fresh_session(job_id, exc, worker_id)
     finally:
         session.close()
 
@@ -389,7 +430,7 @@ def run_worker(*, poll_interval: float = 2.0, once: bool = False) -> None:
         while not stop.is_set():
             job_id = _claim_one(worker_id)
             if job_id is not None:
-                _process_one(job_id)
+                _process_one(job_id, worker_id)
             if once:
                 return
             if job_id is None:
