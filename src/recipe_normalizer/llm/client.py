@@ -12,7 +12,7 @@ import logging
 import uuid
 from collections.abc import Callable
 from decimal import Decimal
-from typing import Any, Protocol, TypeVar, cast
+from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session
@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from recipe_normalizer.config import settings
 from recipe_normalizer.llm.models import LlmUsage
 from recipe_normalizer.llm.pricing import cost_usd
+from recipe_normalizer.llm.schema import strict_json_schema
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,7 @@ class _Bool(BaseModel):
 
 _REPAIR_TEMPLATE = (
     "Your previous output failed validation: {error}. "
+    "Your previous output was:\n{output}\n"
     "Return ONLY corrected JSON matching the schema."
 )
 
@@ -170,14 +172,20 @@ class LLMClient:
         fast: bool = False,
         max_tokens: int = 8000,
     ) -> T:
-        """Call messages.parse and return a validated output_model instance.
+        """Request schema-constrained output and return a validated instance.
 
-        On validation/parse failure, retries ONCE with the failure appended as
-        an extra user message; a second failure raises LLMError.
+        Uses messages.create with output_config json_schema (NOT messages.parse:
+        the SDK validates eagerly inside parse(), which would raise before the
+        response usage is readable — failed attempts would go unbilled and the
+        cost cap would under-enforce). Validation runs here, after usage is
+        recorded and after the refusal check. On validation failure, retries
+        ONCE with the failed output appended as an extra user message; a second
+        failure raises LLMError.
         """
         resolved = self._resolve_model(model, fast)
+        schema = strict_json_schema(output_model)
         messages: list[dict[str, Any]] = [{"role": "user", "content": content}]
-        last_error: Exception | None = None
+        last_error: ValidationError | None = None
 
         for _attempt in range(2):
             self._check_cost_cap()
@@ -185,27 +193,25 @@ class LLMClient:
                 "model": resolved,
                 "max_tokens": max_tokens,
                 "messages": list(messages),
-                "output_format": output_model,
+                "output_config": {"format": {"type": "json_schema", "schema": schema}},
             }
             if system is not None:
                 kwargs["system"] = system
-            try:
-                response = self._client().messages.parse(**kwargs)
-            except ValidationError as exc:
-                # Eager-validation failure: the SDK raised before handing back a
-                # response, so there is no usage object to record for this call.
-                last_error = exc
-                messages.append({"role": "user", "content": _REPAIR_TEMPLATE.format(error=exc)})
-                continue
-
+            response = self._client().messages.create(**kwargs)
             self._record_usage(feature, resolved, response.usage)
-            if getattr(response, "stop_reason", None) == "refusal":
+
+            if response.stop_reason == "refusal":
                 raise LLMError("model refused")
+            text = next((block.text for block in response.content if block.type == "text"), None)
+            if text is None:
+                raise LLMError("no text block in structured output response")
             try:
-                return cast(T, response.parsed_output)
+                return output_model.model_validate_json(text)
             except ValidationError as exc:
                 last_error = exc
-                messages.append({"role": "user", "content": _REPAIR_TEMPLATE.format(error=exc)})
+                messages.append(
+                    {"role": "user", "content": _REPAIR_TEMPLATE.format(error=exc, output=text)}
+                )
 
         raise LLMError(
             f"structured output failed validation after repair retry: {last_error}"
