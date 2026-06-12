@@ -90,6 +90,7 @@ class IngredientLineIn(BaseModel):
     original_text: str = Field(min_length=1)
     quantity: Decimal | None = Field(default=None, gt=Decimal("0"))
     unit: str | None = None
+    name: str | None = None  # ingredient name for catalog matching
     note: str | None = None
     is_optional: bool = False
 

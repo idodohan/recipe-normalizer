@@ -29,3 +29,5 @@ source_modules =
 forbidden_modules =
     recipe_normalizer.users.models
     recipe_normalizer.catalog.models
+ignore_imports =
+    recipe_normalizer.catalog.service -> recipe_normalizer.catalog.models
