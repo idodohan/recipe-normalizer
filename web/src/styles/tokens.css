@@ -1,0 +1,81 @@
+/* ------------------------------------------------------------------ */
+/*  Recipe Normalizer — design tokens                                  */
+/*  Editorial cookbook: warm paper, ink, terracotta. Hairlines, not    */
+/*  shadows. Small radii, generous whitespace.                         */
+/* ------------------------------------------------------------------ */
+
+:root {
+  /* -- Palette ----------------------------------------------------- */
+  --color-paper: #faf7f2;
+  --color-ink: #1c1917;
+  --color-accent: #c2410c; /* terracotta */
+  --color-accent-deep: #9a3412; /* hover / pressed */
+  --color-accent-wash: #f6e8df; /* terracotta tint on paper */
+
+  /* Warm neutral scale, ink -> paper */
+  --color-neutral-900: #1c1917;
+  --color-neutral-800: #292422;
+  --color-neutral-700: #44403c;
+  --color-neutral-600: #57534e;
+  --color-neutral-500: #79716b;
+  --color-neutral-400: #a8a29e;
+  --color-neutral-300: #d6d0c8;
+  --color-neutral-200: #e7e1d8;
+  --color-neutral-100: #f1ece4;
+  --color-neutral-050: #faf7f2;
+
+  /* Semantic aliases */
+  --color-text: var(--color-ink);
+  --color-text-muted: var(--color-neutral-600);
+  --color-text-faint: var(--color-neutral-500);
+  --color-surface: var(--color-paper);
+  --color-surface-raised: #fffdf9; /* a half-step lighter than paper */
+  --color-hairline: var(--color-neutral-300);
+  --color-hairline-strong: var(--color-neutral-400);
+  --color-error: #b3261e;
+  --color-error-wash: #f7e9e7;
+
+  /* -- Typography --------------------------------------------------- */
+  --font-display: "Fraunces Variable", "Fraunces", georgia, serif;
+  --font-body:
+    "Inter Variable", "Inter", -apple-system, "Segoe UI", sans-serif;
+
+  --text-display: 2.75rem; /* 44px — page titles */
+  --text-title: 1.875rem; /* 30px — section titles */
+  --text-heading: 1.375rem; /* 22px — sub heads */
+  --text-body: 0.9375rem; /* 15px — default UI/body */
+  --text-small: 0.8125rem; /* 13px — meta, labels */
+  --text-micro: 0.6875rem; /* 11px — overlines, badges */
+
+  --leading-tight: 1.1;
+  --leading-snug: 1.3;
+  --leading-body: 1.6;
+
+  --tracking-wide: 0.08em; /* small-caps / overline tracking */
+  --tracking-wider: 0.14em;
+
+  /* -- Spacing scale ------------------------------------------------ */
+  --space-1: 0.25rem; /*  4px */
+  --space-2: 0.5rem; /*  8px */
+  --space-3: 0.75rem; /* 12px */
+  --space-4: 1rem; /* 16px */
+  --space-5: 1.5rem; /* 24px */
+  --space-6: 2rem; /* 32px */
+  --space-7: 3rem; /* 48px */
+  --space-8: 4rem; /* 64px */
+  --space-9: 6rem; /* 96px */
+
+  /* -- Borders & radii ---------------------------------------------- */
+  --hairline: 1px solid var(--color-hairline);
+  --hairline-strong: 1px solid var(--color-hairline-strong);
+  --rule-ink: 2px solid var(--color-ink);
+  --radius-sm: 2px; /* editorial — barely rounded */
+  --radius-md: 4px;
+
+  /* -- Focus -------------------------------------------------------- */
+  --focus-ring: 0 0 0 2px var(--color-paper), 0 0 0 4px var(--color-accent);
+
+  /* -- Layout -------------------------------------------------------- */
+  --content-max: 1100px;
+  --control-height: 2.5rem; /* 40px — buttons & inputs share this */
+}

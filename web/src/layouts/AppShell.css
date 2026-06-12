@@ -1,0 +1,163 @@
+/* App shell: editorial masthead + content column. */
+
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.shell__topbar {
+  border-bottom: var(--hairline);
+  background-color: var(--color-paper);
+}
+
+.shell__topbar-inner {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 0 var(--space-6);
+  height: 4rem;
+  display: flex;
+  align-items: center;
+  gap: var(--space-7);
+}
+
+.shell__wordmark {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 540;
+  font-size: 1.3125rem;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+
+.shell__wordmark:hover {
+  text-decoration: none;
+  color: var(--color-accent-deep);
+}
+
+.shell__nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.shell__nav-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 4rem;
+  font-size: var(--text-small);
+  font-weight: 500;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.shell__nav-link:hover {
+  text-decoration: none;
+  color: var(--color-ink);
+}
+
+.shell__nav-link--active {
+  color: var(--color-ink);
+}
+
+/* Terracotta rule under the active item, flush with the hairline. */
+.shell__nav-link--active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background-color: var(--color-accent);
+}
+
+.shell__nav-link--disabled {
+  color: var(--color-neutral-400);
+  cursor: default;
+}
+
+.shell__soon {
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-neutral-500);
+  border: var(--hairline);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+  line-height: 1.5;
+}
+
+.shell__user {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  white-space: nowrap;
+}
+
+/* Trim the ghost button's trailing padding so "Sign out" sits flush
+   with the content column's right edge. */
+.shell__user .btn--ghost {
+  padding: 0 var(--space-3);
+  margin-right: calc(-1 * var(--space-3));
+}
+
+.shell__user-name {
+  font-size: var(--text-small);
+  color: var(--color-text-muted);
+  padding-right: var(--space-3);
+  border-right: var(--hairline);
+}
+
+.shell__user-name strong {
+  color: var(--color-ink);
+  font-weight: 500;
+}
+
+.shell__main {
+  flex: 1;
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--space-7) var(--space-6) var(--space-9);
+}
+
+@media (max-width: 720px) {
+  .shell__topbar-inner {
+    height: auto;
+    flex-wrap: wrap;
+    gap: var(--space-4) var(--space-5);
+    padding-top: var(--space-3);
+    padding-bottom: 0;
+  }
+
+  .shell__wordmark {
+    order: 1;
+  }
+
+  .shell__user {
+    order: 2;
+  }
+
+  .shell__nav {
+    order: 3;
+    flex-basis: 100%;
+    gap: var(--space-4);
+  }
+
+  .shell__nav-link {
+    height: 2.75rem;
+  }
+
+  .shell__main {
+    padding: var(--space-6) var(--space-4) var(--space-8);
+  }
+}

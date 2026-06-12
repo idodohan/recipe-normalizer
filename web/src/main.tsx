@@ -1,10 +1,45 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './App.tsx'
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  createBrowserRouter,
+  Navigate,
+  RouterProvider,
+} from "react-router-dom";
 
-createRoot(document.getElementById('root')!).render(
+import "@fontsource-variable/fraunces/opsz.css";
+import "@fontsource-variable/fraunces/opsz-italic.css";
+import "@fontsource-variable/inter/index.css";
+import "./styles/tokens.css";
+import "./styles/base.css";
+import "./components/ui.css";
+
+import { AuthenticatedApp } from "./layouts/AuthenticatedApp";
+import { CatalogPage } from "./pages/CatalogPage";
+import { CookbookPage } from "./pages/CookbookPage";
+import { LoginPage } from "./pages/LoginPage";
+import { RegisterPage } from "./pages/RegisterPage";
+
+const queryClient = new QueryClient();
+
+const router = createBrowserRouter([
+  { path: "/login", element: <LoginPage /> },
+  { path: "/register", element: <RegisterPage /> },
+  {
+    path: "/",
+    element: <AuthenticatedApp />,
+    children: [
+      { index: true, element: <CookbookPage /> },
+      { path: "catalog", element: <CatalogPage /> },
+    ],
+  },
+  { path: "*", element: <Navigate to="/" replace /> },
+]);
+
+createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
   </StrictMode>,
-)
+);
