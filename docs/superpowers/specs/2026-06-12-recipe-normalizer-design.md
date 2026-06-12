@@ -54,6 +54,8 @@ One repo. Backend `src/` is split into modules. **Each module owns its tables an
 
 **Frontend pages:** Inbox (submit inputs + review queue), Cookbook (browse/filter), Recipe detail (dual quantities, scaler, chat panel, variants), Catalog admin (review `unreviewed` ingredients, merge duplicates), Shares.
 
+**UI quality bar:** polished and distinctive — it must not read as generic AI-generated design. Deliberate typography, a real color system, and a considered layout; no default-shadcn-purple-gradient look. Treat visual design as a first-class deliverable, on par with the code quality bar.
+
 ## 5. Domain model
 
 `schema_version` on every recipe; all changes via Alembic migrations.
