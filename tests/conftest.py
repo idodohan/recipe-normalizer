@@ -24,6 +24,7 @@ def engine(pg_url: str) -> Iterator[Engine]:
     eng = create_engine(pg_url)
     import recipe_normalizer.catalog.models  # noqa: F401
     import recipe_normalizer.cookbook.models  # noqa: F401
+    import recipe_normalizer.ingestion.models  # noqa: F401
     import recipe_normalizer.llm.models  # noqa: F401
     import recipe_normalizer.users.models  # noqa: F401
 
