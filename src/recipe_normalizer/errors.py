@@ -7,6 +7,7 @@ it defines base exceptions that other modules subclass.
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
 class ApiError(Exception):
@@ -43,6 +44,25 @@ def _envelope(
 
 def install_error_handlers(app: FastAPI) -> None:
     """Register consistent error-envelope handlers on *app*."""
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        """Convert bare Starlette/FastAPI HTTP exceptions to error envelopes."""
+        # Map common status codes to meaningful error codes
+        code_map = {
+            400: "bad_request",
+            401: "unauthorized",
+            403: "forbidden",
+            404: "not_found",
+            405: "method_not_allowed",
+            422: "validation_error",
+        }
+        code = code_map.get(exc.status_code, "http_error")
+        message = str(exc.detail) if exc.detail else "An error occurred."
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=_envelope(code, message),
+        )
 
     @app.exception_handler(ApiError)
     async def api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
