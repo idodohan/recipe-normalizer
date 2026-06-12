@@ -257,6 +257,52 @@ class TestGetJob:
         data = resp.json()
         assert data["id"] == str(job.id)
         assert "drafts" in data
+        # The payload summary MUST survive into the detail view (regression:
+        # rebuilding from model_dump() wiped these fields).
+        assert data["url"] == "https://example.com/detail"
+        assert "source_fingerprint" not in data
+
+    def test_detail_url_job_summary_and_artifacts(
+        self, client: TestClient, db: Session, user: User
+    ) -> None:
+        job = svc.submit_url(db, user_id=user.id, url="https://example.com/detail-url")
+        job.artifacts = {"raw_text_ref": "abc/def.txt"}
+        db.flush()
+
+        resp = client.get(f"/api/jobs/{job.id}")
+        data = resp.json()
+        assert data["url"] == "https://example.com/detail-url"
+        assert data["filename"] is None
+        assert data["text_preview"] is None
+        # Single /api/files/ prefix — never double-prefixed
+        assert data["artifacts"]["raw_text_ref"] == "/api/files/abc/def.txt"
+
+    def test_detail_text_job_has_preview(self, client: TestClient, db: Session, user: User) -> None:
+        job = svc.submit_text(db, user_id=user.id, text="Boil pasta until al dente.")
+        resp = client.get(f"/api/jobs/{job.id}")
+        data = resp.json()
+        assert data["text_preview"] == "Boil pasta until al dente."
+        assert data["url"] is None
+        assert data["filename"] is None
+
+    def test_detail_file_job_has_filename(
+        self, client: TestClient, db: Session, user: User, tmp_path: Path
+    ) -> None:
+        from recipe_normalizer.filestore import LocalFileStore
+
+        job = svc.submit_file(
+            db,
+            user_id=user.id,
+            data=b"detail pdf",
+            filename="detail.pdf",
+            media_type="application/pdf",
+            store=LocalFileStore(tmp_path),
+        )
+        resp = client.get(f"/api/jobs/{job.id}")
+        data = resp.json()
+        assert data["filename"] == "detail.pdf"
+        assert data["url"] is None
+        assert data["text_preview"] is None
 
     def test_detail_includes_draft_summaries(
         self, client: TestClient, db: Session, user: User
@@ -413,3 +459,48 @@ class TestAcceptHighConfidence:
         self._make_needs_review_job(db, user, confidence=0.8, n=1)
         resp = client.post("/api/jobs/accept-high-confidence?threshold=0.75")
         assert resp.json()["accepted"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Auth guard
+# ---------------------------------------------------------------------------
+
+
+class TestAuth:
+    def test_unauthenticated_request_401_envelope(self, db: Session) -> None:
+        """Without a session cookie, endpoints return the 401 error envelope."""
+        app = FastAPI()
+        install_error_handlers(app)
+        app.include_router(ingestion_router)
+        app.dependency_overrides[get_db] = lambda: db
+        # NOTE: no get_current_user override — real auth dependency runs
+        unauth_client = TestClient(app, raise_server_exceptions=False)
+
+        resp = unauth_client.get("/api/jobs")
+        assert resp.status_code == 401
+        assert resp.json()["error"]["code"] == "unauthorized"
+
+
+# ---------------------------------------------------------------------------
+# Resubmission lifecycle
+# ---------------------------------------------------------------------------
+
+
+class TestResubmitAfterFailed:
+    def test_resubmit_same_url_after_failed_creates_new_job(
+        self, client: TestClient, db: Session, user: User
+    ) -> None:
+        """A failed job is not 'active' — resubmitting the same source is allowed."""
+        url = "https://example.com/resubmit-after-fail"
+        first = client.post("/api/ingest/url", json={"url": url})
+        assert first.status_code == 202
+        first_id = first.json()["id"]
+
+        job = svc.get_job(db, user_id=user.id, job_id=uuid.UUID(first_id))
+        job.status = JobStatus.failed
+        db.flush()
+
+        second = client.post("/api/ingest/url", json={"url": url})
+        assert second.status_code == 202
+        assert second.json()["id"] != first_id
+        assert second.json()["status"] == "queued"

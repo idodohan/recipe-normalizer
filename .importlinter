@@ -59,3 +59,7 @@ forbidden_modules =
     recipe_normalizer.users.models
     recipe_normalizer.catalog.models
     recipe_normalizer.cookbook.models
+ignore_imports =
+    recipe_normalizer.ingestion.router -> recipe_normalizer.api_deps
+    recipe_normalizer.cookbook.service -> recipe_normalizer.cookbook.models
+    recipe_normalizer.catalog.service -> recipe_normalizer.catalog.models

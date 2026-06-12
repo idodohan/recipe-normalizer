@@ -577,6 +577,17 @@ class TestAcceptAllHighConfidence:
         count = svc.accept_all_high_confidence(db, user_id=user.id, threshold=0.9)
         assert count == 0
 
+    def test_malformed_confidence_skipped_not_500(self, db: Session, user: User) -> None:
+        """A non-numeric confidence in extraction_meta must skip the job, not raise."""
+        job = self._make_needs_review_job(db, user, confidence=0.95, n_drafts=1)
+        job.extraction_meta = {"confidence": "high", "tier_used": 1}
+        db.flush()
+
+        count = svc.accept_all_high_confidence(db, user_id=user.id, threshold=0.9)
+        assert count == 0
+        db.refresh(job)
+        assert job.status == JobStatus.needs_review  # untouched
+
 
 # ---------------------------------------------------------------------------
 # JobOut schema

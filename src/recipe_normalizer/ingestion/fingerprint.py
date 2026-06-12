@@ -65,10 +65,18 @@ def fingerprint_url(url: str) -> str:
 
     scheme = parsed.scheme.lower()
     host = parsed.hostname or ""  # hostname is already lowercased by urlparse
-    port = parsed.port
 
-    # Build netloc: host only if port is default or absent.
-    netloc = f"{host}:{port}" if port is not None and _DEFAULT_PORTS.get(scheme) != port else host
+    try:
+        port = parsed.port
+    except ValueError:
+        # Malformed / out-of-range port (e.g. :99999) — keep the raw netloc
+        # (lowercased) as the identity rather than crashing.
+        netloc = parsed.netloc.lower()
+    else:
+        # Build netloc: host only if port is default or absent.
+        netloc = (
+            f"{host}:{port}" if port is not None and _DEFAULT_PORTS.get(scheme) != port else host
+        )
 
     # Normalise path: strip single trailing slash (but keep root "/")
     path = parsed.path

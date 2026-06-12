@@ -47,7 +47,7 @@ __all__ = [
 
 _MAX_URL_LEN = 2_000
 _MAX_TEXT_LEN = 200_000
-_MAX_FILE_BYTES = 30 * 1024 * 1024  # 30 MB
+MAX_FILE_BYTES = 30 * 1024 * 1024  # 30 MB — public: the router bounds its read with this
 
 _ALLOWED_MEDIA_TYPES: frozenset[str] = frozenset(
     {
@@ -233,7 +233,7 @@ def submit_file(
             f"Unsupported file type '{media_type}'. "
             f"Allowed: {', '.join(sorted(_ALLOWED_MEDIA_TYPES))}",
         )
-    if len(data) > _MAX_FILE_BYTES:
+    if len(data) > MAX_FILE_BYTES:
         raise ApiError(422, "file_too_large", "File must be ≤ 30 MB.")
 
     fingerprint = fingerprint_bytes(data)
@@ -418,7 +418,12 @@ def accept_all_high_confidence(
     for job in jobs:
         meta = job.extraction_meta or {}
         confidence = meta.get("confidence")
-        if confidence is None or float(confidence) < threshold:
+        try:
+            is_confident = confidence is not None and float(confidence) >= threshold
+        except (TypeError, ValueError):
+            # Malformed extraction_meta (non-numeric confidence) — skip, never 500
+            is_confident = False
+        if not is_confident:
             continue
 
         for recipe_id_str in list(job.produced_recipe_ids):

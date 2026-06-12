@@ -69,74 +69,69 @@ class JobOut(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _extract_payload_summary(cls, values: Any) -> Any:
-        """Derive url/filename/text_preview from payload (ORM or dict)."""
-        # Works both from ORM instances (via from_attributes) and plain dicts.
-        if hasattr(values, "__dict__"):
-            # ORM instance
-            payload: dict[str, Any] = getattr(values, "payload", {}) or {}
-            raw_artifacts: dict[str, Any] = getattr(values, "artifacts", {}) or {}
-            input_type = getattr(values, "input_type", None)
-            cost = getattr(values, "cost_usd", 0)
-        elif isinstance(values, dict):
-            payload = values.get("payload", {}) or {}
-            raw_artifacts = values.get("artifacts", {}) or {}
+        """Derive url/filename/text_preview from payload (ORM or dict with payload).
+
+        No-op for dicts WITHOUT a ``payload`` key — those are already-serialized
+        JobOut dumps (e.g. ``model_dump()`` output); re-deriving would wipe the
+        summary fields and double-prefix artifact paths.
+        """
+        if isinstance(values, dict):
+            if "payload" not in values:
+                return values  # already serialized — pass through untouched
+            payload: dict[str, Any] = values.get("payload") or {}
+            raw_artifacts: dict[str, Any] = values.get("artifacts") or {}
             input_type = values.get("input_type")
             cost = values.get("cost_usd", 0)
+            values_out = dict(values)
+        elif hasattr(values, "payload"):
+            # ORM instance
+            payload = values.payload or {}
+            raw_artifacts = getattr(values, "artifacts", {}) or {}
+            input_type = getattr(values, "input_type", None)
+            cost = getattr(values, "cost_usd", 0)
+            values_out = _orm_to_dict(values)
         else:
             return values
 
-        # URL
-        if input_type == InputType.url or (isinstance(input_type, str) and input_type == "url"):
-            values_out = _as_dict(values)
+        input_type_str = str(input_type) if input_type is not None else None
+
+        if input_type_str == "url":
             values_out["url"] = payload.get("url")
-            values_out["cost_usd"] = float(cost) if cost is not None else 0.0
-            values_out["artifacts"] = _artifact_urls(raw_artifacts)
-            return values_out
-
-        # File
-        if input_type in (InputType.pdf, InputType.image) or (
-            isinstance(input_type, str) and input_type in ("pdf", "image")
-        ):
-            values_out = _as_dict(values)
+        elif input_type_str in ("pdf", "image"):
             values_out["filename"] = payload.get("filename")
-            values_out["cost_usd"] = float(cost) if cost is not None else 0.0
-            values_out["artifacts"] = _artifact_urls(raw_artifacts)
-            return values_out
-
-        # Text
-        if input_type == InputType.text or (isinstance(input_type, str) and input_type == "text"):
-            raw_text: str = payload.get("text", "") or ""
-            values_out = _as_dict(values)
+        elif input_type_str == "text":
+            raw_text: str = payload.get("text") or ""
             values_out["text_preview"] = raw_text[:120] if raw_text else None
-            values_out["cost_usd"] = float(cost) if cost is not None else 0.0
-            values_out["artifacts"] = _artifact_urls(raw_artifacts)
-            return values_out
 
-        # Fallback — coerce cost + artifacts anyway
-        values_out = _as_dict(values)
         values_out["cost_usd"] = float(cost) if cost is not None else 0.0
         values_out["artifacts"] = _artifact_urls(raw_artifacts)
         return values_out
 
 
-def _as_dict(obj: Any) -> dict[str, Any]:
-    """Convert an ORM instance or plain dict to a plain mutable dict."""
-    if isinstance(obj, dict):
-        return dict(obj)
-    # ORM instance — pull all mapped attributes
+def _orm_to_dict(obj: Any) -> dict[str, Any]:
+    """Pull all mapped column attributes from an ORM instance into a plain dict."""
     from sqlalchemy.inspection import inspect as sa_inspect  # lazy import
 
     try:
         mapper = sa_inspect(type(obj))
-        result: dict[str, Any] = {col.key: getattr(obj, col.key) for col in mapper.column_attrs}
+        return {col.key: getattr(obj, col.key) for col in mapper.column_attrs}
     except Exception:
-        result = {k: v for k, v in vars(obj).items() if not k.startswith("_")}
-    return result
+        return {k: v for k, v in vars(obj).items() if not k.startswith("_")}
+
+
+_FILES_PREFIX = "/api/files/"
 
 
 def _artifact_urls(artifacts: dict[str, Any]) -> dict[str, str]:
-    """Convert {key: file_ref} artifact dict to {key: /api/files/{ref}} URL paths."""
-    return {k: f"/api/files/{v}" for k, v in artifacts.items() if isinstance(v, str)}
+    """Convert {key: file_ref} artifact dict to {key: /api/files/{ref}} URL paths.
+
+    Idempotent: values already carrying the /api/files/ prefix pass through.
+    """
+    return {
+        k: v if v.startswith(_FILES_PREFIX) else f"{_FILES_PREFIX}{v}"
+        for k, v in artifacts.items()
+        if isinstance(v, str)
+    }
 
 
 class JobDetailOut(JobOut):

@@ -12,11 +12,11 @@ from recipe_normalizer.api_deps import get_current_user
 from recipe_normalizer.cookbook import service as cookbook_service
 from recipe_normalizer.cookbook.schemas import RecipeSummary
 from recipe_normalizer.db import get_db
+from recipe_normalizer.errors import ApiError
 from recipe_normalizer.filestore import FileStore, get_file_store
 from recipe_normalizer.ingestion import service as ingestion_service
 from recipe_normalizer.ingestion.models import Job, JobStatus
 from recipe_normalizer.ingestion.schemas import JobDetailOut, JobOut, SubmitTextIn, SubmitUrlIn
-from recipe_normalizer.users.models import User
 
 router = APIRouter(prefix="/api", tags=["ingestion"])
 
@@ -31,31 +31,34 @@ def _job_out(job: Job) -> JobOut:
 
 
 def _job_detail_out(job: Job, db: Session, user_id: uuid.UUID) -> JobDetailOut:
-    """Build a JobDetailOut by loading draft recipe summaries."""
-    base = _job_out(job)
-    # Load draft summaries (owner-scoped, ignores missing/deleted)
-    draft_ids = [uuid.UUID(rid) for rid in job.produced_recipe_ids]
-    drafts: list[RecipeSummary] = []
-    for recipe_id in draft_ids:
-        try:
-            recipe = cookbook_service.get_recipe(db, owner_id=user_id, recipe_id=recipe_id)
-            drafts.append(
-                RecipeSummary(
-                    id=recipe.id,
-                    title=recipe.title,
-                    image_ref=recipe.image_ref,
-                    dish_types=recipe.dish_types,
-                    total_min=recipe.total_min,
-                    is_verified=recipe.is_verified,
-                    created_at=recipe.created_at,
-                )
-            )
-        except Exception:
-            pass  # Deleted or inaccessible — skip
+    """Build a JobDetailOut directly from the ORM Job, then attach draft summaries.
 
-    data: dict[str, Any] = base.model_dump()
-    data["drafts"] = drafts
-    return JobDetailOut.model_validate(data)
+    Validating straight from the ORM object ensures the payload-summary
+    validator sees the real payload (url/filename/text_preview populated,
+    artifact paths prefixed exactly once).
+    """
+    detail = JobDetailOut.model_validate(job)
+
+    drafts: list[RecipeSummary] = []
+    for rid in job.produced_recipe_ids:
+        try:
+            recipe = cookbook_service.get_recipe(db, owner_id=user_id, recipe_id=uuid.UUID(rid))
+        except ApiError:
+            continue  # Deleted or inaccessible — skip
+        drafts.append(
+            RecipeSummary(
+                id=recipe.id,
+                title=recipe.title,
+                image_ref=recipe.image_ref,
+                dish_types=recipe.dish_types,
+                total_min=recipe.total_min,
+                is_verified=recipe.is_verified,
+                created_at=recipe.created_at,
+            )
+        )
+
+    detail.drafts = drafts
+    return detail
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +70,7 @@ def _job_detail_out(job: Job, db: Session, user_id: uuid.UUID) -> JobDetailOut:
 def ingest_url(
     body: SubmitUrlIn,
     db: Session = Depends(get_db),  # noqa: B008
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
 ) -> JobOut:
     job = ingestion_service.submit_url(db, user_id=current_user.id, url=body.url)
     return _job_out(job)
@@ -77,7 +80,7 @@ def ingest_url(
 def ingest_text(
     body: SubmitTextIn,
     db: Session = Depends(get_db),  # noqa: B008
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
 ) -> JobOut:
     job = ingestion_service.submit_text(db, user_id=current_user.id, text=body.text)
     return _job_out(job)
@@ -87,10 +90,12 @@ def ingest_text(
 async def ingest_file(
     file: UploadFile,
     db: Session = Depends(get_db),  # noqa: B008
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
     store: FileStore = Depends(get_file_store),  # noqa: B008
 ) -> JobOut:
-    data = await file.read()
+    # Bounded read: never buffer more than the limit + 1 byte. If we got the
+    # extra byte the body exceeds the limit and the service rejects it.
+    data = await file.read(ingestion_service.MAX_FILE_BYTES + 1)
     media_type = file.content_type or "application/octet-stream"
     filename = file.filename or "upload"
     job = ingestion_service.submit_file(
@@ -113,7 +118,7 @@ async def ingest_file(
 def list_jobs(
     status: JobStatus | None = Query(default=None),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
 ) -> list[JobOut]:
     jobs = ingestion_service.list_jobs(db, user_id=current_user.id, status=status)
     return [_job_out(j) for j in jobs]
@@ -123,7 +128,7 @@ def list_jobs(
 def get_job(
     job_id: uuid.UUID,
     db: Session = Depends(get_db),  # noqa: B008
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
 ) -> JobDetailOut:
     job = ingestion_service.get_job(db, user_id=current_user.id, job_id=job_id)
     return _job_detail_out(job, db, current_user.id)
@@ -133,7 +138,7 @@ def get_job(
 def retry_job(
     job_id: uuid.UUID,
     db: Session = Depends(get_db),  # noqa: B008
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
 ) -> JobOut:
     job = ingestion_service.retry_job(db, user_id=current_user.id, job_id=job_id)
     return _job_out(job)
@@ -149,7 +154,7 @@ def accept_draft(
     job_id: uuid.UUID,
     recipe_id: uuid.UUID,
     db: Session = Depends(get_db),  # noqa: B008
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
 ) -> Response:
     ingestion_service.accept_draft(db, user_id=current_user.id, job_id=job_id, recipe_id=recipe_id)
     return Response(status_code=204)
@@ -160,7 +165,7 @@ def reject_draft(
     job_id: uuid.UUID,
     recipe_id: uuid.UUID,
     db: Session = Depends(get_db),  # noqa: B008
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
 ) -> Response:
     ingestion_service.reject_draft(db, user_id=current_user.id, job_id=job_id, recipe_id=recipe_id)
     return Response(status_code=204)
@@ -170,7 +175,7 @@ def reject_draft(
 def accept_high_confidence(
     threshold: float = Query(default=0.9, ge=0.0, le=1.0),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
 ) -> dict[str, int]:
     count = ingestion_service.accept_all_high_confidence(
         db, user_id=current_user.id, threshold=threshold

@@ -433,7 +433,7 @@ def find_recipe_id_by_fingerprint(
             Recipe.source_fingerprint == fingerprint,
         )
     ).first()
-    return row  # type: ignore[return-value]
+    return row
 
 
 # ---------------------------------------------------------------------------

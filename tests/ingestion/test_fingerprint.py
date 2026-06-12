@@ -80,6 +80,16 @@ def test_non_default_port_retained() -> None:
     assert fingerprint_url("https://x.test:8443/r") != fingerprint_url("https://x.test/r")
 
 
+def test_malformed_port_does_not_raise() -> None:
+    """An out-of-range port (urlparse .port raises ValueError) must not crash."""
+    fp = fingerprint_url("http://host:99999/")
+    assert len(fp) == 64
+    # Still deterministic
+    assert fp == fingerprint_url("http://host:99999/")
+    # And distinct from the well-formed host
+    assert fp != fingerprint_url("http://host/")
+
+
 def test_returns_hex_string() -> None:
     """Result is a 64-char hex string (SHA-256)."""
     fp = fingerprint_url("https://example.com/recipe")
