@@ -8,6 +8,11 @@ class Settings(BaseSettings):
     session_ttl_hours: int = 24 * 30
     cookie_secure: bool = False
     file_store_root: str = "./filestore"
+    llm_model: str = "claude-opus-4-8"
+    llm_fast_model: str = "claude-haiku-4-5"
+    llm_max_retries: int = 3
+    llm_timeout_s: float = 120.0
+    job_cost_cap_usd: float = 1.50
 
 
 settings = Settings()
