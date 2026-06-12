@@ -8,8 +8,9 @@ def test_register_and_login(db_session):
     user = service.register(db_session, email="ido@x.com", password="hunter22", display_name="Ido")
     assert user.email == "ido@x.com"
 
-    token = service.login(db_session, email="ido@x.com", password="hunter22")
+    token, logged_in = service.login(db_session, email="ido@x.com", password="hunter22")
     assert isinstance(token, str) and len(token) >= 32
+    assert logged_in.id == user.id
 
     current = service.get_user_by_token(db_session, token)
     assert current is not None and current.id == user.id
@@ -34,7 +35,7 @@ def test_duplicate_email_rejected(db_session):
 
 def test_logout_invalidates_token(db_session):
     service.register(db_session, email="a@x.com", password="p1234567", display_name="A")
-    token = service.login(db_session, email="a@x.com", password="p1234567")
+    token, _ = service.login(db_session, email="a@x.com", password="p1234567")
     service.logout(db_session, token)
     assert service.get_user_by_token(db_session, token) is None
 
@@ -46,6 +47,6 @@ def test_expired_session_rejected(db_session):
     from recipe_normalizer.users.models import Session as DbSession
 
     service.register(db_session, email="a@x.com", password="p1234567", display_name="A")
-    token = service.login(db_session, email="a@x.com", password="p1234567")
+    token, _ = service.login(db_session, email="a@x.com", password="p1234567")
     db_session.query(DbSession).update({"expires_at": datetime.now(UTC) - timedelta(hours=1)})
     assert service.get_user_by_token(db_session, token) is None

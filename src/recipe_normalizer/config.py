@@ -6,6 +6,7 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://rn:rn@localhost:5432/rn"
     session_ttl_hours: int = 24 * 30
+    cookie_secure: bool = False
     file_store_root: str = "./filestore"
 
 

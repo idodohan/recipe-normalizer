@@ -47,8 +47,8 @@ def register(
     return user
 
 
-def login(db: Session, *, email: str, password: str) -> str:
-    """Verify credentials, create a session, return plaintext token."""
+def login(db: Session, *, email: str, password: str) -> tuple[str, User]:
+    """Verify credentials, create a session, return (plaintext token, user)."""
     normalized = email.strip().lower()
     user = db.query(User).filter(User.email == normalized).first()
     if user is None:
@@ -61,7 +61,7 @@ def login(db: Session, *, email: str, password: str) -> str:
     session = DbSession(user_id=user.id, token_hash=hash_token(token))
     db.add(session)
     db.commit()
-    return token
+    return token, user
 
 
 def logout(db: Session, token: str) -> None:

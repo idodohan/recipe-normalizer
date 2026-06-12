@@ -27,17 +27,16 @@ def register(body: RegisterIn, db: Session = Depends(get_db)) -> UserOut:  # noq
 
 @router.post("/login", status_code=200, response_model=UserOut)
 def login(body: LoginIn, response: Response, db: Session = Depends(get_db)) -> UserOut:  # noqa: B008
-    token = service.login(db, email=body.email, password=body.password)
+    token, user = service.login(db, email=body.email, password=body.password)
     response.set_cookie(
         key=_SESSION_COOKIE,
         value=token,
         httponly=True,
         samesite="lax",
+        secure=settings.cookie_secure,
         path="/",
         max_age=settings.session_ttl_hours * 3600,
     )
-    user = service.get_user_by_token(db, token)
-    assert user is not None  # token was just created
     return UserOut.model_validate(user)
 
 

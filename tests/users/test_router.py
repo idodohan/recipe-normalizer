@@ -66,11 +66,12 @@ def test_login_returns_200_and_sets_session_cookie(client: TestClient) -> None:
         json={"email": "dave@example.com", "password": "securepass1"},
     )
     assert resp.status_code == 200
-    # Check set-cookie header contains HttpOnly and SameSite=Lax
+    # Check set-cookie header contains HttpOnly, SameSite=Lax and a Max-Age
     set_cookie = resp.headers.get("set-cookie", "")
     assert "session=" in set_cookie
     assert "HttpOnly" in set_cookie
-    assert "SameSite=lax" in set_cookie.lower() or "samesite=lax" in set_cookie.lower()
+    assert "samesite=lax" in set_cookie.lower()
+    assert "max-age=" in set_cookie.lower()
 
 
 def test_login_wrong_password_returns_401_envelope(client: TestClient) -> None:
