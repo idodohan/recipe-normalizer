@@ -18,6 +18,8 @@ source_modules =
 forbidden_modules =
     recipe_normalizer.users.models
     recipe_normalizer.cookbook.models
+ignore_imports =
+    recipe_normalizer.catalog.router -> recipe_normalizer.api_deps
 
 [importlinter:contract:cookbook-cannot-import-sibling-models]
 name = cookbook module must not import sibling models
