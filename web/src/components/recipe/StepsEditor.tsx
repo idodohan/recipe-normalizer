@@ -1,4 +1,4 @@
-import { newStep } from "./draft";
+import { moveItem, newStep } from "./draft";
 import type { StepDraft } from "./draft";
 import { RowControls } from "./RowControls";
 
@@ -6,15 +6,6 @@ type StepsEditorProps = {
   steps: StepDraft[];
   onChange: (steps: StepDraft[]) => void;
 };
-
-function moveItem<T>(items: T[], index: number, delta: -1 | 1): T[] {
-  const target = index + delta;
-  if (target < 0 || target >= items.length) return items;
-  const next = [...items];
-  const [item] = next.splice(index, 1);
-  next.splice(target, 0, item);
-  return next;
-}
 
 export function StepsEditor({ steps, onChange }: StepsEditorProps) {
   function update(stepId: string, text: string) {

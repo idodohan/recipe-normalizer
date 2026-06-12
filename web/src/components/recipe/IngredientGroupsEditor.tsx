@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import type { KeyboardEvent } from "react";
-import { newGroup, newLine } from "./draft";
+import { moveItem, newGroup, newLine, parseQuantity } from "./draft";
 import type { GroupDraft, LineDraft } from "./draft";
 import { RowControls } from "./RowControls";
 
@@ -8,15 +8,6 @@ type IngredientGroupsEditorProps = {
   groups: GroupDraft[];
   onChange: (groups: GroupDraft[]) => void;
 };
-
-function moveItem<T>(items: T[], index: number, delta: -1 | 1): T[] {
-  const target = index + delta;
-  if (target < 0 || target >= items.length) return items;
-  const next = [...items];
-  const [item] = next.splice(index, 1);
-  next.splice(target, 0, item);
-  return next;
-}
 
 export function IngredientGroupsEditor({
   groups,
@@ -228,6 +219,12 @@ export function IngredientGroupsEditor({
                     optional
                   </label>
                 </div>
+                {line.quantity.trim() &&
+                parseQuantity(line.quantity) === null ? (
+                  <p className="line__qty-hint">
+                    quantity not recognized — kept as text only
+                  </p>
+                ) : null}
               </li>
             ))}
           </ul>

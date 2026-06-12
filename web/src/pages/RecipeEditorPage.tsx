@@ -87,6 +87,7 @@ export function RecipeEditorPage() {
 
   const vocab = useQuery({
     queryKey: ["vocab"],
+    staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await api.GET("/api/vocab");
       if (error) throw error;
@@ -238,8 +239,8 @@ export function RecipeEditorPage() {
                   <Input
                     {...props}
                     className="input--num"
-                    type="text"
-                    inputMode="numeric"
+                    type="number"
+                    min={0}
                     value={prepMin}
                     placeholder="—"
                     onChange={(event) => setPrepMin(event.target.value)}
@@ -251,8 +252,8 @@ export function RecipeEditorPage() {
                   <Input
                     {...props}
                     className="input--num"
-                    type="text"
-                    inputMode="numeric"
+                    type="number"
+                    min={0}
                     value={cookMin}
                     placeholder="—"
                     onChange={(event) => setCookMin(event.target.value)}
@@ -264,8 +265,8 @@ export function RecipeEditorPage() {
                   <Input
                     {...props}
                     className="input--num"
-                    type="text"
-                    inputMode="numeric"
+                    type="number"
+                    min={0}
                     value={totalMin}
                     placeholder="—"
                     onChange={(event) => setTotalMin(event.target.value)}

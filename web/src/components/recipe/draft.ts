@@ -47,6 +47,16 @@ export function newStep(): StepDraft {
   return { id: crypto.randomUUID(), text: "" };
 }
 
+/** Move an item up/down within a list (used by lines, groups, and steps). */
+export function moveItem<T>(items: T[], index: number, delta: -1 | 1): T[] {
+  const target = index + delta;
+  if (target < 0 || target >= items.length) return items;
+  const next = [...items];
+  const [item] = next.splice(index, 1);
+  next.splice(target, 0, item);
+  return next;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Validation + serialization                                         */
 /* ------------------------------------------------------------------ */
@@ -73,12 +83,32 @@ export function validateDraft(
   return errors;
 }
 
-/** "1.5" -> 1.5; "1/2" stays a string the server can parse. */
-function parseQuantity(raw: string): number | string | null {
+/**
+ * Parse a typed quantity to a number the API accepts (Decimal, > 0):
+ * decimals ("1.5"), simple fractions ("1/2"), and mixed numbers ("1 1/2").
+ * Anything else -> null; original_text still carries the user's words, so
+ * the dual-quantity rule keeps them visible.
+ */
+export function parseQuantity(raw: string): number | null {
   const text = raw.trim();
   if (!text) return null;
-  const asNumber = Number(text);
-  return Number.isFinite(asNumber) ? asNumber : text;
+
+  let value: number;
+  const mixed = /^(\d+)\s+(\d+)\s*\/\s*(\d+)$/.exec(text);
+  const fraction = /^(\d+)\s*\/\s*(\d+)$/.exec(text);
+  if (mixed) {
+    const denominator = Number(mixed[3]);
+    if (denominator === 0) return null;
+    value = Number(mixed[1]) + Number(mixed[2]) / denominator;
+  } else if (fraction) {
+    const denominator = Number(fraction[2]);
+    if (denominator === 0) return null;
+    value = Number(fraction[1]) / denominator;
+  } else {
+    value = Number(text);
+  }
+  // The API requires quantity > 0.
+  return Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function parseIntOrNull(raw: string): number | null {
