@@ -65,6 +65,12 @@ EXTRACTORS: dict[str, Extractor] = {}
 
 
 def register[E: Extractor](extractor: E) -> E:
-    """Register *extractor* under its input_type; returns it unchanged."""
+    """Register *extractor* under its input_type; returns it unchanged.
+
+    Raises ValueError on a duplicate input_type — an accidental collision
+    should be loud; there is no legitimate override case.
+    """
+    if extractor.input_type in EXTRACTORS:
+        raise ValueError(f"extractor already registered for input_type {extractor.input_type!r}")
     EXTRACTORS[extractor.input_type] = extractor
     return extractor

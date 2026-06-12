@@ -230,6 +230,95 @@ def test_persist_maps_servings_and_times(seeded: Session, owner: User) -> None:
     assert (out.prep_min, out.cook_min, out.total_min) == (10, 35, 45)
 
 
+def test_persist_coerces_invalid_quantity_to_none(seeded: Session, owner: User) -> None:
+    """Negative/zero LLM quantities must not fail the draft — they become None."""
+    recipe = NormalizedRecipe(
+        title="Bad Quantities",
+        groups=[
+            NormalizedGroup(
+                lines=[
+                    NormalizedLine(original_text="-2 cups flour", quantity=-2.0, unit="cup"),
+                    NormalizedLine(original_text="0 pinches salt", quantity=0.0, unit="pinch"),
+                ]
+            )
+        ],
+    )
+    ids = persist_drafts(
+        seeded,
+        owner_id=owner.id,
+        result=_result(recipe),
+        llm=StubLLM(),  # type: ignore[arg-type]
+        source=None,
+        source_type=SourceType.text,
+        source_fingerprint=None,
+        extraction_meta=None,
+        image_ref=None,
+    )
+
+    out = cookbook_service.get_recipe(seeded, owner_id=owner.id, recipe_id=ids[0])
+    assert [line.quantity for line in out.groups[0].lines] == [None, None]
+    # original_text untouched by the coercion
+    assert out.groups[0].lines[0].original_text == "-2 cups flour"
+
+
+def test_persist_coerces_negative_times_to_none(seeded: Session, owner: User) -> None:
+    """One bad LLM time field must not fail a whole multi-draft persist."""
+    recipe = _flour_recipe("Bad Times")
+    recipe.prep_min = -5
+    recipe.cook_min = -1
+    recipe.total_min = 45
+    ids = persist_drafts(
+        seeded,
+        owner_id=owner.id,
+        result=_result(recipe),
+        llm=StubLLM(),  # type: ignore[arg-type]
+        source=None,
+        source_type=SourceType.text,
+        source_fingerprint=None,
+        extraction_meta=None,
+        image_ref=None,
+    )
+
+    out = cookbook_service.get_recipe(seeded, owner_id=owner.id, recipe_id=ids[0])
+    assert (out.prep_min, out.cook_min, out.total_min) == (None, None, 45)
+
+
+def test_persist_truncates_overlong_title(seeded: Session, owner: User) -> None:
+    recipe = _flour_recipe("T" * 400)
+    ids = persist_drafts(
+        seeded,
+        owner_id=owner.id,
+        result=_result(recipe),
+        llm=StubLLM(),  # type: ignore[arg-type]
+        source=None,
+        source_type=SourceType.text,
+        source_fingerprint=None,
+        extraction_meta=None,
+        image_ref=None,
+    )
+
+    out = cookbook_service.get_recipe(seeded, owner_id=owner.id, recipe_id=ids[0])
+    assert out.title == "T" * 300
+
+
+def test_persist_empty_title_falls_back_to_untitled(seeded: Session, owner: User) -> None:
+    recipe = _flour_recipe("   ")
+    ids = persist_drafts(
+        seeded,
+        owner_id=owner.id,
+        result=_result(recipe),
+        llm=StubLLM(),  # type: ignore[arg-type]
+        source=None,
+        source_type=SourceType.text,
+        source_fingerprint=None,
+        extraction_meta=None,
+        image_ref=None,
+    )
+
+    out = cookbook_service.get_recipe(seeded, owner_id=owner.id, recipe_id=ids[0])
+    assert out.title == "Untitled recipe"
+
+
 def test_persist_duplicate_fingerprint_raises(seeded: Session, owner: User) -> None:
     kwargs = dict(
         owner_id=owner.id,

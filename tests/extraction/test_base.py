@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
+import pytest
+
 import recipe_normalizer.extraction as extraction
 from recipe_normalizer.extraction.base import EXTRACTORS, Acquired, TierFailed, register
 
@@ -32,6 +34,32 @@ def test_register_returns_extractor_and_adds_to_registry() -> None:
         assert EXTRACTORS["dummy"] is dummy
     finally:
         EXTRACTORS.pop("dummy", None)
+
+
+def test_register_duplicate_input_type_raises() -> None:
+    """Accidental registry collisions must be loud — no silent override."""
+
+    class FirstExtractor:
+        input_type: ClassVar[str] = "collide"
+
+        def acquire(self, payload: dict[str, Any], *, llm: Any, store: Any) -> Acquired:
+            return Acquired()
+
+    class SecondExtractor:
+        input_type: ClassVar[str] = "collide"
+
+        def acquire(self, payload: dict[str, Any], *, llm: Any, store: Any) -> Acquired:
+            return Acquired()
+
+    first = FirstExtractor()
+    try:
+        register(first)
+        with pytest.raises(ValueError, match="collide"):
+            register(SecondExtractor())
+        # First registration untouched.
+        assert EXTRACTORS["collide"] is first
+    finally:
+        EXTRACTORS.pop("collide", None)
 
 
 def test_acquired_defaults_are_independent() -> None:

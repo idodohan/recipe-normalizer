@@ -36,6 +36,11 @@ logger = logging.getLogger(__name__)
 _MAX_TITLE_LEN = 300
 
 
+def _valid_minutes(value: int | None) -> int | None:
+    """Coerce negative LLM time fields to None (mirror the quantity pattern)."""
+    return value if value is not None and value >= 0 else None
+
+
 def _to_recipe_in(normalized: NormalizedRecipe) -> RecipeIn | None:
     """Map a NormalizedRecipe to RecipeIn, dropping empty groups/lines/steps.
 
@@ -77,9 +82,9 @@ def _to_recipe_in(normalized: NormalizedRecipe) -> RecipeIn | None:
         description=normalized.description,
         language=normalized.language,
         servings=servings,
-        prep_min=normalized.prep_min,
-        cook_min=normalized.cook_min,
-        total_min=normalized.total_min,
+        prep_min=_valid_minutes(normalized.prep_min),
+        cook_min=_valid_minutes(normalized.cook_min),
+        total_min=_valid_minutes(normalized.total_min),
         cuisines=normalized.cuisines,
         dish_types=normalized.dish_types,
         tags=normalized.tags,
