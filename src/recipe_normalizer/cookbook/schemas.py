@@ -39,6 +39,21 @@ def format_amount(x: float) -> str:
     return formatted
 
 
+_FILES_PREFIX = "/api/files/"
+
+
+def _image_url(ref: str | None) -> str | None:
+    """Expose a stored image ref as a servable /api/files/ URL path.
+
+    Idempotent and pass-through for values that are already URLs (absolute
+    http(s):// links or an existing /api/files/ path); only bare store refs
+    ("sha16/sha.ext") get the prefix.
+    """
+    if ref is None or ref.startswith("/") or "://" in ref:
+        return ref
+    return f"{_FILES_PREFIX}{ref}"
+
+
 def build_display(
     *,
     original_text: str,
@@ -220,6 +235,11 @@ class RecipeOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    @field_validator("image_ref", mode="after")
+    @classmethod
+    def image_ref_to_url(cls, v: str | None) -> str | None:
+        return _image_url(v)
+
     @field_validator("source_type", mode="before")
     @classmethod
     def coerce_source_type(cls, v: Any) -> str:
@@ -249,6 +269,11 @@ class RecipeSummary(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_validator("image_ref", mode="after")
+    @classmethod
+    def image_ref_to_url(cls, v: str | None) -> str | None:
+        return _image_url(v)
 
     @field_validator("dish_types", mode="before")
     @classmethod

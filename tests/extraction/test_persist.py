@@ -65,7 +65,7 @@ def test_persist_single_recipe_draft(seeded: Session, owner: User) -> None:
     assert out.source == "pasted text"
     assert out.source_type == "text"
     assert out.extraction_meta == {"tier_used": 1, "actions_log": []}
-    assert out.image_ref == "ab/cd.png"
+    assert out.image_ref == "/api/files/ab/cd.png"  # exposed as a servable URL
     assert out.dish_types == ["bread"]
 
     # Line is catalog-linked and normalized: 2 cups flour → 240 g approx

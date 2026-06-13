@@ -280,11 +280,13 @@ def test_create_recipe_extraction_meta_and_image_ref_persisted(
         image_ref="ab/cd.png",
     )
     assert out.extraction_meta == {"tier_used": 2, "actions_log": ["scrolled"]}
-    assert out.image_ref == "ab/cd.png"
+    # API exposes the stored ref as a servable /api/files URL...
+    assert out.image_ref == "/api/files/ab/cd.png"
 
     row = seeded.get(Recipe, out.id)
     assert row is not None
     assert row.extraction_meta == {"tier_used": 2, "actions_log": ["scrolled"]}
+    # ...while the DB keeps the bare store ref.
     assert row.image_ref == "ab/cd.png"
 
 

@@ -151,6 +151,11 @@ class _StubLLMClient:
     ) -> T:
         if output_model is NormalizeResult:
             return cast(T, _stub_normalize_result())
+        if "lines" in output_model.model_fields:  # extract.tier1_enrich (EnrichedLines)
+            # Blank parse, one entry per numbered input line — structure from the
+            # JSON-LD stays authoritative; the stub adds no parsing.
+            count = sum(1 for line in str(content).splitlines() if line.strip())
+            return output_model(lines=[{} for _ in range(count)])
         if "index" in output_model.model_fields:  # catalog.match band choice
             return output_model(index=None)
         raise NotImplementedError(f"stub LLM cannot answer feature {feature!r}")

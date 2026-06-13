@@ -53,5 +53,13 @@ export default defineConfig({
       reuseExistingServer: true,
       timeout: 30_000,
     },
+    {
+      /* Static fixture server for the extraction E2E (recipe page + hero image) */
+      command: "node fixture-server.mjs",
+      cwd: __dirname,
+      url: "http://localhost:8099/recipe.html",
+      reuseExistingServer: true,
+      timeout: 15_000,
+    },
   ],
 });

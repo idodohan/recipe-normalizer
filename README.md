@@ -24,8 +24,8 @@ Modular monolith: one repo, one FastAPI app, backend modules under `src/recipe_n
 | `users` | users, sessions | Accounts. Auth behind an `AuthProvider` interface: v1 = email+password (cookie sessions); SaaS swaps in OAuth without touching other modules. | shipped |
 | `catalog` | canonical ingredients, aliases, densities, units | Canonical ingredient entities, multilingual alias matching, deterministic unit conversion math. | shipped |
 | `cookbook` | recipes, ingredient lines, steps | Recipe CRUD, dual-quantity rendering, deterministic scaling. | shipped |
-| `ingestion` | inputs, jobs | Accept any input (URL / file / pasted text), extraction job lifecycle. | planned (Plan 2) |
-| `extraction` | (stateless) | The acquire+normalize pipeline; pluggable `Extractor` per source type, incl. tiered agentic web extraction. | planned (Plan 2) |
+| `ingestion` | inputs, jobs | Accept any input (URL / file / pasted text), extraction job lifecycle + review gate. | shipped |
+| `extraction` | (stateless) | The acquire+normalize pipeline; pluggable `Extractor` per source type, incl. tiered agentic web extraction. | shipped |
 | `sharing` | shares, shared cookbooks, public links | Copy-on-share, co-owned cookbooks, tokenized public links. | planned (Plan 3) |
 | `ai` | conversations, recommendations | Per-recipe chat, cookbook Q&A, transformations, recommendations. | planned (Plan 4) |
 
@@ -60,6 +60,8 @@ uv run python -m recipe_normalizer.worker
 
 The worker runs as its own process (see the `worker` service in `docker-compose.yml`). Tier 3 drives a headless Chromium via Playwright; without `playwright install chromium` it is unavailable and URL jobs that need it fail gracefully with the tier-2 reason. The job-level LLM spend is bounded by `RN_JOB_COST_CAP_USD` (default $1.50).
 
+Ingestion quickstart: with the api and worker both running, open the **Inbox** in the web app and paste a recipe URL, drop a PDF/image, or paste text. Each submission becomes a job that the worker extracts in the background; finished jobs land in the inbox as `NEEDS REVIEW`, where the **Review** screen shows the source beside the editable draft. Accept moves the recipe into your cookbook. No API key? Run the worker with `RN_LLM_STUB=1` to exercise the full pipeline with a canned extraction (test/e2e only).
+
 Configuration is via `RN_`-prefixed env vars (`src/recipe_normalizer/config.py`); the defaults match the compose Postgres (`postgresql+psycopg://rn:rn@localhost:5432/rn`).
 
 Frontend:
@@ -91,7 +93,7 @@ CI gates (all must pass): `ruff check`, `mypy`, `lint-imports` (module boundarie
 
 Planned phases:
 
-- **Plan 2 — extraction pipeline:** ingestion jobs + worker; text/paste → normalize → review screen; URL tiers 1–2 (structured data, readable HTML); PDF; images; tier 3 agentic browser.
+- **Plan 2 — extraction pipeline (shipped):** ingestion jobs + worker; text/paste → normalize → review screen; URL tiers 1–2 (structured data, readable HTML) + tier 3 agentic browser; PDF (text layer + scanned vision); images.
 - **Plan 3 — search, collections, sharing:** filters and full-text search, collections, copy-on-share, public links, shared cookbooks.
 - **Plan 4 — AI features:** per-recipe chat, cookbook Q&A, transformations, content-based recommendations.
 

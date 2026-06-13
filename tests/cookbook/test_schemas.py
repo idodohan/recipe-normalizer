@@ -456,3 +456,21 @@ def test_recipe_summary_fields() -> None:
     assert summary.total_min == 30
     assert summary.is_verified is True
     assert summary.created_at == now
+    # Absolute URLs pass through untouched.
+    assert summary.image_ref == "https://example.com/img.jpg"
+
+
+def test_recipe_summary_bare_image_ref_becomes_files_url() -> None:
+    from types import SimpleNamespace
+
+    orm = SimpleNamespace(
+        id=uuid.uuid4(),
+        title="Cornbread",
+        image_ref="2ffc7e/abc.png",  # bare store ref
+        dish_types=[],
+        total_min=None,
+        is_verified=False,
+        created_at=datetime.now(UTC),
+    )
+    summary = RecipeSummary.model_validate(orm)
+    assert summary.image_ref == "/api/files/2ffc7e/abc.png"
