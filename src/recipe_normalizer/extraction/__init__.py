@@ -6,6 +6,8 @@ to plugins and persists results.
 """
 
 from recipe_normalizer.extraction import (
+    image_plugin,  # noqa: F401  (registers ImageExtractor)
+    pdf_plugin,  # noqa: F401  (registers PdfExtractor)
     text_plugin,  # noqa: F401  (registers TextExtractor)
     url_plugin,  # noqa: F401  (registers UrlExtractor)
 )

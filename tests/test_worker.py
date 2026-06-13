@@ -239,9 +239,11 @@ def test_process_job_duplicate_recipe_fails_non_retryable(
 def test_process_job_missing_extractor_fails_non_retryable(
     db_session: Session, owner: User, store: LocalFileStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Every input type now has a plugin; simulate a missing one by unregistering.
+    monkeypatch.delitem(EXTRACTORS, "pdf")  # type: ignore[arg-type]
     job = Job(
         user_id=owner.id,
-        input_type=InputType.pdf,  # no pdf extractor registered yet (Task 10)
+        input_type=InputType.pdf,
         payload={"filename": "recipe.pdf"},
         status=JobStatus.running,
     )
