@@ -17,6 +17,7 @@ import "./components/ui.css";
 import { AuthenticatedApp } from "./layouts/AuthenticatedApp";
 import { CatalogPage } from "./pages/CatalogPage";
 import { CookbookPage } from "./pages/CookbookPage";
+import { InboxPage } from "./pages/InboxPage";
 import { LoginPage } from "./pages/LoginPage";
 import { RecipeDetailPage } from "./pages/RecipeDetailPage";
 import { RecipeEditorPage } from "./pages/RecipeEditorPage";
@@ -32,6 +33,7 @@ const router = createBrowserRouter([
     element: <AuthenticatedApp />,
     children: [
       { index: true, element: <CookbookPage /> },
+      { path: "inbox", element: <InboxPage /> },
       { path: "recipes/new", element: <RecipeEditorPage /> },
       { path: "recipes/:id", element: <RecipeDetailPage /> },
       { path: "catalog", element: <CatalogPage /> },

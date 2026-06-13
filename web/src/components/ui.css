@@ -65,6 +65,17 @@
   width: 100%;
 }
 
+.btn--sm {
+  height: 2rem;
+  padding: 0 var(--space-4);
+  font-size: var(--text-small);
+}
+
+/* Links styled as buttons drop the default underline. */
+a.btn {
+  text-decoration: none;
+}
+
 /* -- Field / Input --------------------------------------------------- */
 
 .field {

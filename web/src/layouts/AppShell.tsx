@@ -8,7 +8,7 @@ const NAV_ITEMS: Array<
   { label: string; to: string; soon?: false } | { label: string; soon: true }
 > = [
   { label: "Cookbook", to: "/" },
-  { label: "Inbox", soon: true },
+  { label: "Inbox", to: "/inbox" },
   { label: "Catalog", to: "/catalog" },
   { label: "Shares", soon: true },
 ];
