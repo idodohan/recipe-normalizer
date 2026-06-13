@@ -1,0 +1,38 @@
+{
+  "normalize": {
+    "is_recipe": true,
+    "confidence": 0.84,
+    "recipes": [
+      {
+        "title": "Quick Tomato Sauce",
+        "language": "en",
+        "groups": [
+          {
+            "name": null,
+            "lines": [
+              {"original_text": "1 can crushed tomatoes", "name": "crushed tomatoes", "quantity": 1, "unit": "can"},
+              {"original_text": "2 cloves garlic", "name": "garlic", "quantity": 2, "unit": null},
+              {"original_text": "2 tbsp olive oil", "name": "olive oil", "quantity": 2, "unit": "tbsp"}
+            ]
+          }
+        ],
+        "steps": [{"original_text": "Simmer 20 minutes, season to taste."}]
+      },
+      {
+        "title": "Basil Pesto",
+        "language": "en",
+        "groups": [
+          {
+            "name": null,
+            "lines": [
+              {"original_text": "2 cups basil", "name": "basil", "quantity": 2, "unit": "cup"},
+              {"original_text": "0.5 cup pine nuts", "name": "pine nuts", "quantity": 0.5, "unit": "cup"},
+              {"original_text": "0.5 cup parmesan", "name": "parmesan", "quantity": 0.5, "unit": "cup"}
+            ]
+          }
+        ],
+        "steps": [{"original_text": "Blend with olive oil until smooth."}]
+      }
+    ]
+  }
+}

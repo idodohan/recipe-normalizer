@@ -1,0 +1,29 @@
+{
+  "judge": true,
+  "normalize": {
+    "is_recipe": true,
+    "confidence": 0.82,
+    "recipes": [
+      {
+        "title": "Garlic Butter Pasta",
+        "language": "en",
+        "servings_amount": 2,
+        "groups": [
+          {
+            "name": null,
+            "lines": [
+              {"original_text": "200 g spaghetti", "name": "spaghetti", "quantity": 200, "unit": "g"},
+              {"original_text": "3 cloves garlic", "name": "garlic", "quantity": 3, "unit": null},
+              {"original_text": "50 g butter", "name": "butter", "quantity": 50, "unit": "g"}
+            ]
+          }
+        ],
+        "steps": [
+          {"original_text": "Boil the spaghetti until al dente."},
+          {"original_text": "Melt the butter and soften the garlic."},
+          {"original_text": "Toss the pasta through the garlic butter."}
+        ]
+      }
+    ]
+  }
+}

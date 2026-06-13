@@ -1,0 +1,16 @@
+{
+  "status": "needs_review",
+  "source": "pdf_text",
+  "recipe_count": 1,
+  "artifact_keys": ["source_file_ref"],
+  "recipes": [
+    {
+      "title": "Grandmother's Banana Bread",
+      "language": "en",
+      "servings_amount": 8.0,
+      "line_count": 5,
+      "step_count": 2,
+      "first_line": "2 cups all-purpose flour"
+    }
+  ]
+}

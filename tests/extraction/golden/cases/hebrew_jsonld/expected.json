@@ -1,0 +1,19 @@
+{
+  "status": "needs_review",
+  "tier_used": 1,
+  "recipe_count": 1,
+  "artifact_keys": ["raw_html_ref"],
+  "recipes": [
+    {
+      "title": "שקשוקה ביתית מושלמת",
+      "language": "he",
+      "servings_amount": 4.0,
+      "prep_min": 10,
+      "cook_min": 25,
+      "total_min": 35,
+      "line_count": 10,
+      "step_count": 5,
+      "first_line": "2 כפות שמן זית"
+    }
+  ]
+}

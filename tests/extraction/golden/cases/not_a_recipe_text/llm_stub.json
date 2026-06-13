@@ -1,0 +1,8 @@
+{
+  "normalize": {
+    "is_recipe": false,
+    "confidence": 0.95,
+    "reason": "This is a cultural-history essay about communal ovens, not a recipe.",
+    "recipes": []
+  }
+}

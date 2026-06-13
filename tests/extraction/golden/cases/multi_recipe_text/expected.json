@@ -1,0 +1,9 @@
+{
+  "status": "needs_review",
+  "recipe_count": 2,
+  "fingerprint_on_first_only": true,
+  "recipes": [
+    {"title": "Quick Tomato Sauce", "language": "en", "line_count": 3, "step_count": 1, "first_line": "1 can crushed tomatoes"},
+    {"title": "Basil Pesto", "language": "en", "line_count": 3, "step_count": 1, "first_line": "2 cups basil"}
+  ]
+}

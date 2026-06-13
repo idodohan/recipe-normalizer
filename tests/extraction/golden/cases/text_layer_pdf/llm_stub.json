@@ -1,0 +1,29 @@
+{
+  "normalize": {
+    "is_recipe": true,
+    "confidence": 0.86,
+    "recipes": [
+      {
+        "title": "Grandmother's Banana Bread",
+        "language": "en",
+        "servings_amount": 8,
+        "groups": [
+          {
+            "name": null,
+            "lines": [
+              {"original_text": "2 cups all-purpose flour", "name": "all-purpose flour", "quantity": 2, "unit": "cup"},
+              {"original_text": "1 cup mashed ripe banana", "name": "banana", "quantity": 1, "unit": "cup"},
+              {"original_text": "0.5 cup melted butter", "name": "butter", "quantity": 0.5, "unit": "cup"},
+              {"original_text": "2 eggs, lightly beaten", "name": "egg", "quantity": 2, "unit": null},
+              {"original_text": "1 teaspoon baking soda", "name": "baking soda", "quantity": 1, "unit": "tsp"}
+            ]
+          }
+        ],
+        "steps": [
+          {"original_text": "Preheat oven to 175C. Mix the dry ingredients, fold in the wet,"},
+          {"original_text": "pour into a loaf pan and bake for 55 minutes until golden."}
+        ]
+      }
+    ]
+  }
+}

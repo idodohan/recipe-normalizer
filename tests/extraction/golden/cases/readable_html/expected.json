@@ -1,0 +1,15 @@
+{
+  "status": "needs_review",
+  "tier_used": 2,
+  "recipe_count": 1,
+  "artifact_keys": ["raw_html_ref", "readable_text_ref"],
+  "recipes": [
+    {
+      "title": "Garlic Butter Pasta",
+      "language": "en",
+      "servings_amount": 2.0,
+      "line_count": 3,
+      "step_count": 3
+    }
+  ]
+}

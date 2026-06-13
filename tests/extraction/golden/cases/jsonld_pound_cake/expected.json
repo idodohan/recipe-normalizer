@@ -1,0 +1,19 @@
+{
+  "status": "needs_review",
+  "tier_used": 1,
+  "recipe_count": 1,
+  "artifact_keys": ["raw_html_ref"],
+  "recipes": [
+    {
+      "title": "Classic Vanilla Pound Cake",
+      "language": "en",
+      "servings_amount": 4.0,
+      "prep_min": 15,
+      "cook_min": 30,
+      "total_min": 45,
+      "line_count": 8,
+      "step_count": 5,
+      "first_line": "2 cups all-purpose flour"
+    }
+  ]
+}

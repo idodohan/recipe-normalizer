@@ -1,0 +1,26 @@
+{
+  "normalize": {
+    "is_recipe": true,
+    "confidence": 0.88,
+    "recipes": [
+      {
+        "title": "Negroni",
+        "language": "en",
+        "dish_types": ["cocktail"],
+        "groups": [
+          {
+            "name": null,
+            "lines": [
+              {"original_text": "1 part gin", "name": "gin", "quantity": 1, "unit": "part"},
+              {"original_text": "1 part Campari", "name": "Campari", "quantity": 1, "unit": "part"},
+              {"original_text": "1 part sweet vermouth", "name": "sweet vermouth", "quantity": 1, "unit": "part"}
+            ]
+          }
+        ],
+        "steps": [
+          {"original_text": "Stir with ice, strain into a rocks glass over a large cube, garnish with orange."}
+        ]
+      }
+    ]
+  }
+}
