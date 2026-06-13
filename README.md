@@ -49,6 +49,17 @@ uv run python -m recipe_normalizer.catalog.seed_loader       # seed the catalog
 uv run uvicorn recipe_normalizer.main:app --reload --port 8000
 ```
 
+Extraction worker (claims ingestion jobs from the Postgres queue and runs the
+tiered acquire → normalize pipeline):
+
+```sh
+uv run playwright install chromium    # one-time: tier-3 agentic browser (URL extraction)
+export ANTHROPIC_API_KEY=sk-ant-...   # LLM normalize / tier-2 judge / tier-3 browser
+uv run python -m recipe_normalizer.worker
+```
+
+The worker runs as its own process (see the `worker` service in `docker-compose.yml`). Tier 3 drives a headless Chromium via Playwright; without `playwright install chromium` it is unavailable and URL jobs that need it fail gracefully with the tier-2 reason. The job-level LLM spend is bounded by `RN_JOB_COST_CAP_USD` (default $1.50).
+
 Configuration is via `RN_`-prefixed env vars (`src/recipe_normalizer/config.py`); the defaults match the compose Postgres (`postgresql+psycopg://rn:rn@localhost:5432/rn`).
 
 Frontend:

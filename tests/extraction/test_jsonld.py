@@ -250,6 +250,41 @@ def test_maps_unparseable_yield_kept_as_text() -> None:
     assert recipe.servings_unit_text == "a few"
 
 
+@pytest.mark.parametrize(
+    "raw,amount,unit_text",
+    [
+        ("4-6 servings", 4.0, "servings"),
+        ("4–6 servings", 4.0, "servings"),  # en dash
+        ("4 to 6 servings", 4.0, "servings"),
+        ("4-6", 4.0, "servings"),  # bare range, no unit text
+    ],
+)
+def test_maps_range_yield_uses_lower_bound(raw: str, amount: float, unit_text: str) -> None:
+    data = {"@type": "Recipe", "name": "X", "recipeYield": raw}
+    result, _ = jsonld_to_normalize_result(data)
+    recipe = result.recipes[0]
+    assert recipe.servings_amount == amount
+    assert recipe.servings_unit_text == unit_text
+
+
+def test_missing_inlanguage_uses_fallback_language() -> None:
+    data = {"@type": "Recipe", "name": "שקשוקה", "recipeIngredient": ["a", "b", "c"]}
+    result, _ = jsonld_to_normalize_result(data, fallback_language="he")
+    assert result.recipes[0].language == "he"
+
+
+def test_missing_inlanguage_defaults_to_english() -> None:
+    data = {"@type": "Recipe", "name": "X"}
+    result, _ = jsonld_to_normalize_result(data)
+    assert result.recipes[0].language == "en"
+
+
+def test_explicit_inlanguage_wins_over_fallback() -> None:
+    data = {"@type": "Recipe", "name": "X", "inLanguage": "fr"}
+    result, _ = jsonld_to_normalize_result(data, fallback_language="he")
+    assert result.recipes[0].language == "fr"
+
+
 def test_missing_name_yields_incomplete_result() -> None:
     data = {
         "@type": "Recipe",

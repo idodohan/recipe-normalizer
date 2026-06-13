@@ -7,4 +7,7 @@ COPY src ./src
 COPY alembic ./alembic
 COPY alembic.ini README.md ./
 RUN uv sync --frozen --no-dev
+# Tier-3 agentic browser (worker only; harmless for the api). Installs Chromium
+# plus its OS dependencies so `python -m recipe_normalizer.worker` can drive it.
+RUN uv run playwright install --with-deps chromium
 CMD ["uv", "run", "uvicorn", "recipe_normalizer.main:app", "--host", "0.0.0.0", "--port", "8000"]

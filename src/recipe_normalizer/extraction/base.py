@@ -40,13 +40,21 @@ class TierFailed(Exception):
     """An acquire tier failed; the next tier (if any) should run.
 
     Carries an optional filestore ref to the final screenshot so the user can
-    see why the tier gave up (spec §6.1 budget exhaustion).
+    see why the tier gave up (spec §6.1 budget exhaustion), plus any artifacts
+    (screenshot, browser action log) retained for the review screen.
     """
 
-    def __init__(self, reason: str, *, screenshot_ref: str | None = None) -> None:
+    def __init__(
+        self,
+        reason: str,
+        *,
+        screenshot_ref: str | None = None,
+        artifacts: dict[str, str] | None = None,
+    ) -> None:
         super().__init__(reason)
         self.reason = reason
         self.screenshot_ref = screenshot_ref
+        self.artifacts = artifacts
 
 
 class Extractor(Protocol):

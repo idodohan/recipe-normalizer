@@ -189,6 +189,10 @@ def _parse_yield(value: Any) -> tuple[float | None, str | None]:
         return float(first), "servings"
     if isinstance(first, str) and first.strip():
         text = first.strip()
+        # Range ("4-6 servings", "4–6", "4 to 6 servings") → lower bound + unit text.
+        range_match = re.match(r"^\s*(\d+(?:\.\d+)?)\s*(?:[-–—]|to)\s*\d+(?:\.\d+)?\s*(.*)$", text)
+        if range_match:
+            return float(range_match.group(1)), range_match.group(2).strip() or "servings"
         match = re.match(r"^\s*(\d+(?:\.\d+)?)\s*(.*)$", text)
         if match:
             remainder = match.group(2).strip()
@@ -237,12 +241,15 @@ def _image_url(value: Any) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def jsonld_to_normalize_result(data: dict[str, Any]) -> tuple[NormalizeResult, str | None]:
+def jsonld_to_normalize_result(
+    data: dict[str, Any], *, fallback_language: str = "en"
+) -> tuple[NormalizeResult, str | None]:
     """Map a schema.org Recipe node to (NormalizeResult, image_url).
 
     Deterministic — verbatim original_text everywhere; per-line name/quantity/
     unit are left None for the separate cheap enrichment pass. A missing name
-    maps to an empty title so is_complete() rejects it.
+    maps to an empty title so is_complete() rejects it. ``fallback_language``
+    is used only when the node carries no explicit ``inLanguage``.
     """
     ingredient_texts = _string_list(data.get("recipeIngredient"))
     lines = [NormalizedLine(original_text=text) for text in ingredient_texts]
@@ -263,7 +270,7 @@ def jsonld_to_normalize_result(data: dict[str, Any]) -> tuple[NormalizeResult, s
     recipe = NormalizedRecipe(
         title=_str_or_none(data.get("name")) or "",
         description=_str_or_none(data.get("description")),
-        language=_str_or_none(data.get("inLanguage")) or "en",
+        language=_str_or_none(data.get("inLanguage")) or fallback_language,
         servings_amount=servings_amount,
         servings_unit_text=servings_unit_text,
         prep_min=parse_iso_duration(data.get("prepTime", "")),

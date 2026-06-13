@@ -1,8 +1,9 @@
 """Tests for the URL extractor plugin: tier 1 (JSON-LD) + tier 2 (readable text).
 
-NO network: fetch / fetch_bytes are injected fakes returning committed fixture
-HTML; the LLM seam is stubbed (tier1_enrich + tier2_judge only — the full
-extract.normalize pass must NEVER run inside the plugin).
+NO network and NO browser: fetch / fetch_bytes are injected fakes returning
+committed fixture HTML; the LLM seam is stubbed (tier1_enrich + tier2_judge
+only — the full extract.normalize pass must NEVER run inside the plugin);
+tier 3 is faked via the ``_load_browse`` lazy-import seam.
 """
 
 from __future__ import annotations
@@ -15,8 +16,8 @@ from typing import Any
 import httpx
 import pytest
 
-from recipe_normalizer.extraction import EXTRACTORS
-from recipe_normalizer.extraction.base import TierFailed
+from recipe_normalizer.extraction import EXTRACTORS, url_plugin
+from recipe_normalizer.extraction.base import Acquired, TierFailed
 from recipe_normalizer.extraction.url_plugin import (
     EnrichedLine,
     EnrichedLines,
@@ -60,6 +61,33 @@ class FakeBytesFetch:
 class FailingBytesFetch:
     def __call__(self, url: str) -> tuple[bytes, str]:
         raise httpx.ConnectError("image host down")
+
+
+class FakeBrowse:
+    """Stands in for browser.browse_for_recipe via the _load_browse seam."""
+
+    def __init__(self, result: Acquired | None = None, error: Exception | None = None) -> None:
+        self.result = result
+        self.error = error
+        self.calls: list[dict[str, Any]] = []
+
+    def __call__(self, url: str, *, llm: Any, store: Any) -> Acquired:
+        self.calls.append({"url": url, "llm": llm, "store": store})
+        if self.error is not None:
+            raise self.error
+        assert self.result is not None
+        return self.result
+
+
+def _patch_browse(monkeypatch: pytest.MonkeyPatch, browse: FakeBrowse) -> None:
+    monkeypatch.setattr(url_plugin, "_load_browse", lambda: browse)
+
+
+def _patch_browse_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    def explode() -> Any:
+        raise ImportError("No module named 'playwright'")
+
+    monkeypatch.setattr(url_plugin, "_load_browse", explode)
 
 
 class UrlStubLLM:
@@ -287,8 +315,31 @@ def test_tier2_readable_recipe_judged_yes(store: LocalFileStore) -> None:
     assert acquired.source_image == (b"jpeg-bytes", "image/jpeg")
 
 
-def test_tier2_article_judged_no_raises_tier_failed(store: LocalFileStore) -> None:
+def test_tier2_article_judged_no_escalates_to_tier3(
+    store: LocalFileStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Judged-not-a-recipe text escalates to the agentic browser (spec §6.1)."""
     llm = UrlStubLLM(judge=False)
+    browse = FakeBrowse(result=Acquired(text="full recipe text", meta={"tier_used": 3}))
+    _patch_browse(monkeypatch, browse)
+    extractor = UrlExtractor(fetch=_fetch_for(_fixture("article.html")))
+
+    acquired = extractor.acquire({"url": "https://x.test/"}, llm=llm, store=store)  # type: ignore[arg-type]
+
+    assert acquired.meta["tier_used"] == 3
+    assert acquired.text == "full recipe text"
+    assert len(llm.classify_calls) == 1
+    # Tier 3 received the url and the shared seams, and the raw html is retained.
+    assert browse.calls[0]["url"] == "https://x.test/"
+    assert "raw_html_ref" in acquired.artifacts
+
+
+def test_tier2_failure_with_tier3_unavailable_propagates_tier2_reason(
+    store: LocalFileStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No playwright → tier 3 is skipped and the tier-2 reason surfaces."""
+    llm = UrlStubLLM(judge=False)
+    _patch_browse_unavailable(monkeypatch)
     extractor = UrlExtractor(fetch=_fetch_for(_fixture("article.html")))
 
     with pytest.raises(TierFailed) as exc_info:
@@ -298,9 +349,39 @@ def test_tier2_article_judged_no_raises_tier_failed(store: LocalFileStore) -> No
     assert len(llm.classify_calls) == 1
 
 
-def test_tier2_short_readable_text_fails_without_judge(store: LocalFileStore) -> None:
+def test_tier3_failure_propagates_with_screenshot(
+    store: LocalFileStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Tier 3's graceful TierFailed (screenshot + log) reaches the worker."""
+    llm = UrlStubLLM(judge=False)
+    browse = FakeBrowse(
+        error=TierFailed(
+            "browser budget exhausted (action limit reached)",
+            screenshot_ref="shot/ref.png",
+            artifacts={"tier3_screenshot_ref": "shot/ref.png", "browser_log_ref": "log/ref.json"},
+        )
+    )
+    _patch_browse(monkeypatch, browse)
+    extractor = UrlExtractor(fetch=_fetch_for(_fixture("article.html")))
+
+    with pytest.raises(TierFailed) as exc_info:
+        extractor.acquire({"url": "https://x.test/"}, llm=llm, store=store)  # type: ignore[arg-type]
+
+    exc = exc_info.value
+    assert "browser budget exhausted" in exc.reason
+    assert exc.screenshot_ref == "shot/ref.png"
+    # Tier-2's retained raw html is merged into the failure artifacts.
+    assert exc.artifacts is not None
+    assert "raw_html_ref" in exc.artifacts
+    assert exc.artifacts["tier3_screenshot_ref"] == "shot/ref.png"
+
+
+def test_tier2_short_readable_text_fails_without_judge(
+    store: LocalFileStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
     html = "<html><body><p>hi</p></body></html>"
     llm = UrlStubLLM()
+    _patch_browse_unavailable(monkeypatch)
     extractor = UrlExtractor(fetch=_fetch_for(html))
 
     with pytest.raises(TierFailed) as exc_info:
@@ -378,10 +459,13 @@ def test_default_fetch_success_builds_fetch_result() -> None:
     assert fetched.url == "https://ok.test/page"
 
 
-def test_raw_html_artifact_saved_even_when_tiers_fail(store: LocalFileStore) -> None:
+def test_raw_html_artifact_saved_even_when_tiers_fail(
+    store: LocalFileStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The raw page is retained BEFORE tier evaluation (spec §6.4 retention)."""
     html = _fixture("article.html")
     llm = UrlStubLLM(judge=False)
+    _patch_browse_unavailable(monkeypatch)
     extractor = UrlExtractor(fetch=_fetch_for(html))
 
     with pytest.raises(TierFailed):

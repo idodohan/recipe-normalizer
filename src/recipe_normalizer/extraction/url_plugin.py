@@ -8,12 +8,14 @@ NormalizeResult; the worker skips the full normalize() pass entirely.
 Tier 2 — readable HTML: trafilatura text + a cheap yes/no judge; the text
 then flows through the shared normalize stage.
 
-Tier 3 (agentic browser) is the NEXT task — until then exhausting tier 2
-raises TierFailed and the job fails gracefully with the reason.
+Tier 3 — agentic browser (extraction/browser.py): when tier 2 fails after a
+successful fetch, the model drives a headless browser to reach the recipe.
+It is reached via the ``_load_browse`` lazy-import seam so this module imports
+without playwright; when playwright is absent the tier-2 reason surfaces.
 
 NO network in tests: ``fetch`` (page HTML) and ``fetch_bytes`` (images) are
 constructor-injected callables; the registered instance uses the real httpx
-implementations.
+implementations. Tier 3 is faked in tests via the ``_load_browse`` seam.
 """
 
 from __future__ import annotations
@@ -48,6 +50,18 @@ logger = logging.getLogger(__name__)
 # Minimum readable-text length for tier 2 — anything shorter cannot plausibly
 # contain a complete recipe.
 _MIN_READABLE_CHARS = 200
+
+
+def _load_browse() -> Callable[..., Acquired]:
+    """Lazy import of the tier-3 agentic browser (keeps playwright optional).
+
+    Isolated in one function so tests can patch it and so a missing playwright
+    install raises a clean ImportError that the plugin downgrades gracefully.
+    """
+    from recipe_normalizer.extraction.browser import browse_for_recipe
+
+    return browse_for_recipe
+
 
 _HEADERS = {
     "User-Agent": (
@@ -234,7 +248,14 @@ class UrlExtractor:
         acquired = self._tier1(fetched.html, llm=llm, artifacts=artifacts)
         if acquired is not None:
             return acquired
-        return self._tier2(fetched.html, llm=llm, store=store, artifacts=artifacts)
+        try:
+            return self._tier2(fetched.html, llm=llm, store=store, artifacts=artifacts)
+        except TierFailed as tier2_failure:
+            # Fetch succeeded but the text was insufficient → escalate to tier 3.
+            # (Network/content-type failures raise above this and never escalate.)
+            return self._tier3(
+                url, llm=llm, store=store, artifacts=artifacts, tier2_failure=tier2_failure
+            )
 
     # -- tier 1: deterministic JSON-LD ------------------------------------------
 
@@ -279,6 +300,33 @@ class UrlExtractor:
             artifacts=artifacts,
             meta={"tier_used": 2},
         )
+
+    # -- tier 3: agentic browser -------------------------------------------------
+
+    def _tier3(
+        self,
+        url: str,
+        *,
+        llm: LLMClient,
+        store: FileStore,
+        artifacts: dict[str, str],
+        tier2_failure: TierFailed,
+    ) -> Acquired:
+        try:
+            browse = _load_browse()
+        except ImportError:
+            logger.warning("tier 3 unavailable (playwright not installed); failing on tier 2")
+            raise tier2_failure from None
+        try:
+            acquired = browse(url, llm=llm, store=store)
+        except TierFailed as tier3_failure:
+            # Merge tier-2's retained raw html into the failure's artifacts so the
+            # review screen can show the original page alongside the screenshot.
+            tier3_failure.artifacts = {**artifacts, **(tier3_failure.artifacts or {})}
+            raise
+        acquired.artifacts = {**artifacts, **acquired.artifacts}
+        acquired.meta.setdefault("tier_used", 3)
+        return acquired
 
     # -- helpers -----------------------------------------------------------------
 

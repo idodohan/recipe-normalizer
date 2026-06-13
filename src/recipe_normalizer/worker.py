@@ -318,9 +318,11 @@ def process_job(db: Session, job: Job, *, worker_id: str | None = None) -> None:
             expected_locked_by=worker_id,
         )
     except TierFailed as exc:
-        artifacts: dict[str, Any] = (
-            {"screenshot_ref": exc.screenshot_ref} if exc.screenshot_ref else {}
-        )
+        # Retain whatever the tier left behind (tier-3 screenshot + action log,
+        # the raw page) and keep the legacy screenshot_ref key the UI links to.
+        artifacts: dict[str, Any] = dict(exc.artifacts or {})
+        if exc.screenshot_ref:
+            artifacts.setdefault("screenshot_ref", exc.screenshot_ref)
         queue.fail(
             db,
             job,
