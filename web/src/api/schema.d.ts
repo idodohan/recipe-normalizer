@@ -470,6 +470,8 @@ export interface components {
              * @default false
              */
             is_optional: boolean;
+            /** Name */
+            name?: string | null;
             /** Normalized Amount */
             normalized_amount?: number | null;
             /** Normalized Unit */

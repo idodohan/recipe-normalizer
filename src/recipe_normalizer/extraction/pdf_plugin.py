@@ -92,10 +92,15 @@ class PdfExtractor:
             return Acquired(text=text, artifacts=artifacts, meta={"source": "pdf_text"})
 
         pages = _render_pages(data)
-        page_refs = [store.save(png, suffix="png") for png in pages]
+        # One artifact key per page (the API prefixes each value with /api/files/,
+        # so a comma-joined value would not round-trip to usable URLs).
+        page_artifacts = {
+            f"page_image_ref_{index}": store.save(png, suffix="png")
+            for index, png in enumerate(pages)
+        }
         return Acquired(
             images=[(png, "image/png") for png in pages],
-            artifacts={**artifacts, "page_image_refs": ",".join(page_refs)},
+            artifacts={**artifacts, **page_artifacts},
             meta={"source": "pdf_vision", "page_count": len(pages)},
         )
 

@@ -36,8 +36,16 @@ from typing import Any, TypeVar, cast
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+# The worker is a standalone entrypoint (not behind the API's router imports), so
+# it must register every model module itself or cross-table FKs (jobs.user_id →
+# users.id, …) fail to resolve at mapper-configuration time.
+import recipe_normalizer.catalog.models  # noqa: E402, F401
+import recipe_normalizer.cookbook.models  # noqa: E402, F401
+import recipe_normalizer.ingestion.models  # noqa: E402, F401
+import recipe_normalizer.llm.models  # noqa: E402, F401
+import recipe_normalizer.users.models  # noqa: E402, F401
 from recipe_normalizer import db as db_module
-from recipe_normalizer.config import settings
+from recipe_normalizer.config import settings  # noqa: E402
 from recipe_normalizer.cookbook.service import DuplicateRecipeError, SourceType
 from recipe_normalizer.extraction import EXTRACTORS, Acquired, TierFailed
 from recipe_normalizer.extraction.normalize import (

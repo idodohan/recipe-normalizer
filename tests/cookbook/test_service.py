@@ -406,6 +406,53 @@ def test_update_recipe_replaces_groups_and_reruns_match(seeded: Session, owner: 
     assert updated.groups[0].lines[0].canonical_ingredient_id is None
 
 
+def test_recipe_out_exposes_canonical_name_for_round_trip(seeded: Session, owner: User) -> None:
+    """A linked line exposes the canonical name so the review editor round-trips it."""
+    created = cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(
+            lines=[
+                IngredientLineIn(
+                    original_text="1 cup flour", quantity=1, unit="cup", name="all-purpose flour"
+                )
+            ]
+        ),
+    )
+    line = created.groups[0].lines[0]
+    assert line.canonical_ingredient_id is not None
+    assert line.name == "all-purpose flour"  # the canonical name, not None
+
+    # Re-saving with that exposed name preserves the same catalog link.
+    fetched = cookbook_service.get_recipe(seeded, owner_id=owner.id, recipe_id=created.id)
+    resaved = cookbook_service.update_recipe(
+        seeded,
+        owner_id=owner.id,
+        recipe_id=created.id,
+        data=_simple_recipe_in(
+            lines=[
+                IngredientLineIn(
+                    original_text="1 cup flour",
+                    quantity=1,
+                    unit="cup",
+                    name=fetched.groups[0].lines[0].name,
+                )
+            ]
+        ),
+        editor_id=owner.id,
+    )
+    assert resaved.groups[0].lines[0].canonical_ingredient_id == line.canonical_ingredient_id
+
+
+def test_recipe_out_line_name_none_when_unlinked(seeded: Session, owner: User) -> None:
+    created = cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(lines=[IngredientLineIn(original_text="a pinch of magic")]),
+    )
+    assert created.groups[0].lines[0].name is None
+
+
 def test_update_recipe_wrong_owner_raises_404(seeded: Session, owner: User) -> None:
     other = make_user(seeded, suffix=str(uuid.uuid4())[:8])
     created = cookbook_service.create_recipe(

@@ -137,7 +137,26 @@ def _load_recipe_full(db: Session, recipe_id: uuid.UUID) -> Recipe | None:
     if existing is not None:
         db.expire(existing)
     stmt = select(Recipe).where(Recipe.id == recipe_id).options(*_RECIPE_FULL_OPTIONS)
-    return db.scalars(stmt).first()
+    recipe = db.scalars(stmt).first()
+    if recipe is not None:
+        _attach_canonical_names(db, recipe)
+    return recipe
+
+
+def _attach_canonical_names(db: Session, recipe: Recipe) -> None:
+    """Stamp each line with its linked ingredient's name (transient attribute).
+
+    IngredientLineOut reads this via its ``canonical_name`` validation alias, so
+    the review editor can round-trip the catalog link on save. Done in one batch
+    query (no cross-module relationship — boundary stays clean).
+    """
+    lines = [line for group in recipe.ingredient_groups for line in group.ingredient_lines]
+    ids = {line.canonical_ingredient_id for line in lines if line.canonical_ingredient_id}
+    names = catalog_service.names_for_ids(db, ids)
+    for line in lines:
+        line.canonical_name = (  # type: ignore[attr-defined]
+            names.get(line.canonical_ingredient_id) if line.canonical_ingredient_id else None
+        )
 
 
 # ---------------------------------------------------------------------------

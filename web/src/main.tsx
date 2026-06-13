@@ -22,6 +22,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { RecipeDetailPage } from "./pages/RecipeDetailPage";
 import { RecipeEditorPage } from "./pages/RecipeEditorPage";
 import { RegisterPage } from "./pages/RegisterPage";
+import { ReviewPage } from "./pages/ReviewPage";
 
 const queryClient = new QueryClient();
 
@@ -34,6 +35,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <CookbookPage /> },
       { path: "inbox", element: <InboxPage /> },
+      { path: "jobs/:id/review", element: <ReviewPage /> },
       { path: "recipes/new", element: <RecipeEditorPage /> },
       { path: "recipes/:id", element: <RecipeDetailPage /> },
       { path: "catalog", element: <CatalogPage /> },

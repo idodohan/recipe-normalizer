@@ -44,7 +44,9 @@ export function jobSummary(job: Job): string {
 }
 
 /** Confidence (0..1) from extraction_meta, when present. */
-export function jobConfidence(job: Job): number | null {
+export function jobConfidence(job: {
+  extraction_meta?: Record<string, unknown> | null;
+}): number | null {
   const value = job.extraction_meta?.["confidence"];
   return typeof value === "number" ? value : null;
 }

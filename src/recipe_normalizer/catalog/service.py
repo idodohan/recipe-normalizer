@@ -97,6 +97,14 @@ def _normalise(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def names_for_ids(db: Session, ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """Map canonical-ingredient ids to their names (for round-tripping links)."""
+    if not ids:
+        return {}
+    rows = db.scalars(select(CanonicalIngredient).where(CanonicalIngredient.id.in_(ids))).all()
+    return {row.id: row.name for row in rows}
+
+
 def match(db: Session, text: str) -> CanonicalIngredient | None:
     """Return the live CanonicalIngredient matching *text*, or None.
 

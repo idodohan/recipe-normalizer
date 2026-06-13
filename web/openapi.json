@@ -209,6 +209,17 @@
             "title": "Is Optional",
             "type": "boolean"
           },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
           "normalized_amount": {
             "anyOf": [
               {

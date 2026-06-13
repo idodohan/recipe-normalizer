@@ -134,6 +134,9 @@ def extract_vocab_names(v: Any) -> list[str]:
 class IngredientLineOut(BaseModel):
     id: uuid.UUID
     original_text: str
+    # The canonical ingredient's name, when linked — lets the review editor
+    # round-trip the catalog link on save (attached by the service layer).
+    name: str | None = Field(default=None, validation_alias="canonical_name")
     # quantity comes from ORM as Decimal|None; expose as float|None for JSON friendliness
     quantity: float | None = None
     unit: str | None = None
