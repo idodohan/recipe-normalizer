@@ -389,3 +389,54 @@ def test_member_get_recipe_scrubs_owner_personal_fields(
     assert body["is_favorite"] is False
     assert body["collection_ids"] == []
     assert body["provenance"] is None
+
+
+def test_member_patch_response_scrubs_owner_personal_fields(
+    alice_client: TestClient, bob_client: TestClient, db_session: Session
+) -> None:
+    from recipe_normalizer.cookbook.models import Recipe
+
+    _cb, recipe_id = _share_recipe_with_bob(alice_client)
+
+    # Alice (the owner) sets all of her personal/owner-only fields.
+    resp = alice_client.patch(
+        f"/api/recipes/{recipe_id}/personal",
+        json={"is_favorite": True, "notes": "Family secret recipe notes"},
+    )
+    assert resp.status_code == 200
+    collection = alice_client.post("/api/collections", json={"name": "Faves"}).json()
+    resp = alice_client.put(
+        f"/api/recipes/{recipe_id}/collections", json={"collection_ids": [collection["id"]]}
+    )
+    assert resp.status_code == 200
+
+    # provenance isn't settable via a public endpoint — stamp it directly.
+    recipe_row = db_session.get(Recipe, uuid.UUID(recipe_id))
+    assert recipe_row is not None
+    recipe_row.provenance = {
+        "shared_by": "someone@example.com",
+        "shared_at": "2020-01-01T00:00:00+00:00",
+        "origin_recipe_id": str(uuid.uuid4()),
+    }
+    db_session.flush()
+
+    # Bob (a mere member) PATCHes a valid change (title).
+    patch_body = {**_SIMPLE_RECIPE_BODY, "title": "Bob's edit"}
+    resp = bob_client.patch(f"/api/recipes/{recipe_id}", json=patch_body)
+    assert resp.status_code == 200
+    patch_response = resp.json()
+
+    # The PATCH response must scrub the owner's personal fields.
+    assert patch_response["notes"] is None
+    assert patch_response["is_favorite"] is False
+    assert patch_response["collection_ids"] == []
+    assert patch_response["provenance"] is None
+
+    # Subsequent owner GET still shows original owner values (scrub is response-only).
+    resp = alice_client.get(f"/api/recipes/{recipe_id}")
+    assert resp.status_code == 200
+    owner_body = resp.json()
+    assert owner_body["notes"] == "Family secret recipe notes"
+    assert owner_body["is_favorite"] is True
+    assert owner_body["collection_ids"] == [collection["id"]]
+    assert owner_body["provenance"] is not None

@@ -90,6 +90,19 @@ _MEMBER_SCRUBBED_FIELDS: dict[str, Any] = {
 }
 
 
+def _scrub_for_member(recipe: RecipeOut, current_user_id: uuid.UUID) -> RecipeOut:
+    """Scrub owner-only personal fields from a recipe response if the caller
+    is a shared-cookbook member (not the owner).
+
+    A member must never see the OWNER's notes/is_favorite/collection_ids/provenance
+    in any response, whether from GET or PATCH. This helper is applied to both
+    response paths to ensure consistent redaction.
+    """
+    if recipe.owner_id != current_user_id:
+        recipe = recipe.model_copy(update=_MEMBER_SCRUBBED_FIELDS)
+    return recipe
+
+
 @router.get("/recipes/{recipe_id}", response_model=RecipeOut)
 def get_recipe(
     recipe_id: uuid.UUID,
@@ -107,9 +120,7 @@ def get_recipe(
     was — a member is exactly the case where ``owner_id != current_user.id``.
     """
     recipe = service.get_recipe(db, owner_id=current_user.id, recipe_id=recipe_id)
-    if recipe.owner_id != current_user.id:
-        recipe = recipe.model_copy(update=_MEMBER_SCRUBBED_FIELDS)
-    return recipe
+    return _scrub_for_member(recipe, current_user.id)
 
 
 @router.patch("/recipes/{recipe_id}", response_model=RecipeOut)
@@ -119,13 +130,14 @@ def update_recipe(
     db: Session = Depends(get_db),  # noqa: B008
     current_user: Any = Depends(get_current_user),  # noqa: B008
 ) -> RecipeOut:
-    return service.update_recipe(
+    recipe = service.update_recipe(
         db,
         owner_id=current_user.id,
         recipe_id=recipe_id,
         data=body,
         editor_id=current_user.id,
     )
+    return _scrub_for_member(recipe, current_user.id)
 
 
 @router.patch("/recipes/{recipe_id}/personal", response_model=RecipeOut)
