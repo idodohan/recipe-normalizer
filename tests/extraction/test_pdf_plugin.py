@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
+import pypdfium2 as pdfium
 import pytest
 from PIL import Image
 
@@ -45,6 +46,16 @@ def _multipage_scanned_pdf(pages: int) -> bytes:
     images = [Image.new("RGB", (400, 560), "white") for _ in range(pages)]
     buffer = io.BytesIO()
     images[0].save(buffer, format="PDF", save_all=True, append_images=images[1:])
+    return buffer.getvalue()
+
+
+def _pdf_with_page_size(width_pt: float, height_pt: float) -> bytes:
+    """A blank single-page PDF with an explicit mediabox — cheap to build
+    (no rasterized content) regardless of how large the page claims to be."""
+    document = pdfium.PdfDocument.new()
+    document.new_page(width_pt, height_pt)
+    buffer = io.BytesIO()
+    document.save(buffer)
     return buffer.getvalue()
 
 
@@ -102,6 +113,39 @@ def test_pdf_over_page_cap_fails_with_reason(store: LocalFileStore) -> None:
 
     assert "11" in exc_info.value.reason
     assert "10" in exc_info.value.reason
+
+
+# ---------------------------------------------------------------------------
+# Per-page decompression-bomb guard
+# ---------------------------------------------------------------------------
+
+
+def test_page_over_pixel_cap_is_skipped_with_others_rendered(store: LocalFileStore) -> None:
+    """A huge page (mediabox implies >50M px at 144dpi) is skipped; a normal
+    page in the same document still gets rendered."""
+    huge = pdfium.PdfDocument(_pdf_with_page_size(5000, 5000))  # 10000x10000px @144dpi
+    normal = pdfium.PdfDocument(_multipage_scanned_pdf(1))
+    huge.import_pages(normal, pages=[0])
+    buffer = io.BytesIO()
+    huge.save(buffer)
+    ref = store.save(buffer.getvalue(), suffix="pdf")
+    payload = {"file_ref": ref, "filename": "mixed.pdf", "media_type": "application/pdf"}
+
+    acquired = PdfExtractor().acquire(payload, llm=_UnusedLLM(), store=store)  # type: ignore[arg-type]
+
+    # Only the normal-sized page was rendered; the oversized one was skipped.
+    assert len(acquired.images) == 1
+    assert acquired.meta["page_count"] == 1
+
+
+def test_all_pages_over_pixel_cap_raises_tier_failed(store: LocalFileStore) -> None:
+    ref = store.save(_pdf_with_page_size(5000, 5000), suffix="pdf")
+    payload = {"file_ref": ref, "filename": "huge.pdf", "media_type": "application/pdf"}
+
+    with pytest.raises(TierFailed) as exc_info:
+        PdfExtractor().acquire(payload, llm=_UnusedLLM(), store=store)  # type: ignore[arg-type]
+
+    assert "too large" in exc_info.value.reason.lower()
 
 
 # ---------------------------------------------------------------------------

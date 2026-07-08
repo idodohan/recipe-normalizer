@@ -26,6 +26,7 @@ from recipe_normalizer.ingestion.fingerprint import (
     fingerprint_url as _fingerprint_url,
 )
 from recipe_normalizer.ingestion.models import InputType, Job, JobStatus
+from recipe_normalizer.ingestion.sniff import detect_media_type
 from recipe_normalizer.netguard import UnsafeUrlError, assert_public_url
 
 if TYPE_CHECKING:
@@ -232,19 +233,25 @@ def submit_file(
 ) -> Job:
     """Submit an uploaded file (PDF or image) for extraction.
 
-    Validates media_type and file size.  Saves to the FileStore.
+    Validates file size, then sniffs the actual content from magic bytes —
+    the client-supplied media_type is only a hint and is never trusted for
+    validation, storage suffix, or the stored media type (a mislabeled or
+    spoofed Content-Type is caught here). Saves to the FileStore.
     Deduplicates against existing recipes and active jobs.
     Returns a new queued Job.
     """
-    if media_type not in _ALLOWED_MEDIA_TYPES:
+    if len(data) > MAX_FILE_BYTES:
+        raise ApiError(422, "file_too_large", "File must be ≤ 30 MB.")
+
+    sniffed_media_type = detect_media_type(data)
+    if sniffed_media_type is None or sniffed_media_type not in _ALLOWED_MEDIA_TYPES:
         raise ApiError(
             422,
             "unsupported_file_type",
             f"Unsupported file type '{media_type}'. "
             f"Allowed: {', '.join(sorted(_ALLOWED_MEDIA_TYPES))}",
         )
-    if len(data) > MAX_FILE_BYTES:
-        raise ApiError(422, "file_too_large", "File must be ≤ 30 MB.")
+    media_type = sniffed_media_type  # sniffed content is authoritative, not the client header
 
     fingerprint = fingerprint_bytes(data)
 

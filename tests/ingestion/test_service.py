@@ -273,7 +273,7 @@ class TestSubmitFile:
         assert job.source_fingerprint is not None
 
     def test_image_happy_path(self, db: Session, user: User, store) -> None:  # type: ignore[no-untyped-def]
-        data = b"\x89PNG fake png"
+        data = b"\x89PNG\r\n\x1a\n fake png"
         job = svc.submit_file(
             db,
             user_id=user.id,
@@ -297,6 +297,41 @@ class TestSubmitFile:
         assert exc.value.status_code == 422
         assert exc.value.code == "unsupported_file_type"
 
+    def test_sniffed_type_wins_over_client_header_unsupported(
+        self, db: Session, user: User, store
+    ) -> None:  # type: ignore[no-untyped-def]
+        """Client claims image/png but the bytes are HTML — sniffing rejects it
+        regardless of the declared Content-Type."""
+        with pytest.raises(ApiError) as exc:
+            svc.submit_file(
+                db,
+                user_id=user.id,
+                data=b"<html>not a file</html>",
+                filename="fake.png",
+                media_type="image/png",
+                store=store,
+            )
+        assert exc.value.status_code == 422
+        assert exc.value.code == "unsupported_file_type"
+
+    def test_sniffed_pdf_with_png_header_stored_as_pdf(
+        self, db: Session, user: User, store
+    ) -> None:  # type: ignore[no-untyped-def]
+        """A real PDF payload mislabeled as image/png by the client must be
+        sniffed and stored as a PDF — the sniffed type is authoritative."""
+        data = b"%PDF-1.7 actually a pdf"
+        job = svc.submit_file(
+            db,
+            user_id=user.id,
+            data=data,
+            filename="sneaky.png",
+            media_type="image/png",
+            store=store,
+        )
+        assert job.input_type == InputType.pdf
+        assert job.payload["media_type"] == "application/pdf"
+        assert job.payload["file_ref"].endswith(".pdf")
+
     def test_oversize_file_422(self, db: Session, user: User, store) -> None:  # type: ignore[no-untyped-def]
         big = b"x" * (30 * 1024 * 1024 + 1)
         with pytest.raises(ApiError) as exc:
@@ -312,7 +347,7 @@ class TestSubmitFile:
         assert exc.value.code == "file_too_large"
 
     def test_file_saved_to_store(self, db: Session, user: User, store) -> None:  # type: ignore[no-untyped-def]
-        data = b"JPEG fake data"
+        data = b"\xff\xd8\xff\xe0 JPEG fake data"
         job = svc.submit_file(
             db,
             user_id=user.id,
@@ -326,7 +361,7 @@ class TestSubmitFile:
     def test_recipe_dup_409(self, db: Session, user: User, store) -> None:  # type: ignore[no-untyped-def]
         from recipe_normalizer.ingestion.fingerprint import fingerprint_bytes
 
-        data = b"PDF content here"
+        data = b"%PDF-1.4 PDF content here"
         fp = fingerprint_bytes(data)
         make_draft_recipe(db, user.id, fingerprint=fp)
 
@@ -341,7 +376,7 @@ class TestSubmitFile:
             )
 
     def test_active_job_dup_409(self, db: Session, user: User, store) -> None:  # type: ignore[no-untyped-def]
-        data = b"unique pdf bytes"
+        data = b"%PDF-1.4 unique pdf bytes"
         svc.submit_file(
             db,
             user_id=user.id,
@@ -659,7 +694,7 @@ class TestJobOutSchema:
         job = svc.submit_file(
             db,
             user_id=user.id,
-            data=b"pdf",
+            data=b"%PDF-1.4",
             filename="recipe.pdf",
             media_type="application/pdf",
             store=store,
@@ -671,7 +706,7 @@ class TestJobOutSchema:
         job = svc.submit_file(
             db,
             user_id=user.id,
-            data=b"img",
+            data=b"\x89PNG\r\n\x1a\n img",
             filename="photo.png",
             media_type="image/png",
             store=store,

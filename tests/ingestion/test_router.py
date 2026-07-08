@@ -173,7 +173,7 @@ class TestIngestFile:
     def test_pdf_202(self, client: TestClient) -> None:
         resp = client.post(
             "/api/ingest/file",
-            files={"file": ("recipe.pdf", io.BytesIO(b"fake pdf"), "application/pdf")},
+            files={"file": ("recipe.pdf", io.BytesIO(b"%PDF-1.7 fake pdf"), "application/pdf")},
         )
         assert resp.status_code == 202
         data = resp.json()
@@ -183,7 +183,7 @@ class TestIngestFile:
     def test_png_202(self, client: TestClient) -> None:
         resp = client.post(
             "/api/ingest/file",
-            files={"file": ("photo.png", io.BytesIO(b"fake png"), "image/png")},
+            files={"file": ("photo.png", io.BytesIO(b"\x89PNG\r\n\x1a\n fake png"), "image/png")},
         )
         assert resp.status_code == 202
         assert resp.json()["input_type"] == "image"
@@ -196,8 +196,18 @@ class TestIngestFile:
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "unsupported_file_type"
 
+    def test_sniffed_type_wins_over_declared_content_type(self, client: TestClient) -> None:
+        """A real PDF uploaded with a spoofed image/png Content-Type is sniffed
+        and accepted/stored as a pdf, not rejected or misfiled."""
+        resp = client.post(
+            "/api/ingest/file",
+            files={"file": ("sneaky.png", io.BytesIO(b"%PDF-1.7 actually pdf"), "image/png")},
+        )
+        assert resp.status_code == 202
+        assert resp.json()["input_type"] == "pdf"
+
     def test_duplicate_file_409(self, client: TestClient) -> None:
-        data = b"identical pdf content"
+        data = b"%PDF-1.4 identical pdf content"
         client.post(
             "/api/ingest/file",
             files={"file": ("r.pdf", io.BytesIO(data), "application/pdf")},
@@ -293,7 +303,7 @@ class TestGetJob:
         job = svc.submit_file(
             db,
             user_id=user.id,
-            data=b"detail pdf",
+            data=b"%PDF-1.4 detail pdf",
             filename="detail.pdf",
             media_type="application/pdf",
             store=LocalFileStore(tmp_path),

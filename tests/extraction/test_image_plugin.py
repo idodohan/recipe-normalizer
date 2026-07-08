@@ -15,6 +15,7 @@ import pytest
 from PIL import Image
 
 from recipe_normalizer.extraction import EXTRACTORS
+from recipe_normalizer.extraction.base import TierFailed
 from recipe_normalizer.extraction.image_plugin import ImageExtractor
 from recipe_normalizer.filestore import LocalFileStore
 
@@ -97,6 +98,28 @@ def test_oversized_image_is_downscaled_and_reencoded(store: LocalFileStore) -> N
     assert max(sent.size) <= 2000  # long edge clamped
     # The original (full-size) upload is still retained untouched.
     assert store.open(payload["file_ref"]) == big
+
+
+# ---------------------------------------------------------------------------
+# Decompression-bomb guard
+# ---------------------------------------------------------------------------
+
+
+def test_downscale_raises_tier_failed_on_decompression_bomb() -> None:
+    """A tiny-on-disk image that decodes to an enormous pixel count must be
+    rejected as TierFailed, not allowed to blow up memory/CPU."""
+    from recipe_normalizer.extraction.image_plugin import _downscale_to_jpeg
+
+    # 12000x10000 = 120M pixels, well past 2x the 50M cap. Solid fill keeps
+    # the encoded PNG tiny — this is exactly the small-file/huge-pixel shape
+    # a decompression bomb exploits.
+    huge = Image.new("1", (12000, 10000))
+    buffer = io.BytesIO()
+    huge.save(buffer, format="PNG")
+    data = buffer.getvalue()
+
+    with pytest.raises(TierFailed, match="too large"):
+        _downscale_to_jpeg(data)
 
 
 # ---------------------------------------------------------------------------

@@ -36,6 +36,9 @@ _MIN_TEXT_CHARS = 200
 _MAX_GARBLED_RATIO = 0.1
 _RENDER_DPI = 144
 _MAX_PAGES = 10
+# Decompression-bomb guard: skip rasterizing any single page whose rendered
+# area (at _RENDER_DPI) would exceed this many pixels.
+_MAX_PAGE_PIXELS = 50_000_000
 
 
 def is_meaningful_text(text: str) -> bool:
@@ -68,10 +71,27 @@ def _render_pages(data: bytes) -> list[bytes]:
         pngs: list[bytes] = []
         for index in range(page_count):
             page = document[index]
+            mediabox = page.get_mediabox()
+            if mediabox is not None:
+                width_pt = mediabox[2] - mediabox[0]
+                height_pt = mediabox[3] - mediabox[1]
+                scale = _RENDER_DPI / 72
+                pixel_area = (width_pt * scale) * (height_pt * scale)
+                if pixel_area > _MAX_PAGE_PIXELS:
+                    logger.warning(
+                        "Skipping page %d of %d: rendered area %.0f px exceeds cap %d",
+                        index,
+                        page_count,
+                        pixel_area,
+                        _MAX_PAGE_PIXELS,
+                    )
+                    continue
             pil_image = page.render(scale=_RENDER_DPI / 72).to_pil()
             buffer = io.BytesIO()
             pil_image.save(buffer, format="PNG")
             pngs.append(buffer.getvalue())
+        if not pngs and page_count:
+            raise TierFailed("PDF pages too large to render safely")
         return pngs
     finally:
         document.close()

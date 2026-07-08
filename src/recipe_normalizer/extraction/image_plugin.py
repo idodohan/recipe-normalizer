@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from PIL import Image
 
-from recipe_normalizer.extraction.base import Acquired, register
+from recipe_normalizer.extraction.base import Acquired, TierFailed, register
 
 if TYPE_CHECKING:
     from recipe_normalizer.filestore import FileStore
@@ -30,15 +30,23 @@ _MAX_BYTES = 3 * 1024 * 1024
 _MAX_EDGE = 2000
 _JPEG_QUALITY = 85
 
+# Decompression-bomb guard: Pillow raises DecompressionBombError once a
+# decoded image would exceed roughly 2x this many pixels. A small file can
+# still claim a huge width/height, so this must be set before any Image.open.
+Image.MAX_IMAGE_PIXELS = 50_000_000
+
 
 def _downscale_to_jpeg(data: bytes) -> bytes:
-    image: Image.Image = Image.open(io.BytesIO(data))
-    if image.mode not in ("RGB", "L"):
-        image = image.convert("RGB")
-    image.thumbnail((_MAX_EDGE, _MAX_EDGE))
-    buffer = io.BytesIO()
-    image.save(buffer, format="JPEG", quality=_JPEG_QUALITY)
-    return buffer.getvalue()
+    try:
+        image: Image.Image = Image.open(io.BytesIO(data))
+        if image.mode not in ("RGB", "L"):
+            image = image.convert("RGB")
+        image.thumbnail((_MAX_EDGE, _MAX_EDGE))
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG", quality=_JPEG_QUALITY)
+        return buffer.getvalue()
+    except Image.DecompressionBombError as exc:
+        raise TierFailed("image too large to process safely") from exc
 
 
 class ImageExtractor:
