@@ -28,6 +28,39 @@ from recipe_normalizer.users.router import router as users_router
 access_logger = logging.getLogger("recipe_normalizer.access")
 
 
+def _redact_path(path: str) -> str:
+    """Redact public-link tokens from paths for safe logging.
+
+    Converts /api/public/{token} to /api/public/<token> to prevent
+    bearer tokens from appearing in access logs.
+
+    Examples:
+        /api/public/abc -> /api/public/<token>
+        /api/public/abc/scaled -> /api/public/<token>/scaled
+        /api/health -> /api/health (unchanged)
+        /api/public/ -> /api/public/ (unchanged, no token)
+    """
+    if not path.startswith("/api/public/"):
+        return path
+
+    # Remove the /api/public/ prefix
+    rest = path[len("/api/public/") :]
+
+    # If rest is empty, no token to redact
+    if not rest:
+        return path
+
+    # Find the next "/" after the token (if it exists)
+    next_slash = rest.find("/")
+
+    if next_slash == -1:
+        # No "/" after token: /api/public/{token}
+        return "/api/public/<token>"
+    else:
+        # "/" exists after token: /api/public/{token}/...
+        return "/api/public/<token>" + rest[next_slash:]
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     try:
@@ -67,7 +100,7 @@ def create_app() -> FastAPI:
             access_logger.info(
                 "%s %s -> %d (%.0f ms)",
                 request.method,
-                request.url.path,
+                _redact_path(request.url.path),
                 status,
                 (_time.perf_counter() - start) * 1000,
             )
