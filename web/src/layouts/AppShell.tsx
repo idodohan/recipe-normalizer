@@ -27,19 +27,25 @@ export function AppShell({ user }: { user: User }) {
   const { clear } = useUserActions();
   const { resolvedTheme, toggle } = useTheme();
   const mainRef = useRef<HTMLElement>(null);
-  // Captured once, at mount, via the lazy useRef initializer — unlike a
-  // mutable "have I run yet" flag flipped inside the effect body, this
-  // survives React StrictMode's dev-only double-invoke of effects (mount ->
-  // cleanup -> mount) without falsely treating the second invoke as a real
-  // navigation.
-  const initialPathRef = useRef(location.pathname);
+  // Tracks the previously-seen pathname so we can detect real navigations.
+  // Initialized lazily via useRef — unlike a mutable "have I run yet" flag
+  // flipped inside the effect body, this survives React StrictMode's
+  // dev-only double-invoke of effects (mount -> cleanup -> mount) without
+  // falsely treating the second invoke as a real navigation, since the
+  // pathname doesn't change across that double-invoked mount.
+  const prevPathRef = useRef(location.pathname);
 
   // Move focus to the main content on route changes, so screen-reader and
   // keyboard users land somewhere sensible instead of staying on the old
   // nav link. Skip the very first render — don't steal focus on initial load.
+  // Compares against the *previous* pathname (not the one captured at mount)
+  // so returning to an earlier route — including the first-visited one —
+  // still refocuses #main.
   useEffect(() => {
-    if (location.pathname === initialPathRef.current) return;
-    mainRef.current?.focus();
+    if (prevPathRef.current !== location.pathname) {
+      mainRef.current?.focus();
+    }
+    prevPathRef.current = location.pathname;
   }, [location.pathname]);
 
   async function signOut() {

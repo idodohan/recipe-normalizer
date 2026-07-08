@@ -67,6 +67,7 @@ export function useTabList({
         id: `${base}-panel-${index}`,
         role: "tabpanel" as const,
         "aria-labelledby": `${base}-tab-${index}`,
+        tabIndex: 0,
       };
     },
   };
