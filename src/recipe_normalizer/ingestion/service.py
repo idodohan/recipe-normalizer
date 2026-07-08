@@ -25,8 +25,8 @@ from recipe_normalizer.ingestion.fingerprint import (
     fingerprint_url as _fingerprint_url,
 )
 from recipe_normalizer.ingestion.models import InputType, Job, JobStatus
-from recipe_normalizer.ingestion.sniff import detect_media_type
 from recipe_normalizer.netguard import UnsafeUrlError, assert_public_url
+from recipe_normalizer.sniff import detect_media_type
 
 __all__ = [
     "accept_all_high_confidence",

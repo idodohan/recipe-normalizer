@@ -1,10 +1,10 @@
-"""Magic-byte media-type detection tests (ingestion/sniff.py)."""
+"""Magic-byte media-type detection tests (sniff.py)."""
 
 from __future__ import annotations
 
 import pytest
 
-from recipe_normalizer.ingestion.sniff import detect_media_type
+from recipe_normalizer.sniff import detect_media_type
 
 
 @pytest.mark.parametrize(
