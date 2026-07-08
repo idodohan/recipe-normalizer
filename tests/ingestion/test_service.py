@@ -296,6 +296,9 @@ class TestSubmitFile:
             )
         assert exc.value.status_code == 422
         assert exc.value.code == "unsupported_file_type"
+        # Message reflects the sniff result, not the client-declared media_type.
+        assert "detected: unknown" in exc.value.message
+        assert "text/plain" not in exc.value.message
 
     def test_sniffed_type_wins_over_client_header_unsupported(
         self, db: Session, user: User, store

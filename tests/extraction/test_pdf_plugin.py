@@ -148,6 +148,47 @@ def test_all_pages_over_pixel_cap_raises_tier_failed(store: LocalFileStore) -> N
     assert "too large" in exc_info.value.reason.lower()
 
 
+def test_page_with_unknown_mediabox_is_skipped_with_others_rendered(
+    store: LocalFileStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When get_mediabox() returns None the pixel-cap check cannot run — an
+    unknown-size page must be treated conservatively and skipped, not rendered
+    unbounded. Other pages in the same document are unaffected."""
+    original_get_mediabox = pdfium.PdfPage.get_mediabox
+    calls = {"count": 0}
+
+    def fake_get_mediabox(self: pdfium.PdfPage, *args: object, **kwargs: object) -> object:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return None
+        return original_get_mediabox(self, *args, **kwargs)
+
+    monkeypatch.setattr(pdfium.PdfPage, "get_mediabox", fake_get_mediabox)
+
+    ref = store.save(_multipage_scanned_pdf(2), suffix="pdf")
+    payload = {"file_ref": ref, "filename": "unknown_box.pdf", "media_type": "application/pdf"}
+
+    acquired = PdfExtractor().acquire(payload, llm=_UnusedLLM(), store=store)  # type: ignore[arg-type]
+
+    # Only the page with a known mediabox was rendered; the unknown one was skipped.
+    assert len(acquired.images) == 1
+    assert acquired.meta["page_count"] == 1
+
+
+def test_all_pages_with_unknown_mediabox_raises_tier_failed(
+    store: LocalFileStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(pdfium.PdfPage, "get_mediabox", lambda self, *a, **kw: None)  # noqa: ARG005
+
+    ref = store.save(_multipage_scanned_pdf(1), suffix="pdf")
+    payload = {"file_ref": ref, "filename": "unknown.pdf", "media_type": "application/pdf"}
+
+    with pytest.raises(TierFailed) as exc_info:
+        PdfExtractor().acquire(payload, llm=_UnusedLLM(), store=store)  # type: ignore[arg-type]
+
+    assert "too large" in exc_info.value.reason.lower()
+
+
 # ---------------------------------------------------------------------------
 # is_meaningful_text heuristic
 # ---------------------------------------------------------------------------

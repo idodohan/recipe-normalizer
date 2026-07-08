@@ -122,6 +122,38 @@ def test_downscale_raises_tier_failed_on_decompression_bomb() -> None:
         _downscale_to_jpeg(data)
 
 
+def test_small_pixel_bomb_is_rejected_before_reaching_llm(store: LocalFileStore) -> None:
+    """A ≤3MB file that decodes to >50M pixels must never reach the small-file
+    passthrough path unchecked — it must be rejected via TierFailed just like
+    the oversized-file downscale path."""
+    # 8000x8000 = 64M pixels, well past the 50M cap. Solid fill keeps the
+    # encoded PNG well under the 3MB threshold that would otherwise route it
+    # through the (also-guarded) downscale path.
+    bomb = Image.new("1", (8000, 8000))
+    buffer = io.BytesIO()
+    bomb.save(buffer, format="PNG")
+    data = buffer.getvalue()
+    assert len(data) <= _THREE_MB  # precondition: takes the "small" path
+
+    payload = _payload(store, data, suffix="png", media_type="image/png")
+
+    with pytest.raises(TierFailed, match="too large"):
+        ImageExtractor().acquire(payload, llm=_UnusedLLM(), store=store)  # type: ignore[arg-type]
+
+
+def test_normal_small_image_still_passes_through_unchanged(store: LocalFileStore) -> None:
+    """A normal small image must still pass through as raw bytes, unchanged —
+    the pixel-cap probe must not re-encode or otherwise mutate it."""
+    data = (IMAGE_FIXTURES / "recipe_photo.jpg").read_bytes()
+    payload = _payload(store, data, suffix="jpg", media_type="image/jpeg")
+
+    acquired = ImageExtractor().acquire(payload, llm=_UnusedLLM(), store=store)  # type: ignore[arg-type]
+
+    out_data, media_type = acquired.images[0]
+    assert media_type == "image/jpeg"
+    assert out_data == data  # no re-encode on the small path
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------

@@ -248,7 +248,7 @@ def submit_file(
         raise ApiError(
             422,
             "unsupported_file_type",
-            f"Unsupported file type '{media_type}'. "
+            f"File content is not a supported type (detected: {sniffed_media_type or 'unknown'}). "
             f"Allowed: {', '.join(sorted(_ALLOWED_MEDIA_TYPES))}",
         )
     media_type = sniffed_media_type  # sniffed content is authoritative, not the client header
