@@ -11,7 +11,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import exists, func, or_, select, update
+from sqlalchemy import exists, func, literal_column, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from recipe_normalizer.catalog import service as catalog_service
@@ -381,8 +381,13 @@ def get_recipe(
     return RecipeOut.model_validate(loaded)
 
 
-# Trigram similarity threshold shared by title and ingredient-line matching.
-_TRIGRAM_THRESHOLD = 0.25
+# Trigram similarity threshold for ingredient-line matching only. Title search
+# uses the `%` operator instead (see list_recipes), whose threshold is governed
+# by the session GUC `pg_trgm.similarity_threshold` (default 0.3) so that it
+# can be satisfied by the `gin_trgm_ops` index; ingredient lines have no such
+# index, so `similarity() > threshold` (not index-accelerated) is fine there
+# and free to keep its own, more permissive, value.
+_INGREDIENT_TRIGRAM_THRESHOLD = 0.25
 
 _VALID_DIETARY_FILTERS = frozenset({"vegan", "vegetarian", "gluten_free"})
 
@@ -406,19 +411,31 @@ def list_recipes(
 
     Search (*q*): a recipe matches when ANY of the following hold —
       1. title/description full-text search: ``to_tsvector('simple', title ||
-         ' ' || coalesce(description, '')) @@ websearch_to_tsquery('simple', q)``.
-      2. title trigram similarity: ``similarity(title, q) > 0.25``.
+         ' ' || coalesce(description, '')) @@ websearch_to_tsquery('simple',
+         q)``. The query builds this with the same ``||`` (textcat) operator
+         used by the ``ix_recipes_title_description_fts`` expression index
+         (rather than ``concat()``, a different function that Postgres will
+         NOT match to a ``||``-based index) so the GIN index is used.
+      2. title trigram similarity via the ``%`` operator:
+         ``title % q``, i.e. ``similarity(title, q) >
+         pg_trgm.similarity_threshold`` (session GUC, default 0.3). This is
+         what lets the planner use the ``ix_recipes_title_trgm`` GIN index;
+         the equivalent ``similarity(title, q) > 0.25`` function-call form is
+         NOT index-accelerated.
       3. an ingredient line's ``original_text`` has trigram
-         ``similarity(original_text, q) > 0.25``.
+         ``similarity(original_text, q) > 0.25`` (no index backs this one, so
+         it keeps the explicit, more permissive threshold).
 
     Dietary rule (*dietary* — one of ``"vegan"``, ``"vegetarian"``,
     ``"gluten_free"``): a recipe qualifies when EVERY ingredient line that HAS
     a canonical-ingredient match is compatible with the diet, per
     ``catalog.service.dietary_incompatible_ingredient_ids``. Ingredient lines
     with no canonical match (free-text lines, or lines with no ``name``
-    given) do NOT disqualify — they are simply not considered. See
-    catalog/service.py for how the raw ``dietary_flags`` tags map to each
-    diet.
+    given) do NOT disqualify — they are simply not considered. Note that
+    *optional* ingredient lines DO still disqualify when incompatible: an
+    optional non-vegan ingredient still appears in the recipe, so it is not
+    exempted from the diet check. See catalog/service.py for how the raw
+    ``dietary_flags`` tags map to each diet.
 
     ``limit`` defaults to 1000 (offset 0) — high enough that, for realistic
     cookbook sizes, omitting both params reproduces the pre-pagination
@@ -431,18 +448,31 @@ def list_recipes(
 
     if q and q.strip():
         q_stripped = q.strip()
-        title_desc_tsvector = func.to_tsvector(
-            "simple", func.concat(Recipe.title, " ", func.coalesce(Recipe.description, ""))
+        # Must be built with the literal `||` (textcat) operator, not
+        # func.concat(...) — Postgres matches expression indexes by comparing
+        # parsed expression trees, and concat() is a different function than
+        # ||, so a concat()-based query would never hit
+        # ix_recipes_title_description_fts. The " " / "" literals are forced
+        # to render as SQL literals (not bind params) via literal_column so
+        # the parsed tree is byte-for-byte the same shape as the index's
+        # `title || ' ' || coalesce(description, '')` expression.
+        title_desc_concat = Recipe.title.op("||")(literal_column("' '")).op("||")(
+            func.coalesce(Recipe.description, literal_column("''"))
         )
+        title_desc_tsvector = func.to_tsvector("simple", title_desc_concat)
         fts_match = title_desc_tsvector.op("@@")(func.websearch_to_tsquery("simple", q_stripped))
-        title_trgm_match = func.similarity(Recipe.title, q_stripped) > _TRIGRAM_THRESHOLD
+        # `%` (not `similarity() > threshold`) is what lets the planner use
+        # the ix_recipes_title_trgm GIN index; the threshold is then governed
+        # by the session GUC pg_trgm.similarity_threshold (default 0.3).
+        title_trgm_match = Recipe.title.op("%")(q_stripped)
         ingredient_trgm_match = exists(
             select(1)
             .select_from(IngredientLine)
             .join(IngredientGroup, IngredientLine.group_id == IngredientGroup.id)
             .where(
                 IngredientGroup.recipe_id == Recipe.id,
-                func.similarity(IngredientLine.original_text, q_stripped) > _TRIGRAM_THRESHOLD,
+                func.similarity(IngredientLine.original_text, q_stripped)
+                > _INGREDIENT_TRIGRAM_THRESHOLD,
             )
         )
         conditions.append(or_(fts_match, title_trgm_match, ingredient_trgm_match))
