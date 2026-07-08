@@ -72,6 +72,15 @@ class PublicRecipeOut(BaseModel):
     - ``provenance`` — contains ``shared_by`` = the sharer's EMAIL ADDRESS.
       That's the one field here that would leak PII, so it's excluded
       outright rather than redacted field-by-field.
+
+    ``image_ref`` is deliberately NOT carried over as-is: ``RecipeOut``'s
+    field validator already turns the raw store ref into an authenticated
+    ``/api/files/{ref}`` URL, which a logged-out visitor can't fetch (see
+    ``main.py``'s ``serve_file`` — it requires ``get_current_user``). Instead
+    this model exposes ``image_url`` pointing at the token-scoped
+    ``/api/public/{token}/image`` route, which resolves the ref from the
+    TOKEN's own recipe server-side — never a client-supplied ref — so one
+    token can never be used to fetch a different recipe's image.
     """
 
     id: uuid.UUID
@@ -79,7 +88,7 @@ class PublicRecipeOut(BaseModel):
     schema_version: int = 1
     title: str
     description: str | None = None
-    image_ref: str | None = None
+    image_url: str | None = None
     source: str | None = None
     source_type: str
     language: str = "en"
@@ -101,8 +110,17 @@ class PublicRecipeOut(BaseModel):
     model_config = {"from_attributes": True}
 
     @classmethod
-    def from_recipe_out(cls, recipe: RecipeOut) -> PublicRecipeOut:
+    def from_recipe_out(cls, recipe: RecipeOut, *, token: str) -> PublicRecipeOut:
+        """Build the public payload, substituting a token-scoped image URL.
+
+        *token* is the SAME public-link token the caller already resolved
+        *recipe* through — it's only ever used to build the image URL string,
+        never to re-resolve access, so this can't be tricked into pointing
+        at a mismatched (token, recipe) pair by a caller.
+        """
         data: dict[str, Any] = recipe.model_dump(mode="json")
+        data.pop("image_ref", None)
+        data["image_url"] = f"/api/public/{token}/image" if recipe.image_ref else None
         return cls.model_validate(data)
 
 

@@ -27,6 +27,7 @@ from recipe_normalizer.api_deps import get_current_user, limit_by_ip, limit_by_u
 from recipe_normalizer.cookbook.scaling import ScaledRecipeOut, scale_factor_for, scale_recipe
 from recipe_normalizer.db import get_db
 from recipe_normalizer.errors import ApiError
+from recipe_normalizer.filestore import FileStore, get_file_store, serve_stored_file
 from recipe_normalizer.sharing import service
 from recipe_normalizer.sharing.schemas import (
     AddSharedCookbookRecipeIn,
@@ -242,3 +243,23 @@ def get_public_recipe_scaled(
         return scale_recipe(recipe, factor)
     except ValueError as exc:
         raise ApiError(422, "validation_error", str(exc)) from exc
+
+
+@public_router.get("/{token}/image")
+def get_public_recipe_image(
+    token: str,
+    db: Session = Depends(get_db),  # noqa: B008
+    store: FileStore = Depends(get_file_store),  # noqa: B008
+    _: None = Depends(_public_limit),  # noqa: B008
+) -> Response:
+    """Serve the token's own recipe image — unauthenticated, token-scoped.
+
+    Resolves *token* to a recipe via ``_resolve_public_token`` exactly like
+    every other public route (404, identical body, for unknown/revoked), then
+    looks up THAT recipe's own ``image_ref`` server-side — the ref is never
+    accepted from the client, so this route can't be used to fetch an
+    arbitrary/different recipe's image by a caller who merely holds some
+    OTHER valid token. 404 if the recipe has no image.
+    """
+    ref = service.get_public_recipe_image_ref(db, token=token)
+    return serve_stored_file(store, ref)

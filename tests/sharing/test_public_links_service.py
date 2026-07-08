@@ -19,9 +19,12 @@ from recipe_normalizer.cookbook import service as cookbook_service
 from recipe_normalizer.cookbook.models import Recipe
 from recipe_normalizer.cookbook.schemas import IngredientGroupIn, IngredientLineIn, RecipeIn
 from recipe_normalizer.errors import ApiError
+from recipe_normalizer.filestore import LocalFileStore
 from recipe_normalizer.sharing import service as sharing_service
 from recipe_normalizer.sharing.models import PublicLink
 from recipe_normalizer.users.models import User
+
+_PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"fake but sniffable png data"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -333,3 +336,122 @@ def test_get_public_recipe_for_scaling_matches_owner_scoped_recipe(
     owner_scoped = cookbook_service.get_recipe(db_session, owner_id=owner.id, recipe_id=recipe.id)
 
     assert for_scaling.model_dump() == owner_scoped.model_dump()
+
+
+# ---------------------------------------------------------------------------
+# image_url substitution on the public payload
+# ---------------------------------------------------------------------------
+
+
+def test_get_public_recipe_image_url_is_none_without_an_image(
+    db_session: Session, owner: User
+) -> None:
+    recipe = cookbook_service.create_recipe(db_session, owner_id=owner.id, data=_recipe_in())
+    link = sharing_service.create_public_link(db_session, owner_id=owner.id, recipe_id=recipe.id)
+
+    public = sharing_service.get_public_recipe(db_session, token=link.token)
+    assert public.image_url is None
+    assert not hasattr(public, "image_ref")
+
+
+def test_get_public_recipe_image_url_points_at_token_scoped_route(
+    db_session: Session, owner: User, tmp_path: Any
+) -> None:
+    recipe = cookbook_service.create_recipe(db_session, owner_id=owner.id, data=_recipe_in())
+    store = LocalFileStore(tmp_path)
+    cookbook_service.set_recipe_image(
+        db_session, owner_id=owner.id, recipe_id=recipe.id, data=_PNG_BYTES, store=store
+    )
+    link = sharing_service.create_public_link(db_session, owner_id=owner.id, recipe_id=recipe.id)
+
+    public = sharing_service.get_public_recipe(db_session, token=link.token)
+    assert public.image_url == f"/api/public/{link.token}/image"
+
+
+# ---------------------------------------------------------------------------
+# get_public_recipe_image_ref
+# ---------------------------------------------------------------------------
+
+
+def test_get_public_recipe_image_ref_happy_path(
+    db_session: Session, owner: User, tmp_path: Any
+) -> None:
+    recipe = cookbook_service.create_recipe(db_session, owner_id=owner.id, data=_recipe_in())
+    store = LocalFileStore(tmp_path)
+    updated = cookbook_service.set_recipe_image(
+        db_session, owner_id=owner.id, recipe_id=recipe.id, data=_PNG_BYTES, store=store
+    )
+    link = sharing_service.create_public_link(db_session, owner_id=owner.id, recipe_id=recipe.id)
+
+    ref = sharing_service.get_public_recipe_image_ref(db_session, token=link.token)
+    # updated.image_ref is the /api/files/ URL (RecipeOut's validator); the
+    # raw ref is what's actually stored on the row.
+    row = db_session.get(Recipe, recipe.id)
+    assert row is not None
+    assert ref == row.image_ref
+    assert updated.image_ref == f"/api/files/{ref}"
+
+
+def test_get_public_recipe_image_ref_no_image_raises_404(db_session: Session, owner: User) -> None:
+    recipe = cookbook_service.create_recipe(db_session, owner_id=owner.id, data=_recipe_in())
+    link = sharing_service.create_public_link(db_session, owner_id=owner.id, recipe_id=recipe.id)
+
+    with pytest.raises(ApiError) as exc_info:
+        sharing_service.get_public_recipe_image_ref(db_session, token=link.token)
+    assert exc_info.value.status_code == 404
+
+
+def test_get_public_recipe_image_ref_unknown_token_raises_404(db_session: Session) -> None:
+    with pytest.raises(ApiError) as exc_info:
+        sharing_service.get_public_recipe_image_ref(db_session, token="bogus-token")
+    assert exc_info.value.status_code == 404
+
+
+def test_get_public_recipe_image_ref_revoked_token_raises_404(
+    db_session: Session, owner: User, tmp_path: Any
+) -> None:
+    recipe = cookbook_service.create_recipe(db_session, owner_id=owner.id, data=_recipe_in())
+    store = LocalFileStore(tmp_path)
+    cookbook_service.set_recipe_image(
+        db_session, owner_id=owner.id, recipe_id=recipe.id, data=_PNG_BYTES, store=store
+    )
+    link = sharing_service.create_public_link(db_session, owner_id=owner.id, recipe_id=recipe.id)
+    sharing_service.revoke_public_link(db_session, owner_id=owner.id, link_id=link.id)
+
+    with pytest.raises(ApiError) as exc_info:
+        sharing_service.get_public_recipe_image_ref(db_session, token=link.token)
+    assert exc_info.value.status_code == 404
+
+
+def test_get_public_recipe_image_ref_never_leaks_a_different_recipes_ref(
+    db_session: Session, owner: User, tmp_path: Any
+) -> None:
+    """Two recipes, two tokens: each token resolves to its OWN ref only."""
+    store = LocalFileStore(tmp_path)
+    recipe_a = cookbook_service.create_recipe(
+        db_session, owner_id=owner.id, data=_recipe_in("Recipe A")
+    )
+    cookbook_service.set_recipe_image(
+        db_session, owner_id=owner.id, recipe_id=recipe_a.id, data=_PNG_BYTES, store=store
+    )
+    link_a = sharing_service.create_public_link(
+        db_session, owner_id=owner.id, recipe_id=recipe_a.id
+    )
+
+    other_png = b"\x89PNG\r\n\x1a\n" + b"a different fake png payload"
+    recipe_b = cookbook_service.create_recipe(
+        db_session, owner_id=owner.id, data=_recipe_in("Recipe B")
+    )
+    cookbook_service.set_recipe_image(
+        db_session, owner_id=owner.id, recipe_id=recipe_b.id, data=other_png, store=store
+    )
+    link_b = sharing_service.create_public_link(
+        db_session, owner_id=owner.id, recipe_id=recipe_b.id
+    )
+
+    ref_a = sharing_service.get_public_recipe_image_ref(db_session, token=link_a.token)
+    ref_b = sharing_service.get_public_recipe_image_ref(db_session, token=link_b.token)
+
+    assert ref_a != ref_b
+    assert store.open(ref_a) == _PNG_BYTES
+    assert store.open(ref_b) == other_png

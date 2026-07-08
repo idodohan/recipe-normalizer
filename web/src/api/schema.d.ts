@@ -370,6 +370,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/public/{token}/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Public Recipe Image
+         * @description Serve the token's own recipe image — unauthenticated, token-scoped.
+         *
+         *     Resolves *token* to a recipe via ``_resolve_public_token`` exactly like
+         *     every other public route (404, identical body, for unknown/revoked), then
+         *     looks up THAT recipe's own ``image_ref`` server-side — the ref is never
+         *     accepted from the client, so this route can't be used to fetch an
+         *     arbitrary/different recipe's image by a caller who merely holds some
+         *     OTHER valid token. 404 if the recipe has no image.
+         */
+        get: operations["get_public_recipe_image_api_public__token__image_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/{token}/scaled": {
         parameters: {
             query?: never;
@@ -412,7 +439,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Recipe */
+        /**
+         * Get Recipe
+         * @description Fetch a recipe. ``service.get_recipe`` is widened to shared-cookbook
+         *     members, but a member must never see the OWNER's personal
+         *     notes/favorites/collections or the owner-facing provenance — those are
+         *     scrubbed here for anyone who isn't the recipe's owner.
+         *
+         *     No extra access-check call is needed: ``service.get_recipe`` already
+         *     raises 404 unless the caller is the owner or a shared-cookbook member,
+         *     and the returned ``RecipeOut.owner_id`` tells us which of those two it
+         *     was — a member is exactly the case where ``owner_id != current_user.id``.
+         */
         get: operations["get_recipe_api_recipes__recipe_id__get"];
         put?: never;
         post?: never;
@@ -1086,6 +1124,15 @@ export interface components {
          *     - ``provenance`` — contains ``shared_by`` = the sharer's EMAIL ADDRESS.
          *       That's the one field here that would leak PII, so it's excluded
          *       outright rather than redacted field-by-field.
+         *
+         *     ``image_ref`` is deliberately NOT carried over as-is: ``RecipeOut``'s
+         *     field validator already turns the raw store ref into an authenticated
+         *     ``/api/files/{ref}`` URL, which a logged-out visitor can't fetch (see
+         *     ``main.py``'s ``serve_file`` — it requires ``get_current_user``). Instead
+         *     this model exposes ``image_url`` pointing at the token-scoped
+         *     ``/api/public/{token}/image`` route, which resolves the ref from the
+         *     TOKEN's own recipe server-side — never a client-supplied ref — so one
+         *     token can never be used to fetch a different recipe's image.
          */
         PublicRecipeOut: {
             /** Cook Min */
@@ -1119,8 +1166,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /** Image Ref */
-            image_ref?: string | null;
+            /** Image Url */
+            image_url?: string | null;
             /**
              * Is Verified
              * @default false
@@ -2422,6 +2469,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PublicRecipeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_public_recipe_image_api_public__token__image_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

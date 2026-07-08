@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import mimetypes
 import time as _time
 from collections.abc import Awaitable, Callable
 from importlib.metadata import version
@@ -17,8 +16,8 @@ from recipe_normalizer.catalog.router import router as catalog_router
 from recipe_normalizer.config import settings
 from recipe_normalizer.cookbook import service as cookbook_service
 from recipe_normalizer.cookbook.router import router as cookbook_router
-from recipe_normalizer.errors import ApiError, install_error_handlers
-from recipe_normalizer.filestore import FileStore, get_file_store
+from recipe_normalizer.errors import install_error_handlers
+from recipe_normalizer.filestore import FileStore, get_file_store, serve_stored_file
 from recipe_normalizer.ingestion.router import router as ingestion_router
 from recipe_normalizer.sharing import service as sharing_service
 from recipe_normalizer.sharing.router import public_router as sharing_public_router
@@ -140,18 +139,7 @@ def create_app() -> FastAPI:
         Returns the raw bytes with a guessed media type.
         Invalid or missing refs produce a 404 envelope (no detail leaked).
         """
-        try:
-            data = store.open(ref)
-        except ValueError as exc:
-            raise ApiError(404, "not_found", "File not found.") from exc
-        except FileNotFoundError as exc:
-            raise ApiError(404, "not_found", "File not found.") from exc
-
-        media_type, _ = mimetypes.guess_type(ref)
-        if not media_type:
-            media_type = "application/octet-stream"
-
-        return Response(content=data, media_type=media_type)
+        return serve_stored_file(store, ref)
 
     return app
 

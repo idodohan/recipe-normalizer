@@ -9,6 +9,7 @@ scaled-endpoint parity check against the authenticated scaling route.
 
 from __future__ import annotations
 
+import io
 import uuid
 
 import pytest
@@ -17,11 +18,14 @@ from sqlalchemy.orm import Session
 
 from recipe_normalizer.api_deps import get_current_user
 from recipe_normalizer.cookbook.router import router as cookbook_router
+from recipe_normalizer.filestore import LocalFileStore
 from recipe_normalizer.sharing.router import _public_limit
 from recipe_normalizer.sharing.router import public_router as sharing_public_router
 from recipe_normalizer.sharing.router import router as sharing_router
 from recipe_normalizer.users.router import router as users_router
 from tests.api_helpers import make_client
+
+_PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"fake but sniffable png data"
 
 _RECIPE_WITH_SERVINGS = {
     "title": "Public Cake",
@@ -36,9 +40,14 @@ _RECIPE_WITH_SERVINGS = {
 
 
 @pytest.fixture()
-def client(db_session):  # type: ignore[no-untyped-def]
+def client(db_session, tmp_path):  # type: ignore[no-untyped-def]
     return make_client(
-        db_session, users_router, cookbook_router, sharing_router, sharing_public_router
+        db_session,
+        users_router,
+        cookbook_router,
+        sharing_router,
+        sharing_public_router,
+        file_store=LocalFileStore(tmp_path),
     )
 
 
@@ -218,6 +227,25 @@ def test_get_public_recipe_happy_path_no_cookie_needed(owner_client: TestClient)
     body = resp.json()
     assert body["id"] == recipe_id
     assert body["title"] == "Public Cake"
+    assert "image_ref" not in body
+    assert body["image_url"] is None  # no image uploaded
+
+
+def test_get_public_recipe_image_url_points_at_public_image_route(
+    owner_client: TestClient,
+) -> None:
+    recipe_id = _create_recipe(owner_client)
+    owner_client.put(
+        f"/api/recipes/{recipe_id}/image",
+        files={"file": ("photo.png", io.BytesIO(_PNG_BYTES), "image/png")},
+    )
+    link = owner_client.post("/api/share/public", json={"recipe_id": recipe_id}).json()
+
+    anon = TestClient(owner_client.app, raise_server_exceptions=False)
+    resp = anon.get(f"/api/public/{link['token']}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["image_url"] == f"/api/public/{link['token']}/image"
 
 
 def test_get_public_recipe_unknown_token_404(client: TestClient) -> None:
@@ -283,6 +311,106 @@ def test_public_scaled_requires_exactly_one_param(owner_client: TestClient) -> N
 # ---------------------------------------------------------------------------
 # Rate limiting
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# GET /api/public/{token}/image — unauthenticated, token-scoped image bytes
+# ---------------------------------------------------------------------------
+
+
+def test_get_public_recipe_image_happy_path_no_cookie_needed(owner_client: TestClient) -> None:
+    recipe_id = _create_recipe(owner_client)
+    owner_client.put(
+        f"/api/recipes/{recipe_id}/image",
+        files={"file": ("photo.png", io.BytesIO(_PNG_BYTES), "image/png")},
+    )
+    link = owner_client.post("/api/share/public", json={"recipe_id": recipe_id}).json()
+
+    anon = TestClient(owner_client.app, raise_server_exceptions=False)
+    resp = anon.get(f"/api/public/{link['token']}/image")
+    assert resp.status_code == 200
+    assert resp.content == _PNG_BYTES
+    assert resp.headers["content-type"] == "image/png"
+
+
+def test_get_public_recipe_image_no_image_returns_404(owner_client: TestClient) -> None:
+    recipe_id = _create_recipe(owner_client)  # never gets an image
+    link = owner_client.post("/api/share/public", json={"recipe_id": recipe_id}).json()
+
+    anon = TestClient(owner_client.app, raise_server_exceptions=False)
+    resp = anon.get(f"/api/public/{link['token']}/image")
+    assert resp.status_code == 404
+
+
+def test_get_public_recipe_image_unknown_token_404(client: TestClient) -> None:
+    resp = client.get("/api/public/definitely-not-a-real-token/image")
+    assert resp.status_code == 404
+
+
+def test_get_public_recipe_image_revoked_token_404(owner_client: TestClient) -> None:
+    recipe_id = _create_recipe(owner_client)
+    owner_client.put(
+        f"/api/recipes/{recipe_id}/image",
+        files={"file": ("photo.png", io.BytesIO(_PNG_BYTES), "image/png")},
+    )
+    link = owner_client.post("/api/share/public", json={"recipe_id": recipe_id}).json()
+    owner_client.delete(f"/api/share/public/{link['id']}")
+
+    anon = TestClient(owner_client.app, raise_server_exceptions=False)
+    resp = anon.get(f"/api/public/{link['token']}/image")
+    assert resp.status_code == 404
+
+
+def test_public_image_token_cannot_fetch_a_different_recipes_image(
+    owner_client: TestClient,
+) -> None:
+    """A valid token only ever serves ITS OWN recipe's image, never another's.
+
+    The route accepts no client-supplied ref — only a token — so this is
+    really testing that two distinct (token, recipe, image) triples never
+    cross-contaminate.
+    """
+    recipe_a = _create_recipe(owner_client, {**_RECIPE_WITH_SERVINGS, "title": "Recipe A"})
+    owner_client.put(
+        f"/api/recipes/{recipe_a}/image",
+        files={"file": ("a.png", io.BytesIO(_PNG_BYTES), "image/png")},
+    )
+    link_a = owner_client.post("/api/share/public", json={"recipe_id": recipe_a}).json()
+
+    other_png = b"\x89PNG\r\n\x1a\n" + b"a totally different fake png payload"
+    recipe_b = _create_recipe(owner_client, {**_RECIPE_WITH_SERVINGS, "title": "Recipe B"})
+    owner_client.put(
+        f"/api/recipes/{recipe_b}/image",
+        files={"file": ("b.png", io.BytesIO(other_png), "image/png")},
+    )
+    link_b = owner_client.post("/api/share/public", json={"recipe_id": recipe_b}).json()
+
+    anon = TestClient(owner_client.app, raise_server_exceptions=False)
+    resp_a = anon.get(f"/api/public/{link_a['token']}/image")
+    resp_b = anon.get(f"/api/public/{link_b['token']}/image")
+
+    assert resp_a.status_code == resp_b.status_code == 200
+    assert resp_a.content == _PNG_BYTES
+    assert resp_b.content == other_png
+    assert resp_a.content != resp_b.content
+
+
+def test_public_image_is_rate_limited_per_ip(owner_client: TestClient) -> None:
+    recipe_id = _create_recipe(owner_client)
+    owner_client.put(
+        f"/api/recipes/{recipe_id}/image",
+        files={"file": ("photo.png", io.BytesIO(_PNG_BYTES), "image/png")},
+    )
+    link = owner_client.post("/api/share/public", json={"recipe_id": recipe_id}).json()
+
+    for _ in range(60):
+        resp = owner_client.get(f"/api/public/{link['token']}/image")
+        assert resp.status_code == 200
+
+    resp = owner_client.get(f"/api/public/{link['token']}/image")
+    assert resp.status_code == 429
+
+    _public_limit.limiter.reset()  # type: ignore[attr-defined]
 
 
 def test_public_get_is_rate_limited_per_ip(owner_client: TestClient) -> None:

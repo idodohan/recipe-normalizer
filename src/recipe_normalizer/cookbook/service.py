@@ -59,6 +59,7 @@ __all__ = [
     "delete_recipe",
     "find_recipe_id_by_fingerprint",
     "get_recipe",
+    "get_recipe_image_ref_unscoped",
     "get_recipe_unscoped",
     "list_collections",
     "list_recipes",
@@ -494,6 +495,29 @@ def get_recipe_unscoped(db: Session, recipe_id: uuid.UUID) -> RecipeOut:
     if loaded is None:
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
     return RecipeOut.model_validate(loaded)
+
+
+def get_recipe_image_ref_unscoped(db: Session, recipe_id: uuid.UUID) -> str | None:
+    """Fetch the RAW (unprefixed) ``image_ref`` column for *recipe_id* — NO owner check.
+
+    Trusted internal helper, mirroring ``get_recipe_unscoped``'s trust
+    boundary: callers must have already established the caller's right to
+    view this specific recipe through an out-of-band mechanism (e.g.
+    `sharing.service` resolving a valid, unrevoked public-link token).
+
+    Deliberately returns the bare content-addressed ref (e.g.
+    ``"sha16/sha.jpg"``), NOT the ``/api/files/{ref}`` URL that
+    ``RecipeOut.image_ref`` computes — callers here want to hand the ref
+    straight to a ``FileStore`` to serve the bytes themselves, not a URL for
+    a browser to follow (which would require auth).
+
+    Raises ApiError 404 if *recipe_id* doesn't exist. Returns None (not an
+    error) if the recipe exists but has no image.
+    """
+    recipe = db.get(Recipe, recipe_id)
+    if recipe is None:
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+    return recipe.image_ref
 
 
 def recipe_titles_for_ids(db: Session, ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:

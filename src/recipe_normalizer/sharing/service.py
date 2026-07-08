@@ -47,6 +47,7 @@ __all__ = [
     "create_shared_cookbook",
     "get_public_recipe",
     "get_public_recipe_for_scaling",
+    "get_public_recipe_image_ref",
     "get_shared_cookbook",
     "invite_member",
     "list_my_shared_cookbooks",
@@ -230,7 +231,23 @@ def get_public_recipe(db: Session, *, token: str) -> PublicRecipeOut:
     """Unauthenticated recipe lookup by public token — see PublicRecipeOut for the leak audit."""
     recipe_id = _resolve_public_token(db, token)
     recipe = cookbook_service.get_recipe_unscoped(db, recipe_id)
-    return PublicRecipeOut.from_recipe_out(recipe)
+    return PublicRecipeOut.from_recipe_out(recipe, token=token)
+
+
+def get_public_recipe_image_ref(db: Session, *, token: str) -> str:
+    """Resolve *token* to its OWN recipe's raw image ref, for the public image route.
+
+    404 (identical body to ``_resolve_public_token``'s) for an unknown or
+    revoked token, and 404 if the recipe currently has no image at all. The
+    ref returned always belongs to the token's own recipe — this function
+    never accepts (and the router never passes) a client-supplied ref, so a
+    valid token can't be used to fetch a DIFFERENT recipe's image bytes.
+    """
+    recipe_id = _resolve_public_token(db, token)
+    ref = cookbook_service.get_recipe_image_ref_unscoped(db, recipe_id)
+    if ref is None:
+        raise ApiError(404, "not_found", "This recipe has no image.")
+    return ref
 
 
 def get_public_recipe_for_scaling(db: Session, *, token: str) -> RecipeOut:
