@@ -8,7 +8,8 @@ import {
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { apiErrorMessage } from "../api/errors";
-import { EmptyState } from "../components/EmptyState";
+import { ErrorState } from "../components/ErrorState";
+import { Skeleton } from "../components/Skeleton";
 import { toast } from "../hooks/useToast";
 import { IngredientList } from "../components/recipe/IngredientList";
 import type { DisplayGroup } from "../components/recipe/IngredientList";
@@ -128,19 +129,14 @@ export function RecipeDetailPage() {
   });
 
   if (recipe.isPending) {
-    return <p className="rd-status">Opening the recipe…</p>;
+    return <Skeleton variant="detail" />;
   }
 
   if (recipe.isError || !recipe.data) {
     return (
-      <EmptyState
-        title="Recipe not found"
-        body={
-          <>
-            We couldn’t open this recipe.{" "}
-            <Link to="/">Back to your cookbook</Link>.
-          </>
-        }
+      <ErrorState
+        message={apiErrorMessage(recipe.error, "We couldn’t open this recipe.")}
+        onRetry={() => void recipe.refetch()}
       />
     );
   }

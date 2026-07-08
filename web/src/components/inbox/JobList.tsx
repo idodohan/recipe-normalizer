@@ -1,6 +1,8 @@
 import { apiErrorMessage } from "../../api/errors";
 import { useJobs } from "../../hooks/useJobs";
 import { EmptyState } from "../EmptyState";
+import { ErrorState } from "../ErrorState";
+import { Skeleton } from "../Skeleton";
 import { JobRow } from "./JobRow";
 
 export function JobList() {
@@ -8,13 +10,14 @@ export function JobList() {
   const jobs = useJobs({ poll: true });
 
   if (jobs.isPending) {
-    return <p className="inbox-status">Loading your inbox…</p>;
+    return <Skeleton variant="rows" />;
   }
   if (jobs.isError) {
     return (
-      <p className="inbox-status inbox-status--error" role="alert">
-        {apiErrorMessage(jobs.error, "Could not load your inbox.")}
-      </p>
+      <ErrorState
+        message={apiErrorMessage(jobs.error, "Could not load your inbox.")}
+        onRetry={() => void jobs.refetch()}
+      />
     );
   }
   if (jobs.data.length === 0) {

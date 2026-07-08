@@ -161,3 +161,41 @@
     padding: var(--space-6) var(--space-4) var(--space-8);
   }
 }
+
+/* -- Auth loading screen: full-viewport paper wordmark while the ------- */
+/* session resolves, in place of a blank flash. No spinner — a subtle    */
+/* opacity pulse on the wordmark, stilled under reduced motion.          */
+
+.auth-loading {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-paper);
+}
+
+.auth-loading__wordmark {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 540;
+  font-size: 1.3125rem;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+  animation: auth-loading-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes auth-loading-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-loading__wordmark {
+    animation: none;
+  }
+}

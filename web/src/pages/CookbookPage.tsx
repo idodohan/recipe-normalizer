@@ -4,8 +4,10 @@ import { api } from "../api/client";
 import { apiErrorMessage } from "../api/errors";
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
+import { ErrorState } from "../components/ErrorState";
 import { PageHeader } from "../components/PageHeader";
 import { RecipeCard } from "../components/recipe/RecipeCard";
+import { Skeleton } from "../components/Skeleton";
 import "./cookbook.css";
 
 export function CookbookPage() {
@@ -40,16 +42,15 @@ export function CookbookPage() {
       />
 
       {recipes.isPending ? (
-        <p className="cookbook-status">Loading your cookbook…</p>
+        <Skeleton variant="card-grid" />
       ) : recipes.isError ? (
-        <div className="cookbook-error" role="alert">
-          <p className="cookbook-error__message">
-            {apiErrorMessage(
-              recipes.error,
-              "Could not load your cookbook. Please try again.",
-            )}
-          </p>
-        </div>
+        <ErrorState
+          message={apiErrorMessage(
+            recipes.error,
+            "Could not load your cookbook. Please try again.",
+          )}
+          onRetry={() => void recipes.refetch()}
+        />
       ) : count === 0 ? (
         <EmptyState
           title="Your cookbook is empty"

@@ -1,0 +1,271 @@
+/* ------------------------------------------------------------------ */
+/*  Skeleton — paper-tone shimmer placeholders.                         */
+/*  Each variant replicates the grid/padding/border values of its real  */
+/*  layout (cookbook-grid, recipe-detail, job-row) so the swap from      */
+/*  skeleton to content causes no layout shift.                         */
+/* ------------------------------------------------------------------ */
+
+.skel {
+  display: block;
+  border-radius: var(--radius-sm);
+  height: 1rem;
+  background-image: linear-gradient(
+    100deg,
+    var(--color-neutral-100) 30%,
+    var(--color-neutral-200) 50%,
+    var(--color-neutral-100) 70%
+  );
+  background-size: 250% 100%;
+  animation: skel-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes skel-shimmer {
+  0% {
+    background-position: 150% 0;
+  }
+  100% {
+    background-position: -50% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skel {
+    animation: none;
+    background-image: none;
+    background-color: var(--color-neutral-100);
+  }
+}
+
+/* -- card-grid: mirrors .cookbook-grid + .recipe-card ------------------ */
+
+.skel-cookbook-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-8) var(--space-6);
+}
+
+.skel-cookbook-grid > li {
+  display: flex;
+  min-width: 0;
+}
+
+@media (max-width: 940px) {
+  .skel-cookbook-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 580px) {
+  .skel-cookbook-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-7);
+  }
+}
+
+.skel-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-top: 2px solid var(--color-neutral-200);
+  padding-top: var(--space-3);
+}
+
+.skel-card__kicker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.skel-card__kicker .skel {
+  height: 0.6875rem;
+}
+
+.skel-card__initial {
+  width: 3.75rem;
+  height: 4.5rem;
+  margin: var(--space-5) 0 var(--space-4);
+}
+
+.skel-card__title {
+  height: 1.375rem;
+  margin-bottom: var(--space-2);
+}
+
+.skel-card__title--last {
+  margin-bottom: var(--space-5);
+}
+
+.skel-card__foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border-top: var(--hairline);
+  padding-top: var(--space-3);
+}
+
+.skel-card__foot .skel {
+  height: 0.8125rem;
+}
+
+/* -- detail: mirrors .rd__header / .rd__meta / .rd__body --------------- */
+
+.skel-detail__header {
+  border-bottom: 2px solid var(--color-neutral-200);
+  padding-bottom: var(--space-5);
+}
+
+.skel-detail__kicker {
+  width: 30%;
+  height: 0.6875rem;
+  margin-bottom: var(--space-3);
+}
+
+.skel-detail__title {
+  width: 55%;
+  height: 2.5rem;
+  margin-bottom: var(--space-4);
+}
+
+.skel-detail__desc {
+  width: 40%;
+  height: 1.0625rem;
+}
+
+.skel-detail__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+  padding: var(--space-3) 0;
+  border-bottom: var(--hairline);
+}
+
+.skel-detail__meta .skel {
+  width: 4rem;
+  height: 0.9375rem;
+}
+
+.skel-detail__body {
+  display: grid;
+  grid-template-columns: minmax(0, 38fr) minmax(0, 62fr);
+  gap: var(--space-7) var(--space-8);
+  padding-top: var(--space-6);
+  align-items: start;
+}
+
+@media (max-width: 880px) {
+  .skel-detail__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.skel-detail__colhead {
+  width: 35%;
+  height: 0.6875rem;
+  margin-bottom: var(--space-4);
+}
+
+.skel-detail__ing-line {
+  padding: 0.625rem 0;
+  border-bottom: var(--hairline);
+}
+
+.skel-detail__ing-line:last-child {
+  border-bottom: none;
+}
+
+.skel-detail__ing-line .skel {
+  height: 0.9375rem;
+}
+
+.skel-detail__step {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+  padding: var(--space-4) 0;
+  border-bottom: var(--hairline);
+}
+
+.skel-detail__step:first-child {
+  padding-top: 0;
+}
+
+.skel-detail__step:last-child {
+  border-bottom: none;
+}
+
+.skel-detail__step .skel--num {
+  width: 1.5rem;
+  height: 1.375rem;
+}
+
+.skel-detail__step .skel--text {
+  height: 3rem;
+}
+
+/* -- rows: mirrors .job-list / .job-row --------------------------------- */
+
+.skel-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: var(--hairline);
+}
+
+.skel-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "main side"
+    "reason side";
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-4) var(--space-1);
+  border-bottom: var(--hairline);
+}
+
+.skel-row__main {
+  grid-area: main;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.skel-row__main .skel--kind {
+  width: 3rem;
+  height: 0.6875rem;
+  flex-shrink: 0;
+}
+
+.skel-row__main .skel--summary {
+  height: 1.375rem;
+  min-width: 0;
+}
+
+.skel-row__reason {
+  grid-area: reason;
+  margin: 0;
+}
+
+.skel-row__reason .skel {
+  width: 60%;
+  height: 0.8125rem;
+}
+
+.skel-row__side {
+  grid-area: side;
+}
+
+.skel-row__side .skel {
+  width: 4.5rem;
+  height: 1.5rem;
+  border-radius: var(--radius-sm);
+}

@@ -3,6 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { apiErrorMessage } from "../api/errors";
+import { ErrorState } from "../components/ErrorState";
+import { Skeleton } from "../components/Skeleton";
 import { DraftEditor } from "../components/review/DraftEditor";
 import { SourcePanel } from "../components/review/SourcePanel";
 import { jobConfidence } from "../components/inbox/jobStatus";
@@ -55,13 +57,14 @@ export function ReviewPage() {
   });
 
   if (job.isPending) {
-    return <p className="review-status">Loading the job…</p>;
+    return <Skeleton variant="rows" count={3} />;
   }
   if (job.isError) {
     return (
-      <p className="review-status review-status--error" role="alert">
-        {apiErrorMessage(job.error, "Could not load this job.")}
-      </p>
+      <ErrorState
+        message={apiErrorMessage(job.error, "Could not load this job.")}
+        onRetry={() => void job.refetch()}
+      />
     );
   }
 
