@@ -5,6 +5,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 
+from recipe_normalizer.config import settings
 from recipe_normalizer.extraction.base import TierFailed
 from recipe_normalizer.extraction.url_plugin import default_fetch
 from recipe_normalizer.netguard import UnsafeUrlError, assert_public_url
@@ -115,3 +116,41 @@ def test_default_fetch_follows_safe_redirects() -> None:
         result = default_fetch("https://public.example/old", client=client)
     assert result.status == 200
     assert result.url == "https://public.example/new"
+
+
+def test_allowlisted_host_skips_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A host in netguard_allow_hosts must return early without resolving DNS."""
+    monkeypatch.setattr(settings, "netguard_allow_hosts", "localhost")
+
+    def boom(host, port, *args, **kwargs):
+        raise AssertionError("getaddrinfo must not be called for an allowlisted host")
+
+    with patch("socket.getaddrinfo", boom):
+        assert_public_url("http://localhost:8099/x")
+
+
+def test_allowlist_is_exact_hostname_not_ip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """127.0.0.1 is not 'localhost' — the allowlist must not implicitly cover it."""
+    monkeypatch.setattr(settings, "netguard_allow_hosts", "localhost")
+    with (
+        patch("socket.getaddrinfo", _fake_getaddrinfo("127.0.0.1")),
+        pytest.raises(UnsafeUrlError),
+    ):
+        assert_public_url("http://127.0.0.1/")
+
+
+def test_empty_allowlist_preserves_default_behavior() -> None:
+    """The default (empty) allowlist must not change existing rejection behavior."""
+    assert settings.netguard_allow_hosts == ""
+    with (
+        patch("socket.getaddrinfo", _fake_getaddrinfo("127.0.0.1")),
+        pytest.raises(UnsafeUrlError),
+    ):
+        assert_public_url("http://localhost/")
+
+
+def test_allowlisted_host_still_rejects_bad_scheme(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The scheme check applies even to an allowlisted host."""
+    monkeypatch.setattr(settings, "netguard_allow_hosts", "localhost")
+    with pytest.raises(UnsafeUrlError):
+        assert_public_url("file://localhost/etc/passwd")

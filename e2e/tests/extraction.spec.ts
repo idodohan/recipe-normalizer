@@ -23,7 +23,14 @@ const LIVE = process.env.RN_LIVE_LLM_TESTS === "1";
 function runWorkerOnce(): void {
   const result = spawnSync("uv", ["run", "python", "-m", "recipe_normalizer.worker", "--once"], {
     cwd: REPO_ROOT,
-    env: { ...process.env, ...(LIVE ? {} : { RN_LLM_STUB: "1" }) },
+    // RN_NETGUARD_ALLOW_HOSTS: the worker fetches the fixture page itself
+    // (tier-1 extraction), so it needs the same SSRF-guard allowlist as the
+    // backend webServer (see playwright.config.ts) to reach localhost:8099.
+    env: {
+      ...process.env,
+      ...(LIVE ? {} : { RN_LLM_STUB: "1" }),
+      RN_NETGUARD_ALLOW_HOSTS: "localhost",
+    },
     stdio: "inherit",
     timeout: 120_000,
   });

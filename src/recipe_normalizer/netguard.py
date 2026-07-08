@@ -6,6 +6,14 @@ The check resolves the hostname and rejects any address that is not globally
 routable (loopback, RFC1918, link-local incl. 169.254.169.254 cloud metadata,
 CGNAT, ULA, unspecified). Resolution happens at check time, so a TOCTOU/DNS-
 rebinding window remains; acceptable at friends-and-family scale, documented.
+
+``settings.netguard_allow_hosts`` is a test/e2e escape hatch: a comma-separated
+list of exact hostnames (case-insensitive) that skip address resolution
+entirely, so local fixture servers (e.g. Playwright's ``localhost:8099``) can
+be exercised without being rejected as private addresses. The scheme check
+still applies to allowlisted hosts. This setting MUST stay empty in
+production — it is read from config, not hardcoded, specifically so tests can
+opt in via env/monkeypatch without weakening the default guard.
 """
 
 from __future__ import annotations
@@ -13,6 +21,8 @@ from __future__ import annotations
 import ipaddress
 import socket
 from urllib.parse import urlparse
+
+from recipe_normalizer.config import settings
 
 __all__ = ["MAX_REDIRECTS", "UnsafeUrlError", "assert_public_url"]
 
@@ -25,6 +35,12 @@ class UnsafeUrlError(ValueError):
     """The URL is not safe to fetch server-side."""
 
 
+def _allowlisted_hosts() -> frozenset[str]:
+    return frozenset(
+        h.strip().lower() for h in settings.netguard_allow_hosts.split(",") if h.strip()
+    )
+
+
 def assert_public_url(url: str) -> None:
     """Raise UnsafeUrlError unless *url* is http(s) to a globally-routable host."""
     parsed = urlparse(url)
@@ -33,6 +49,8 @@ def assert_public_url(url: str) -> None:
     host = parsed.hostname
     if not host:
         raise UnsafeUrlError("URL has no host")
+    if host.lower() in _allowlisted_hosts():
+        return
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror as exc:
