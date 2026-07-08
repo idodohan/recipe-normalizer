@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import type { components } from "../../api/schema";
+import { FavoriteButton } from "./FavoriteButton";
 import "./recipe-card.css";
 
 type RecipeSummary = components["schemas"]["RecipeSummary"];
@@ -26,37 +27,45 @@ export function RecipeCard({ recipe, index }: RecipeCardProps) {
   const variant = index % 2 === 1 ? "recipe-card recipe-card--ink" : "recipe-card";
 
   return (
-    <Link to={`/recipes/${recipe.id}`} className={variant}>
-      <p className="recipe-card__kicker">
-        <span className="recipe-card__types">
-          {recipe.dish_types.length > 0 ? recipe.dish_types.join(" · ") : "recipe"}
-        </span>
-        <span className="recipe-card__no" aria-hidden="true">
-          No. {index + 1}
-        </span>
-      </p>
+    <div className="recipe-card-shell">
+      <Link to={`/recipes/${recipe.id}`} className={variant}>
+        <p className="recipe-card__kicker">
+          <span className="recipe-card__types">
+            {recipe.dish_types.length > 0 ? recipe.dish_types.join(" · ") : "recipe"}
+          </span>
+          <span className="recipe-card__no" aria-hidden="true">
+            No. {index + 1}
+          </span>
+        </p>
 
-      {recipe.image_ref ? (
-        <img
-          className="recipe-card__image"
-          src={recipe.image_ref}
-          alt=""
-          loading="lazy"
-        />
-      ) : (
-        <span className="recipe-card__initial" aria-hidden="true">
-          {initial}
-        </span>
-      )}
-
-      <h2 className="recipe-card__title">{recipe.title}</h2>
-
-      <p className="recipe-card__foot">
-        <span className="recipe-card__time">{time ?? "—"}</span>
-        {recipe.is_verified ? null : (
-          <span className="recipe-card__flag">Unreviewed</span>
+        {recipe.image_ref ? (
+          <img
+            className="recipe-card__image"
+            src={recipe.image_ref}
+            alt=""
+            loading="lazy"
+          />
+        ) : (
+          <span className="recipe-card__initial" aria-hidden="true">
+            {initial}
+          </span>
         )}
-      </p>
-    </Link>
+
+        <h2 className="recipe-card__title">{recipe.title}</h2>
+
+        <p className="recipe-card__foot">
+          <span className="recipe-card__time">{time ?? "—"}</span>
+          {recipe.is_verified ? null : (
+            <span className="recipe-card__flag">Unreviewed</span>
+          )}
+        </p>
+      </Link>
+
+      <FavoriteButton
+        recipeId={recipe.id}
+        isFavorite={recipe.is_favorite}
+        className="recipe-card__favorite"
+      />
+    </div>
   );
 }

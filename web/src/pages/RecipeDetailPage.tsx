@@ -12,8 +12,10 @@ import { Button } from "../components/Button";
 import { ErrorState } from "../components/ErrorState";
 import { Skeleton } from "../components/Skeleton";
 import { toast } from "../hooks/useToast";
+import { FavoriteButton } from "../components/recipe/FavoriteButton";
 import { IngredientList } from "../components/recipe/IngredientList";
 import type { DisplayGroup } from "../components/recipe/IngredientList";
+import { NotesSection } from "../components/recipe/NotesSection";
 import { ScaleControl } from "../components/recipe/ScaleControl";
 import type { ScaleRequest } from "../components/recipe/ScaleControl";
 import { StepList } from "../components/recipe/StepList";
@@ -228,10 +230,19 @@ export function RecipeDetailPage() {
       ) : null}
 
       <header className="rd__header">
-        <p className="rd__kicker">
-          {data.dish_types.length > 0 ? data.dish_types.join(" · ") : "Recipe"}
-        </p>
-        <h1 className="rd__title">{data.title}</h1>
+        <div className="rd__heading-row">
+          <div>
+            <p className="rd__kicker">
+              {data.dish_types.length > 0 ? data.dish_types.join(" · ") : "Recipe"}
+            </p>
+            <h1 className="rd__title">{data.title}</h1>
+          </div>
+          <FavoriteButton
+            recipeId={id!}
+            isFavorite={data.is_favorite}
+            className="rd__favorite"
+          />
+        </div>
         {data.description ? <p className="rd__desc">{data.description}</p> : null}
       </header>
 
@@ -303,6 +314,8 @@ export function RecipeDetailPage() {
           <StepList steps={steps} />
         </section>
       </div>
+
+      <NotesSection recipeId={id!} notes={data.notes ?? null} />
     </article>
   );
 }

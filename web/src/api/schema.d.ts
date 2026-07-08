@@ -868,6 +868,11 @@ export interface components {
             /** Image Ref */
             image_ref?: string | null;
             /**
+             * Is Favorite
+             * @default false
+             */
+            is_favorite: boolean;
+            /**
              * Is Verified
              * @default false
              */

@@ -6,6 +6,13 @@
 /*  alternate terracotta / ink so the grid reads set, not stamped.     */
 /* ------------------------------------------------------------------ */
 
+.recipe-card-shell {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
 .recipe-card {
   flex: 1;
   display: flex;
@@ -22,6 +29,15 @@
   border-top-color: var(--color-accent);
 }
 
+/* Sits above the card, clear of the kicker row's plate number — a sibling
+   of the Link (not nested inside it) so its click never reaches the anchor. */
+.recipe-card__favorite {
+  position: absolute;
+  top: calc(-1 * var(--space-2));
+  right: calc(-1 * var(--space-2));
+  z-index: 1;
+}
+
 /* -- Kicker: dish types + plate number ------------------------------- */
 
 .recipe-card__kicker {
@@ -30,6 +46,8 @@
   justify-content: space-between;
   gap: var(--space-3);
   max-width: none;
+  /* Leaves the plate number clear of the favorite heart overlaid above. */
+  padding-right: var(--space-7);
 }
 
 .recipe-card__types {

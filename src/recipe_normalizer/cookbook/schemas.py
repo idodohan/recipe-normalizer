@@ -284,6 +284,7 @@ class RecipeSummary(BaseModel):
     dish_types: list[str] = []
     total_min: int | None = None
     is_verified: bool = False
+    is_favorite: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}

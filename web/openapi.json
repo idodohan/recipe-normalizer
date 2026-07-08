@@ -1190,6 +1190,11 @@
             ],
             "title": "Image Ref"
           },
+          "is_favorite": {
+            "default": false,
+            "title": "Is Favorite",
+            "type": "boolean"
+          },
           "is_verified": {
             "default": false,
             "title": "Is Verified",

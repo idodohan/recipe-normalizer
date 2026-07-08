@@ -4,6 +4,39 @@
 /*  error states.                                                      */
 /* ------------------------------------------------------------------ */
 
+/* -- Filter chips: All / Favorites ----------------------------------- */
+
+.cookbook-filters {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-6);
+}
+
+/* Reuses .chip's shape/type — a neutral hairline outline by default,
+   the terracotta "selected" treatment once aria-pressed is true. */
+.chip--filter {
+  cursor: pointer;
+  padding: 0 var(--space-3);
+  border-color: var(--color-hairline-strong);
+  color: var(--color-text-muted);
+  transition:
+    border-color 120ms ease,
+    color 120ms ease,
+    background-color 120ms ease;
+}
+
+.chip--filter:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent-deep);
+}
+
+.chip--filter[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  background-color: var(--color-accent-wash);
+  color: var(--color-accent-deep);
+  font-weight: 600;
+}
+
 .cookbook-grid {
   list-style: none;
   margin: 0;
