@@ -354,6 +354,24 @@ export interface paths {
         patch: operations["update_recipe_api_recipes__recipe_id__patch"];
         trace?: never;
     };
+    "/api/recipes/{recipe_id}/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Upload Recipe Image */
+        put: operations["upload_recipe_image_api_recipes__recipe_id__image_put"];
+        post?: never;
+        /** Delete Recipe Image */
+        delete: operations["delete_recipe_image_api_recipes__recipe_id__image_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recipes/{recipe_id}/personal": {
         parameters: {
             query?: never;
@@ -418,6 +436,11 @@ export interface components {
         };
         /** Body_ingest_file_api_ingest_file_post */
         Body_ingest_file_api_ingest_file_post: {
+            /** File */
+            file: string;
+        };
+        /** Body_upload_recipe_image_api_recipes__recipe_id__image_put */
+        Body_upload_recipe_image_api_recipes__recipe_id__image_put: {
             /** File */
             file: string;
         };
@@ -1757,6 +1780,72 @@ export interface operations {
                 "application/json": components["schemas"]["RecipeIn"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecipeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_recipe_image_api_recipes__recipe_id__image_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recipe_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_recipe_image_api_recipes__recipe_id__image_put"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecipeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_recipe_image_api_recipes__recipe_id__image_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recipe_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

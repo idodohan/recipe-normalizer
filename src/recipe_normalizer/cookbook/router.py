@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -22,6 +22,7 @@ from recipe_normalizer.cookbook.schemas import (
 )
 from recipe_normalizer.db import get_db
 from recipe_normalizer.errors import ApiError
+from recipe_normalizer.filestore import FileStore, get_file_store
 
 router = APIRouter(prefix="/api", tags=["recipes"])
 
@@ -104,6 +105,40 @@ def delete_recipe(
 ) -> Response:
     service.delete_recipe(db, owner_id=current_user.id, recipe_id=recipe_id)
     return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# Recipe image
+# ---------------------------------------------------------------------------
+
+
+@router.put("/recipes/{recipe_id}/image", response_model=RecipeOut)
+async def upload_recipe_image(
+    recipe_id: uuid.UUID,
+    file: UploadFile,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+    store: FileStore = Depends(get_file_store),  # noqa: B008
+) -> RecipeOut:
+    # Bounded read: never buffer more than the limit + 1 byte. If we got the
+    # extra byte the body exceeds the limit and the service rejects it.
+    data = await file.read(service.MAX_IMAGE_BYTES + 1)
+    return service.set_recipe_image(
+        db,
+        owner_id=current_user.id,
+        recipe_id=recipe_id,
+        data=data,
+        store=store,
+    )
+
+
+@router.delete("/recipes/{recipe_id}/image", response_model=RecipeOut)
+def delete_recipe_image(
+    recipe_id: uuid.UUID,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> RecipeOut:
+    return service.clear_recipe_image(db, owner_id=current_user.id, recipe_id=recipe_id)
 
 
 # ---------------------------------------------------------------------------

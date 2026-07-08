@@ -36,12 +36,16 @@ from recipe_normalizer.cookbook.schemas import (
     RecipeSummary,
 )
 from recipe_normalizer.errors import ApiError
+from recipe_normalizer.filestore import FileStore
+from recipe_normalizer.sniff import detect_media_type
 
 __all__ = [
+    "MAX_IMAGE_BYTES",
     "UNSET",
     "DuplicateRecipeError",
     "SourceType",
     "are_verified",
+    "clear_recipe_image",
     "create_recipe",
     "delete_recipe",
     "find_recipe_id_by_fingerprint",
@@ -50,6 +54,7 @@ __all__ = [
     "register_hooks",
     "repoint_ingredient_lines",
     "set_personal",
+    "set_recipe_image",
     "update_recipe",
     "verify_recipe",
 ]
@@ -58,6 +63,25 @@ __all__ = [
 # Public sentinel for "field not provided" in set_personal, so callers can
 # explicitly pass notes=None (clearing it) vs. leaving it untouched.
 UNSET: Any = object()
+
+
+# ---------------------------------------------------------------------------
+# Recipe image upload — validation constants
+# ---------------------------------------------------------------------------
+
+MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB — the router bounds its read with this
+
+# Images only — no PDF (that's an ingestion source type, not a recipe photo).
+_ALLOWED_IMAGE_TYPES: frozenset[str] = frozenset(
+    {"image/png", "image/jpeg", "image/webp", "image/gif"}
+)
+
+_IMAGE_MEDIA_TYPE_SUFFIX: dict[str, str] = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/webp": "webp",
+    "image/gif": "gif",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -513,6 +537,85 @@ def set_personal(
     if notes is not UNSET:
         recipe.notes = notes
 
+    db.flush()
+
+    loaded = _load_recipe_full(db, recipe_id)
+    assert loaded is not None
+    return RecipeOut.model_validate(loaded)
+
+
+# ---------------------------------------------------------------------------
+# Recipe image upload
+# ---------------------------------------------------------------------------
+
+
+def set_recipe_image(
+    db: Session,
+    *,
+    owner_id: uuid.UUID,
+    recipe_id: uuid.UUID,
+    data: bytes,
+    store: FileStore,
+) -> RecipeOut:
+    """Upload (or replace) the recipe's photo.
+
+    Owner-scoped: raises ApiError 404 if not found or wrong owner.
+    Validates size, then sniffs the actual content from magic bytes — the
+    client-supplied Content-Type is only a hint and is never trusted (mirrors
+    ingestion.service.submit_file). Images only (png/jpeg/webp/gif); a PDF or
+    any other content is rejected even though sniff.py recognizes it.
+    Saves to the FileStore and points recipe.image_ref at the new ref
+    (the old blob, if any, is left in place — content-addressed store, same
+    convention as everywhere else in the codebase).
+    Flushes; caller owns commit.
+    """
+    recipe = db.scalars(
+        select(Recipe).where(Recipe.id == recipe_id, Recipe.owner_id == owner_id)
+    ).first()
+    if recipe is None:
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+
+    if len(data) > MAX_IMAGE_BYTES:
+        raise ApiError(422, "file_too_large", "Image must be ≤ 10 MB.")
+
+    sniffed_media_type = detect_media_type(data)
+    if sniffed_media_type is None or sniffed_media_type not in _ALLOWED_IMAGE_TYPES:
+        raise ApiError(
+            422,
+            "unsupported_file_type",
+            f"File content is not a supported image type (detected: "
+            f"{sniffed_media_type or 'unknown'}). "
+            f"Allowed: {', '.join(sorted(_ALLOWED_IMAGE_TYPES))}",
+        )
+
+    suffix = _IMAGE_MEDIA_TYPE_SUFFIX[sniffed_media_type]
+    recipe.image_ref = store.save(data, suffix=suffix)
+    db.flush()
+
+    loaded = _load_recipe_full(db, recipe_id)
+    assert loaded is not None
+    return RecipeOut.model_validate(loaded)
+
+
+def clear_recipe_image(
+    db: Session,
+    *,
+    owner_id: uuid.UUID,
+    recipe_id: uuid.UUID,
+) -> RecipeOut:
+    """Clear the recipe's photo (sets image_ref to None).
+
+    Owner-scoped: raises ApiError 404 if not found or wrong owner.
+    Idempotent — clearing an already-imageless recipe is a no-op.
+    Flushes; caller owns commit.
+    """
+    recipe = db.scalars(
+        select(Recipe).where(Recipe.id == recipe_id, Recipe.owner_id == owner_id)
+    ).first()
+    if recipe is None:
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+
+    recipe.image_ref = None
     db.flush()
 
     loaded = _load_recipe_full(db, recipe_id)
