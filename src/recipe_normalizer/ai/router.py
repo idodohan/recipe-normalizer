@@ -20,6 +20,8 @@ from recipe_normalizer.ai.schemas import (
     ConversationCreateIn,
     ConversationDetailOut,
     ConversationOut,
+    CookbookQaCreateIn,
+    CookbookQaOut,
     MessageCreateIn,
     MessageOut,
 )
@@ -32,6 +34,11 @@ router = APIRouter(prefix="/api/ai", tags=["ai"])
 #: constraint (every AI endpoint is rate-limited on top of the per-request
 #: LLM cost cap).
 _chat_limit = limit_by_user("ai_chat", 60, 3600.0)
+
+#: Same shape as `_chat_limit` — a separate bucket (own name, own counter) so
+#: heavy recipe-chat use doesn't eat into a user's cookbook Q&A allowance or
+#: vice versa.
+_cookbook_qa_limit = limit_by_user("ai_cookbook_qa", 60, 3600.0)
 
 
 @router.get("/conversations", response_model=list[ConversationOut])
@@ -91,5 +98,32 @@ def post_chat_message(
         user_id=current_user.id,
         conversation_id=conversation_id,
         content=body.content,
+        llm=llm,
+    )
+
+
+@router.post(
+    "/cookbook-qa",
+    status_code=201,
+    response_model=CookbookQaOut,
+    dependencies=[Depends(_cookbook_qa_limit)],
+)
+def post_cookbook_qa(
+    body: CookbookQaCreateIn,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> CookbookQaOut:
+    """Ask a question over the user's own cookbook; the model searches via tool-use.
+
+    Returns the assistant `Message` plus `referenced_recipe_ids` — the ids of
+    every recipe `search_recipes` returned during this turn, for the UI to
+    render as clickable chips (see `ai.service.cookbook_qa_turn`).
+    """
+    llm = service.make_ai_llm(db, user_id=current_user.id, feature="ai.cookbook_qa")
+    return service.cookbook_qa_turn(
+        db,
+        user_id=current_user.id,
+        content=body.content,
+        conversation_id=body.conversation_id,
         llm=llm,
     )

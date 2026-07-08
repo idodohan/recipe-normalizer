@@ -16,20 +16,33 @@ import json
 import logging
 import os
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any, cast
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from recipe_normalizer.ai.models import Conversation, ConversationKind, Message, MessageRole
-from recipe_normalizer.ai.prompts import RECIPE_CHAT_SYSTEM
-from recipe_normalizer.ai.schemas import ConversationDetailOut, ConversationOut, MessageOut
+from recipe_normalizer.ai.prompts import COOKBOOK_QA_SYSTEM, RECIPE_CHAT_SYSTEM, SEARCH_RECIPES_TOOL
+from recipe_normalizer.ai.schemas import (
+    ConversationDetailOut,
+    ConversationOut,
+    CookbookQaOut,
+    MessageOut,
+)
 from recipe_normalizer.config import settings
 from recipe_normalizer.cookbook import service as cookbook_service
 from recipe_normalizer.cookbook.schemas import RecipeOut
 from recipe_normalizer.errors import ApiError
-from recipe_normalizer.llm.client import CostCapExceeded, DbUsageRecorder, LLMClient, LLMError
+from recipe_normalizer.llm.client import (
+    BudgetExceeded,
+    CostCapExceeded,
+    DbUsageRecorder,
+    LLMClient,
+    LLMError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +51,7 @@ __all__ = [
     "MAX_MESSAGES_PER_CONVERSATION",
     "append_message",
     "chat_turn",
+    "cookbook_qa_turn",
     "create_conversation",
     "enforce_message_cap",
     "get_conversation",
@@ -345,6 +359,207 @@ def chat_turn(
 
 
 # ---------------------------------------------------------------------------
+# Cookbook Q&A (Phase 3 Task 4) — tool-use over search, never the full cookbook
+# ---------------------------------------------------------------------------
+
+#: Hard cap on how many recipes a single `search_recipes` call may return,
+#: regardless of what the model asks for (the tool schema has no `limit`
+#: field at all — this is enforced entirely server-side) — bounds tokens per
+#: the phase plan's "compact JSON, not full recipes" instruction.
+_COOKBOOK_QA_SEARCH_LIMIT = 20
+
+#: How many ingredient names ride along per recipe in a search result — a
+#: taste of what's in the recipe, not the full ingredient list (that would
+#: defeat the point of returning a compact summary).
+_COOKBOOK_QA_TOP_INGREDIENTS = 5
+
+#: Tool loops are bounded much tighter than the general-purpose default
+#: (`LLMClient.tool_loop`'s `max_iterations=15`) — a Q&A turn is "search a
+#: couple of times, then answer," not an open-ended agentic task.
+_COOKBOOK_QA_MAX_ITERATIONS = 6
+
+
+def _compact_recipe_for_search_result(recipe: RecipeOut) -> dict[str, Any]:
+    """Build the compact per-recipe JSON `search_recipes` returns to the model.
+
+    Deliberately NOT `RecipeOut` or even `RecipeSummary` — a handful of
+    identifying fields plus a taste of the ingredients, never the full
+    ingredient lines (quantities/units/notes) or steps. This is what keeps a
+    multi-recipe search result small enough to bound tokens/cost across a
+    tool loop, per the phase plan's "compact JSON per recipe ... NOT full
+    recipes" instruction.
+    """
+    ingredient_names = [
+        (line.name or line.original_text) for group in recipe.groups for line in group.lines
+    ][:_COOKBOOK_QA_TOP_INGREDIENTS]
+    return {
+        "id": str(recipe.id),
+        "title": recipe.title,
+        "cuisines": recipe.cuisines,
+        "dish_types": recipe.dish_types,
+        "total_min": recipe.total_min,
+        "top_ingredients": ingredient_names,
+    }
+
+
+def _make_search_recipes_execute(
+    db: Session, *, user_id: uuid.UUID, referenced_ids: list[uuid.UUID]
+) -> Any:
+    """Build the `execute` callback `cookbook_qa_turn` passes to `llm.tool_loop`.
+
+    Scopes every search to *user_id*'s OWN cookbook via
+    `cookbook_service.list_recipes(owner_id=user_id, ...)` — the same
+    owner-only listing the cookbook's own search UI uses; shared-cookbook
+    recipes aren't included (acceptable v1 per the phase plan). Every recipe
+    id a search returns is appended to *referenced_ids* (mutated in place,
+    duplicates and all — the caller dedupes) so `cookbook_qa_turn` can report
+    which recipes the model actually saw, for the UI's "referenced recipes"
+    chips.
+
+    An unrecognised tool name or an `ApiError` from `list_recipes` (e.g. an
+    invalid `dietary` value the model made up) is left to propagate as a
+    plain exception — `LLMClient.tool_loop` catches it, turns it into an
+    `is_error` tool_result, and feeds the message back to the model as
+    feedback, so a bad tool call doesn't crash the whole turn.
+    """
+
+    def execute(name: str, args: dict[str, Any]) -> str:
+        if name != "search_recipes":
+            raise ValueError(f"unknown tool {name!r}")
+        args = args or {}
+        page = cookbook_service.list_recipes(
+            db,
+            owner_id=user_id,
+            q=args.get("query"),
+            cuisine=args.get("cuisine"),
+            dish_type=args.get("dish_type"),
+            tag=args.get("tag"),
+            dietary=args.get("dietary"),
+            max_total_min=args.get("max_total_min"),
+            favorites=args.get("favorites"),
+            limit=_COOKBOOK_QA_SEARCH_LIMIT,
+        )
+        results = []
+        for summary in page.items:
+            recipe = cookbook_service.get_recipe(db, owner_id=user_id, recipe_id=summary.id)
+            results.append(_compact_recipe_for_search_result(recipe))
+            referenced_ids.append(recipe.id)
+        return json.dumps({"total_matches": page.total, "results": results})
+
+    return execute
+
+
+def _final_text(response: Any) -> str:
+    """Extract the answer text from `tool_loop`'s final (`end_turn`) Message."""
+    text = next((block.text for block in response.content if block.type == "text"), None)
+    if text is None:
+        raise LLMError("no text block in tool_loop's final response")
+    return cast(str, text)
+
+
+def cookbook_qa_turn(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    content: str,
+    conversation_id: uuid.UUID | None = None,
+    llm: LLMClient,
+) -> CookbookQaOut:
+    """Run one cookbook Q&A turn: search the user's own cookbook via tool-use, persist the answer.
+
+    Unlike `chat_turn` (grounded on one recipe's full JSON), this NEVER dumps
+    the cookbook into context — the model must call `search_recipes` (see
+    `ai.prompts.SEARCH_RECIPES_TOOL`) to find anything, and every search is
+    scoped to *user_id*'s own recipes via `cookbook_service.list_recipes`.
+
+    *conversation_id*, when given, must be an existing `kind=cookbook_qa`
+    conversation owned by *user_id` (404 for missing/someone-else's, 422 for
+    a `recipe_chat` conversation passed here by mistake). When omitted, a new
+    `cookbook_qa` conversation is created — but only AFTER the LLM call
+    succeeds (see below).
+
+    Deliberately does NOT thread the conversation's prior messages into the
+    model call the way `chat_turn` does: `LLMClient.tool_loop` takes a single
+    opening `initial_content` turn, not a chat history array, and
+    reconstructing prior assistant/tool_use/tool_result turns to prime a new
+    loop is unnecessary complexity for v1 — each question is answered fresh
+    off live search results (which may have changed since the last turn
+    anyway). The conversation's stored transcript is still complete for the
+    UI: `content` and the final answer are both persisted for
+    `get_conversation` to return.
+
+    On failure (`CostCapExceeded`, a tool-loop `BudgetExceeded`, or any other
+    `LLMError`), NOTHING is persisted — not the conversation (when
+    *conversation_id* was `None`, no row is created at all) and not either
+    message — mirroring `chat_turn`'s "no partial exchange" contract exactly,
+    just extended to conversation creation too, since here that's also a side
+    effect of a successful call rather than a precondition of one.
+
+    Flushes; caller owns commit.
+    """
+    existing_message_count = 0
+    if conversation_id is not None:
+        detail = get_conversation(db, user_id=user_id, conversation_id=conversation_id)
+        if detail.kind != ConversationKind.cookbook_qa:
+            raise ApiError(
+                422,
+                "not_cookbook_qa",
+                "This conversation is not a cookbook Q&A conversation.",
+            )
+        existing_message_count = len(detail.messages)
+
+    if existing_message_count + 2 > MAX_MESSAGES_PER_CONVERSATION:
+        raise ApiError(
+            422,
+            "conversation_full",
+            f"This conversation has reached its {MAX_MESSAGES_PER_CONVERSATION}-message limit.",
+        )
+
+    referenced_ids: list[uuid.UUID] = []
+    execute = _make_search_recipes_execute(db, user_id=user_id, referenced_ids=referenced_ids)
+
+    try:
+        response = llm.tool_loop(
+            feature="ai.cookbook_qa",
+            system=COOKBOOK_QA_SYSTEM,
+            tools=[SEARCH_RECIPES_TOOL],
+            initial_content=[{"type": "text", "text": content}],
+            execute=execute,
+            max_iterations=_COOKBOOK_QA_MAX_ITERATIONS,
+        )
+        answer = _final_text(response)
+    except CostCapExceeded as exc:
+        raise ApiError(
+            503,
+            "cost_cap_exceeded",
+            "This request would exceed the AI budget allowed for this call — try again shortly.",
+        ) from exc
+    except BudgetExceeded as exc:
+        raise ApiError(
+            503,
+            "ai_tool_budget_exceeded",
+            "This question needed more searching than allowed — try a narrower question.",
+        ) from exc
+    except LLMError as exc:
+        raise ApiError(502, "llm_error", "The AI assistant could not produce an answer.") from exc
+
+    if conversation_id is None:
+        conversation_id = create_conversation(
+            db, user_id=user_id, recipe_id=None, kind=ConversationKind.cookbook_qa
+        ).id
+
+    append_message(db, conversation_id=conversation_id, role=MessageRole.user, content=content)
+    message = append_message(
+        db, conversation_id=conversation_id, role=MessageRole.assistant, content=answer
+    )
+    return CookbookQaOut(
+        conversation_id=conversation_id,
+        message=message,
+        referenced_recipe_ids=list(dict.fromkeys(referenced_ids)),
+    )
+
+
+# ---------------------------------------------------------------------------
 # LLM factory — RN_LLM_STUB=1 swaps in a canned client (TEST/E2E ONLY)
 # ---------------------------------------------------------------------------
 
@@ -354,6 +569,12 @@ def chat_turn(
 #: model output.
 _STUB_CHAT_REPLY = "This is a stubbed AI reply (RN_LLM_STUB=1) — no real model was called."
 
+#: Fixed reply for the stub's `tool_loop()` — distinct wording from the chat
+#: reply so e2e assertions can tell the two features' stub output apart.
+_STUB_COOKBOOK_QA_REPLY = (
+    "This is a stubbed cookbook Q&A reply (RN_LLM_STUB=1) — no real model was called."
+)
+
 
 class _StubAiLLMClient:
     """Deterministic fake LLM for ai chat features, enabled ONLY by RN_LLM_STUB=1.
@@ -362,7 +583,7 @@ class _StubAiLLMClient:
 
     Mirrors `worker._StubLLMClient`'s env convention (same `RN_LLM_STUB=1`
     flag, same warning-on-use, same "TEST/E2E ONLY" contract) but for the ai
-    module's `.chat()` surface rather than extraction's
+    module's `.chat()`/`.tool_loop()` surfaces rather than extraction's
     structured/classify_bool/tool_loop. Answers any call with a fixed reply,
     makes zero API calls, and spends $0.
     """
@@ -382,6 +603,30 @@ class _StubAiLLMClient:
         fast: bool = False,
     ) -> str:
         return _STUB_CHAT_REPLY
+
+    def tool_loop(
+        self,
+        *,
+        feature: str,
+        system: str,
+        tools: list[dict[str, Any]],
+        initial_content: list[dict[str, Any]],
+        execute: Callable[[str, dict[str, Any]], str | list[dict[str, Any]]],
+        max_iterations: int = 15,
+        max_tokens: int = 8000,
+    ) -> Any:
+        """Call `execute` once (an empty `search_recipes`) then return a canned reply.
+
+        Exercises the real `execute` callback — and therefore the real
+        `cookbook_service.list_recipes` scoping — even under the stub, so an
+        e2e run still proves the tool wiring works end-to-end; only the
+        model's own text is canned.
+        """
+        execute("search_recipes", {})
+        return SimpleNamespace(
+            content=[SimpleNamespace(type="text", text=_STUB_COOKBOOK_QA_REPLY)],
+            stop_reason="end_turn",
+        )
 
 
 def make_ai_llm(db: Session, *, user_id: uuid.UUID, feature: str) -> LLMClient:

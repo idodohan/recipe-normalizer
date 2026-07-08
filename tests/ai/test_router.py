@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from recipe_normalizer.ai.router import _chat_limit
+from recipe_normalizer.ai.router import _chat_limit, _cookbook_qa_limit
 from recipe_normalizer.ai.router import router as ai_router
 from recipe_normalizer.cookbook.router import router as cookbook_router
 from recipe_normalizer.users.router import router as users_router
@@ -254,3 +254,90 @@ def test_post_chat_message_rate_limited_after_60_per_hour(owner_client: TestClie
     assert resp.status_code == 429
 
     _chat_limit.limiter.reset()  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# POST /cookbook-qa
+# ---------------------------------------------------------------------------
+
+
+def test_post_cookbook_qa_returns_message_and_referenced_recipe_ids(
+    owner_client: TestClient,
+) -> None:
+    _create_recipe(owner_client)
+
+    resp = owner_client.post("/api/ai/cookbook-qa", json={"content": "What can I make tonight?"})
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["message"]["role"] == "assistant"
+    assert body["message"]["content"]  # the stub's canned reply
+    assert "referenced_recipe_ids" in body
+    assert isinstance(body["referenced_recipe_ids"], list)
+    assert body["conversation_id"]
+
+    detail = owner_client.get(f"/api/ai/conversations/{body['conversation_id']}").json()
+    assert detail["kind"] == "cookbook_qa"
+    assert [m["role"] for m in detail["messages"]] == ["user", "assistant"]
+
+
+def test_post_cookbook_qa_continues_an_existing_conversation(owner_client: TestClient) -> None:
+    resp = owner_client.post("/api/ai/cookbook-qa", json={"content": "first question"})
+    conversation_id = resp.json()["conversation_id"]
+
+    resp = owner_client.post(
+        "/api/ai/cookbook-qa",
+        json={"content": "second question", "conversation_id": conversation_id},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["conversation_id"] == conversation_id
+
+    detail = owner_client.get(f"/api/ai/conversations/{conversation_id}").json()
+    assert len(detail["messages"]) == 4
+
+
+def test_post_cookbook_qa_requires_authentication(client: TestClient) -> None:
+    resp = client.post("/api/ai/cookbook-qa", json={"content": "hi"})
+    assert resp.status_code == 401
+
+
+def test_post_cookbook_qa_rejects_empty_content(owner_client: TestClient) -> None:
+    resp = owner_client.post("/api/ai/cookbook-qa", json={"content": ""})
+    assert resp.status_code == 422
+
+
+def test_post_cookbook_qa_on_recipe_chat_conversation_returns_422(
+    owner_client: TestClient,
+) -> None:
+    recipe_id = _create_recipe(owner_client)
+    conversation_id = _create_chat_conversation(owner_client, recipe_id)
+
+    resp = owner_client.post(
+        "/api/ai/cookbook-qa",
+        json={"content": "hi", "conversation_id": conversation_id},
+    )
+    assert resp.status_code == 422
+
+
+def test_post_cookbook_qa_on_someone_elses_conversation_returns_404(
+    owner_client: TestClient, db_session: Session
+) -> None:
+    resp = owner_client.post("/api/ai/cookbook-qa", json={"content": "hi"})
+    conversation_id = resp.json()["conversation_id"]
+
+    other = _register_second_client(db_session)
+    resp = other.post(
+        "/api/ai/cookbook-qa",
+        json={"content": "hi", "conversation_id": conversation_id},
+    )
+    assert resp.status_code == 404
+
+
+def test_post_cookbook_qa_rate_limited_after_60_per_hour(owner_client: TestClient) -> None:
+    for _ in range(60):
+        resp = owner_client.post("/api/ai/cookbook-qa", json={"content": "hi"})
+        assert resp.status_code == 201
+
+    resp = owner_client.post("/api/ai/cookbook-qa", json={"content": "one too many"})
+    assert resp.status_code == 429
+
+    _cookbook_qa_limit.limiter.reset()  # type: ignore[attr-defined]

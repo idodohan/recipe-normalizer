@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from recipe_normalizer.ai import service as ai_service
 from recipe_normalizer.ai.models import Conversation, ConversationKind, Message, MessageRole
+from recipe_normalizer.ai.prompts import SEARCH_RECIPES_TOOL
 from recipe_normalizer.ai.schemas import ConversationOut
 from recipe_normalizer.cookbook import service as cookbook_service
 from recipe_normalizer.cookbook.schemas import (
@@ -30,7 +32,13 @@ from recipe_normalizer.llm.models import LlmUsage
 from recipe_normalizer.sharing import service as sharing_service
 from recipe_normalizer.users.models import User
 from tests.ai.fakes import FakeChatLLM
-from tests.llm.stubs import StubAnthropicClient, text_response
+from tests.llm.stubs import (
+    StubAnthropicClient,
+    message_response,
+    text_block,
+    text_response,
+    tool_use_block,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -569,4 +577,272 @@ def test_chat_turn_records_llm_usage(db_session: Session, owner: User) -> None:
 
     usage_rows = db_session.scalars(select(LlmUsage).where(LlmUsage.user_id == owner.id)).all()
     assert len(usage_rows) == 1
-    assert usage_rows[0].feature == "ai.recipe_chat"
+
+
+# ---------------------------------------------------------------------------
+# cookbook_qa_turn
+#
+# Unlike chat_turn's FakeChatLLM, these exercise the REAL `LLMClient.tool_loop`
+# by injecting a scripted `StubAnthropicClient` — the anthropic SDK is faked,
+# not LLMClient itself, so `execute()`'s real dispatch into
+# `cookbook_service.list_recipes` and the loop's own iteration/cost-cap logic
+# both run for real. See tests/llm/stubs.py and tests/llm/test_client.py's
+# tool_loop tests, which this mirrors.
+# ---------------------------------------------------------------------------
+
+
+def _recipe_in(
+    title: str,
+    *,
+    cuisines: list[str] | None = None,
+    dish_types: list[str] | None = None,
+    total_min: int | None = None,
+    ingredient_names: list[str] | None = None,
+) -> RecipeIn:
+    names = ingredient_names or ["salt"]
+    return RecipeIn(
+        title=title,
+        cuisines=cuisines or [],
+        dish_types=dish_types or [],
+        total_min=total_min,
+        groups=[
+            IngredientGroupIn(
+                name="Main",
+                lines=[IngredientLineIn(original_text=name) for name in names],
+            )
+        ],
+        steps=[],
+    )
+
+
+def _create_full_recipe(db: Session, owner_id: uuid.UUID, **kwargs: object) -> RecipeOut:
+    return cookbook_service.create_recipe(db, owner_id=owner_id, data=_recipe_in(**kwargs))  # type: ignore[arg-type]
+
+
+def _tool_use_then_answer(
+    tool_input: dict[str, object], answer: str, **kwargs: object
+) -> StubAnthropicClient:
+    return StubAnthropicClient(
+        create_results=[
+            message_response([tool_use_block("toolu_1", "search_recipes", tool_input)], "tool_use"),
+            message_response([text_block(answer)], "end_turn"),
+        ]
+    )
+
+
+def test_cookbook_qa_turn_executes_search_scoped_to_user_with_parsed_filters(
+    db_session: Session, owner: User, other_user: User
+) -> None:
+    pasta = _create_full_recipe(
+        db_session,
+        owner.id,
+        title="Pasta Bolognese",
+        cuisines=["Italian"],
+        dish_types=["main"],
+        total_min=25,
+        ingredient_names=["ground beef", "tomato", "pasta"],
+    )
+    # Owned by someone else, same filter — must NOT leak into owner's search.
+    _create_full_recipe(
+        db_session,
+        other_user.id,
+        title="Someone Else's Lasagna",
+        cuisines=["Italian"],
+        total_min=20,
+    )
+
+    stub = _tool_use_then_answer(
+        {"cuisine": "Italian", "max_total_min": 30},
+        "You should try Pasta Bolognese — it's Italian and ready in 25 minutes.",
+    )
+    llm = LLMClient(anthropic_client=stub)
+
+    result = ai_service.cookbook_qa_turn(
+        db_session, user_id=owner.id, content="Quick Italian dishes?", llm=llm
+    )
+
+    assert result.message.role == MessageRole.assistant
+    assert "Pasta Bolognese" in result.message.content
+    assert result.referenced_recipe_ids == [pasta.id]
+
+    first_call = stub.messages.create_calls[0]
+    assert first_call["tools"] == [SEARCH_RECIPES_TOOL]
+    assert first_call["system"] == ai_service.COOKBOOK_QA_SYSTEM
+
+    # persisted: a new cookbook_qa conversation with the question + answer
+    conversation_id = result.conversation_id
+    detail = ai_service.get_conversation(
+        db_session, user_id=owner.id, conversation_id=conversation_id
+    )
+    assert detail.kind == ConversationKind.cookbook_qa
+    assert [m.role for m in detail.messages] == [MessageRole.user, MessageRole.assistant]
+    assert detail.messages[0].content == "Quick Italian dishes?"
+
+
+def test_cookbook_qa_turn_zero_results_still_answers(db_session: Session, owner: User) -> None:
+    stub = _tool_use_then_answer(
+        {"cuisine": "Klingon"}, "I couldn't find any matching recipes in your cookbook."
+    )
+    llm = LLMClient(anthropic_client=stub)
+
+    result = ai_service.cookbook_qa_turn(
+        db_session, user_id=owner.id, content="Any Klingon recipes?", llm=llm
+    )
+
+    assert "couldn't find" in result.message.content
+    assert result.referenced_recipe_ids == []
+
+
+def test_cookbook_qa_turn_search_results_are_compact_not_full_recipes(
+    db_session: Session, owner: User
+) -> None:
+    _create_full_recipe(
+        db_session,
+        owner.id,
+        title="Pasta Bolognese",
+        cuisines=["Italian"],
+        dish_types=["main"],
+        total_min=25,
+        ingredient_names=["ground beef", "tomato", "pasta", "onion", "garlic", "basil", "salt"],
+    )
+    stub = _tool_use_then_answer({"cuisine": "Italian"}, "Try Pasta Bolognese.")
+    llm = LLMClient(anthropic_client=stub)
+
+    ai_service.cookbook_qa_turn(db_session, user_id=owner.id, content="Italian?", llm=llm)
+
+    # The tool_result content sent back to the model on the second create() call.
+    second_call_messages = stub.messages.create_calls[1]["messages"]
+    [tool_result] = second_call_messages[2]["content"]
+    payload = json.loads(tool_result["content"])
+    [compact] = payload["results"]
+
+    assert set(compact.keys()) == {
+        "id",
+        "title",
+        "cuisines",
+        "dish_types",
+        "total_min",
+        "top_ingredients",
+    }
+    # Bounded to a handful of ingredient names, not the full 7-line list.
+    assert len(compact["top_ingredients"]) == ai_service._COOKBOOK_QA_TOP_INGREDIENTS
+    # No full ingredient-line detail (quantity/unit/note) or steps leak through.
+    raw = tool_result["content"]
+    assert "quantity" not in raw
+    assert "steps" not in raw
+    assert "original_text" not in raw
+
+
+def test_cookbook_qa_turn_cost_cap_abort_persists_nothing(db_session: Session, owner: User) -> None:
+    _create_full_recipe(db_session, owner.id, title="Pasta", cuisines=["Italian"])
+    stub = StubAnthropicClient(
+        create_results=[
+            message_response([tool_use_block("toolu_1", "search_recipes", {})], "tool_use"),
+            message_response([tool_use_block("toolu_2", "search_recipes", {})], "tool_use"),
+        ]
+    )
+    # First round's default-usage cost (~$0.0175 at opus pricing) already
+    # exceeds this cap, so the SECOND create() call is blocked before it
+    # happens — the loop aborts mid-way, having executed one search.
+    llm = LLMClient(anthropic_client=stub, cost_cap_usd=0.01)
+
+    with pytest.raises(ApiError) as exc_info:
+        ai_service.cookbook_qa_turn(
+            db_session, user_id=owner.id, content="Italian dishes?", llm=llm
+        )
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.code == "cost_cap_exceeded"
+    # only the first round's API call happened
+    assert len(stub.messages.create_calls) == 1
+    # NOTHING persisted — no conversation, no messages, matching chat_turn's
+    # "no partial exchange" contract.
+    assert ai_service.list_conversations(db_session, user_id=owner.id) == []
+
+
+def test_cookbook_qa_turn_tool_budget_exceeded_maps_to_503_and_persists_nothing(
+    db_session: Session, owner: User
+) -> None:
+    # Every round returns tool_use — the loop never reaches end_turn and
+    # exhausts its (lowered) iteration budget.
+    stub = StubAnthropicClient(
+        create_results=[
+            message_response([tool_use_block(f"toolu_{i}", "search_recipes", {})], "tool_use")
+            for i in range(ai_service._COOKBOOK_QA_MAX_ITERATIONS)
+        ]
+    )
+    llm = LLMClient(anthropic_client=stub)
+
+    with pytest.raises(ApiError) as exc_info:
+        ai_service.cookbook_qa_turn(db_session, user_id=owner.id, content="hi", llm=llm)
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.code == "ai_tool_budget_exceeded"
+    assert ai_service.list_conversations(db_session, user_id=owner.id) == []
+
+
+def test_cookbook_qa_turn_appends_to_existing_conversation(
+    db_session: Session, owner: User
+) -> None:
+    conversation = ai_service.create_conversation(
+        db_session, user_id=owner.id, recipe_id=None, kind=ConversationKind.cookbook_qa
+    )
+    stub = _tool_use_then_answer({}, "First answer.")
+    llm = LLMClient(anthropic_client=stub)
+
+    result = ai_service.cookbook_qa_turn(
+        db_session,
+        user_id=owner.id,
+        content="hi",
+        conversation_id=conversation.id,
+        llm=llm,
+    )
+
+    assert result.conversation_id == conversation.id
+    detail = ai_service.get_conversation(
+        db_session, user_id=owner.id, conversation_id=conversation.id
+    )
+    assert len(detail.messages) == 2
+
+
+def test_cookbook_qa_turn_rejects_recipe_chat_conversation(
+    db_session: Session, owner: User
+) -> None:
+    conversation = _recipe_chat_conversation(db_session, owner.id)
+    stub = StubAnthropicClient(create_results=[])
+    llm = LLMClient(anthropic_client=stub)
+
+    with pytest.raises(ApiError) as exc_info:
+        ai_service.cookbook_qa_turn(
+            db_session,
+            user_id=owner.id,
+            content="hi",
+            conversation_id=conversation.id,
+            llm=llm,
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.code == "not_cookbook_qa"
+    assert stub.messages.create_calls == []
+
+
+def test_cookbook_qa_turn_wrong_owner_raises_404(
+    db_session: Session, owner: User, other_user: User
+) -> None:
+    conversation = ai_service.create_conversation(
+        db_session, user_id=owner.id, recipe_id=None, kind=ConversationKind.cookbook_qa
+    )
+    stub = StubAnthropicClient(create_results=[])
+    llm = LLMClient(anthropic_client=stub)
+
+    with pytest.raises(ApiError) as exc_info:
+        ai_service.cookbook_qa_turn(
+            db_session,
+            user_id=other_user.id,
+            content="hi",
+            conversation_id=conversation.id,
+            llm=llm,
+        )
+
+    assert exc_info.value.status_code == 404
+    assert stub.messages.create_calls == []

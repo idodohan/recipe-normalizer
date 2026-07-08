@@ -24,6 +24,13 @@ class MessageCreateIn(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
 
 
+class CookbookQaCreateIn(BaseModel):
+    """Body for POST /api/ai/cookbook-qa."""
+
+    content: str = Field(min_length=1, max_length=4000)
+    conversation_id: uuid.UUID | None = None
+
+
 class MessageOut(BaseModel):
     id: uuid.UUID
     role: MessageRole
@@ -51,3 +58,18 @@ class ConversationDetailOut(ConversationOut):
     """GET /api/ai/conversations/{id} — the conversation plus its full message history."""
 
     messages: list[MessageOut] = []
+
+
+class CookbookQaOut(BaseModel):
+    """Response for POST /api/ai/cookbook-qa.
+
+    `conversation_id` is always present (the conversation the turn was recorded
+    to — newly created when the request didn't pass one). `referenced_recipe_ids`
+    are the ids of every recipe `search_recipes` returned during this turn's tool
+    loop (deduped, first-seen order) — NOT an attempt to parse the model's prose
+    for which ones it actually cited; the UI renders these as clickable chips.
+    """
+
+    conversation_id: uuid.UUID
+    message: MessageOut
+    referenced_recipe_ids: list[uuid.UUID] = []

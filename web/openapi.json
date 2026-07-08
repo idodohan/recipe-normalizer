@@ -280,6 +280,62 @@
         "title": "ConversationOut",
         "type": "object"
       },
+      "CookbookQaCreateIn": {
+        "description": "Body for POST /api/ai/cookbook-qa.",
+        "properties": {
+          "content": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "CookbookQaCreateIn",
+        "type": "object"
+      },
+      "CookbookQaOut": {
+        "description": "Response for POST /api/ai/cookbook-qa.\n\n`conversation_id` is always present (the conversation the turn was recorded\nto \u2014 newly created when the request didn't pass one). `referenced_recipe_ids`\nare the ids of every recipe `search_recipes` returned during this turn's tool\nloop (deduped, first-seen order) \u2014 NOT an attempt to parse the model's prose\nfor which ones it actually cited; the UI renders these as clickable chips.",
+        "properties": {
+          "conversation_id": {
+            "format": "uuid",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "message": {
+            "$ref": "#/components/schemas/MessageOut"
+          },
+          "referenced_recipe_ids": {
+            "default": [],
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Referenced Recipe Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "message"
+        ],
+        "title": "CookbookQaOut",
+        "type": "object"
+      },
       "CreatePublicLinkIn": {
         "description": "Body for POST /api/share/public.",
         "properties": {
@@ -2736,6 +2792,48 @@
           }
         },
         "summary": "Post Chat Message",
+        "tags": [
+          "ai"
+        ]
+      }
+    },
+    "/api/ai/cookbook-qa": {
+      "post": {
+        "description": "Ask a question over the user's own cookbook; the model searches via tool-use.\n\nReturns the assistant `Message` plus `referenced_recipe_ids` \u2014 the ids of\nevery recipe `search_recipes` returned during this turn, for the UI to\nrender as clickable chips (see `ai.service.cookbook_qa_turn`).",
+        "operationId": "post_cookbook_qa_api_ai_cookbook_qa_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CookbookQaCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CookbookQaOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Cookbook Qa",
         "tags": [
           "ai"
         ]

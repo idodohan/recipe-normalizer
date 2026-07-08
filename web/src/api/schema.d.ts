@@ -63,6 +63,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ai/cookbook-qa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Cookbook Qa
+         * @description Ask a question over the user's own cookbook; the model searches via tool-use.
+         *
+         *     Returns the assistant `Message` plus `referenced_recipe_ids` — the ids of
+         *     every recipe `search_recipes` returned during this turn, for the UI to
+         *     render as clickable chips (see `ai.service.cookbook_qa_turn`).
+         */
+        post: operations["post_cookbook_qa_api_ai_cookbook_qa_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/login": {
         parameters: {
             query?: never;
@@ -910,6 +934,39 @@ export interface components {
              * Format: uuid
              */
             user_id: string;
+        };
+        /**
+         * CookbookQaCreateIn
+         * @description Body for POST /api/ai/cookbook-qa.
+         */
+        CookbookQaCreateIn: {
+            /** Content */
+            content: string;
+            /** Conversation Id */
+            conversation_id?: string | null;
+        };
+        /**
+         * CookbookQaOut
+         * @description Response for POST /api/ai/cookbook-qa.
+         *
+         *     `conversation_id` is always present (the conversation the turn was recorded
+         *     to — newly created when the request didn't pass one). `referenced_recipe_ids`
+         *     are the ids of every recipe `search_recipes` returned during this turn's tool
+         *     loop (deduped, first-seen order) — NOT an attempt to parse the model's prose
+         *     for which ones it actually cited; the UI renders these as clickable chips.
+         */
+        CookbookQaOut: {
+            /**
+             * Conversation Id
+             * Format: uuid
+             */
+            conversation_id: string;
+            message: components["schemas"]["MessageOut"];
+            /**
+             * Referenced Recipe Ids
+             * @default []
+             */
+            referenced_recipe_ids: string[];
         };
         /**
          * CreatePublicLinkIn
@@ -2046,6 +2103,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MessageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_cookbook_qa_api_ai_cookbook_qa_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CookbookQaCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CookbookQaOut"];
                 };
             };
             /** @description Validation Error */
