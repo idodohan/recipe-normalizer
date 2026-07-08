@@ -14,6 +14,7 @@ from fastapi.responses import Response
 
 from recipe_normalizer.api_deps import get_current_user
 from recipe_normalizer.catalog.router import router as catalog_router
+from recipe_normalizer.config import settings
 from recipe_normalizer.cookbook import service as cookbook_service
 from recipe_normalizer.cookbook.router import router as cookbook_router
 from recipe_normalizer.errors import ApiError, install_error_handlers
@@ -37,7 +38,7 @@ def create_app() -> FastAPI:
     # CORS for the local frontend dev server
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173"],
+        allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

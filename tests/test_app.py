@@ -416,3 +416,28 @@ def test_access_log_middleware_logs_request(caplog: pytest.LogCaptureFixture) ->
     assert "GET" in message
     assert "/api/health" in message
     assert "200" in message
+
+
+# ---------------------------------------------------------------------------
+# CORS configuration (Task 7)
+# ---------------------------------------------------------------------------
+
+
+def test_cors_origins_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """CORS origins should be configurable via settings.cors_origins."""
+    from recipe_normalizer.config import settings
+
+    monkeypatch.setattr(settings, "cors_origins", "https://a.example, https://b.example")
+    app = create_app()
+
+    with TestClient(app, raise_server_exceptions=False) as tc:
+        resp = tc.options(
+            "/api/health",
+            headers={
+                "Origin": "https://b.example",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+
+    assert resp.status_code == 200
+    assert resp.headers.get("access-control-allow-origin") == "https://b.example"
