@@ -12,6 +12,21 @@
 
 html {
   height: 100%;
+  color-scheme: light dark;
+}
+
+/* Mobile readability + prevents iOS Safari's zoom-on-focus for text inputs
+   (triggered whenever a focused input computes to < 16px). Desktop keeps
+   the 15px editorial body size; below 640px, body text — and anything
+   using --text-body, including form inputs via `font: inherit` — steps up
+   to 16px.
+   NOTE: overriding `--text-body` requires `:root`, not a plain `html` type
+   selector — tokens.css defines the token on `:root`, whose specificity
+   (0,1,0) beats `html` (0,0,1) regardless of source order or media query. */
+@media (max-width: 640px) {
+  :root {
+    --text-body: 1rem;
+  }
 }
 
 body {
@@ -83,4 +98,50 @@ a:hover {
   outline: none;
   box-shadow: var(--focus-ring);
   border-radius: var(--radius-sm);
+}
+
+/* Visually hidden but present for assistive tech (e.g. status announcements). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Skip link: visually hidden until it receives focus, then pinned to the
+   top of the viewport above everything else. */
+.skip-link {
+  position: absolute;
+  top: -3rem;
+  left: var(--space-3);
+  z-index: 100;
+  padding: var(--space-2) var(--space-4);
+  background-color: var(--color-ink);
+  color: var(--color-paper);
+  border-radius: var(--radius-sm);
+  transition: top 120ms ease;
+}
+
+.skip-link:focus-visible {
+  top: var(--space-3);
+}
+
+/* Single source of truth for reduced-motion: kills (near-)instantly any
+   animation/transition/smooth-scroll, site-wide. Per-component
+   `prefers-reduced-motion` overrides should NOT be added elsewhere — this
+   block is authoritative. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

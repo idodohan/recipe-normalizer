@@ -1,15 +1,21 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { apiErrorMessage } from "../api/errors";
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
+import { ErrorState } from "../components/ErrorState";
 import { PageHeader } from "../components/PageHeader";
 import { RecipeCard } from "../components/recipe/RecipeCard";
+import { Skeleton } from "../components/Skeleton";
 import "./cookbook.css";
+
+type Filter = "all" | "favorites";
 
 export function CookbookPage() {
   const navigate = useNavigate();
+  const [filter, setFilter] = useState<Filter>("all");
 
   const recipes = useQuery({
     queryKey: ["recipes"],
@@ -21,6 +27,10 @@ export function CookbookPage() {
   });
 
   const count = recipes.data?.length ?? 0;
+  const visible =
+    filter === "favorites"
+      ? (recipes.data ?? []).filter((recipe) => recipe.is_favorite)
+      : (recipes.data ?? []);
 
   return (
     <>
@@ -40,16 +50,15 @@ export function CookbookPage() {
       />
 
       {recipes.isPending ? (
-        <p className="cookbook-status">Loading your cookbook…</p>
+        <Skeleton variant="card-grid" />
       ) : recipes.isError ? (
-        <div className="cookbook-error" role="alert">
-          <p className="cookbook-error__message">
-            {apiErrorMessage(
-              recipes.error,
-              "Could not load your cookbook. Please try again.",
-            )}
-          </p>
-        </div>
+        <ErrorState
+          message={apiErrorMessage(
+            recipes.error,
+            "Could not load your cookbook. Please try again.",
+          )}
+          onRetry={() => void recipes.refetch()}
+        />
       ) : count === 0 ? (
         <EmptyState
           title="Your cookbook is empty"
@@ -61,13 +70,38 @@ export function CookbookPage() {
           }
         />
       ) : (
-        <ul className="cookbook-grid">
-          {recipes.data.map((recipe, index) => (
-            <li key={recipe.id}>
-              <RecipeCard recipe={recipe} index={index} />
-            </li>
-          ))}
-        </ul>
+        <>
+          <div className="cookbook-filters" role="group" aria-label="Filter recipes">
+            <button
+              type="button"
+              className="chip chip--filter"
+              aria-pressed={filter === "all"}
+              onClick={() => setFilter("all")}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              className="chip chip--filter"
+              aria-pressed={filter === "favorites"}
+              onClick={() => setFilter("favorites")}
+            >
+              Favorites
+            </button>
+          </div>
+
+          {visible.length === 0 ? (
+            <EmptyState title="No favorites yet — tap the heart on any recipe." />
+          ) : (
+            <ul className="cookbook-grid">
+              {visible.map((recipe, index) => (
+                <li key={recipe.id}>
+                  <RecipeCard recipe={recipe} index={index} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </>
   );

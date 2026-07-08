@@ -56,6 +56,7 @@ def _job_detail_out(job: Job, db: Session, user_id: uuid.UUID) -> JobDetailOut:
                 dish_types=recipe.dish_types,
                 total_min=recipe.total_min,
                 is_verified=recipe.is_verified,
+                is_favorite=recipe.is_favorite,
                 created_at=recipe.created_at,
             )
         )

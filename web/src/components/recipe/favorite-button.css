@@ -1,0 +1,41 @@
+/* ------------------------------------------------------------------ */
+/*  FavoriteButton — a hairline heart, filled terracotta once saved.   */
+/*  44px hit area around a 20px glyph, per touch-target minimum.       */
+/* ------------------------------------------------------------------ */
+
+.favorite-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-faint);
+  transition: color 120ms ease;
+}
+
+.favorite-btn:hover:not(:disabled) {
+  color: var(--color-accent);
+}
+
+.favorite-btn:focus-visible {
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+
+.favorite-btn--active {
+  color: var(--color-accent);
+}
+
+.favorite-btn:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.favorite-btn__icon {
+  width: 20px;
+  height: 20px;
+}

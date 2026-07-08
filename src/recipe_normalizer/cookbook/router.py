@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -14,9 +14,15 @@ from recipe_normalizer.api_deps import get_current_user
 from recipe_normalizer.cookbook import service
 from recipe_normalizer.cookbook.models import Cuisine, DishType, SourceType, Tag
 from recipe_normalizer.cookbook.scaling import ScaledRecipeOut, scale_factor_for, scale_recipe
-from recipe_normalizer.cookbook.schemas import RecipeIn, RecipeOut, RecipeSummary
+from recipe_normalizer.cookbook.schemas import (
+    RecipeIn,
+    RecipeOut,
+    RecipePersonalPatch,
+    RecipeSummary,
+)
 from recipe_normalizer.db import get_db
 from recipe_normalizer.errors import ApiError
+from recipe_normalizer.filestore import FileStore, get_file_store
 
 router = APIRouter(prefix="/api", tags=["recipes"])
 
@@ -73,6 +79,24 @@ def update_recipe(
     )
 
 
+@router.patch("/recipes/{recipe_id}/personal", response_model=RecipeOut)
+def update_recipe_personal(
+    recipe_id: uuid.UUID,
+    body: RecipePersonalPatch,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> RecipeOut:
+    return service.set_personal(
+        db,
+        owner_id=current_user.id,
+        recipe_id=recipe_id,
+        is_favorite=body.is_favorite if body.is_favorite is not None else service.UNSET,
+        # model_fields_set distinguishes an absent field from an explicit
+        # null: {"notes": null} clears the value.
+        notes=body.notes if "notes" in body.model_fields_set else service.UNSET,
+    )
+
+
 @router.delete("/recipes/{recipe_id}", status_code=204)
 def delete_recipe(
     recipe_id: uuid.UUID,
@@ -81,6 +105,40 @@ def delete_recipe(
 ) -> Response:
     service.delete_recipe(db, owner_id=current_user.id, recipe_id=recipe_id)
     return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# Recipe image
+# ---------------------------------------------------------------------------
+
+
+@router.put("/recipes/{recipe_id}/image", response_model=RecipeOut)
+async def upload_recipe_image(
+    recipe_id: uuid.UUID,
+    file: UploadFile,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+    store: FileStore = Depends(get_file_store),  # noqa: B008
+) -> RecipeOut:
+    # Bounded read: never buffer more than the limit + 1 byte. If we got the
+    # extra byte the body exceeds the limit and the service rejects it.
+    data = await file.read(service.MAX_IMAGE_BYTES + 1)
+    return service.set_recipe_image(
+        db,
+        owner_id=current_user.id,
+        recipe_id=recipe_id,
+        data=data,
+        store=store,
+    )
+
+
+@router.delete("/recipes/{recipe_id}/image", response_model=RecipeOut)
+def delete_recipe_image(
+    recipe_id: uuid.UUID,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> RecipeOut:
+    return service.clear_recipe_image(db, owner_id=current_user.id, recipe_id=recipe_id)
 
 
 # ---------------------------------------------------------------------------

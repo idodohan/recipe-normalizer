@@ -167,6 +167,11 @@ class Recipe(TimestampMixin, Base):
     )
     last_edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     source_fingerprint: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Personal metadata — owner-only, untouched by the full-replace PATCH
+    # semantics of update_recipe() (only children + the listed scalar fields
+    # there are rewritten; these two columns are deliberately left alone).
+    is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
     ingredient_groups: Mapped[list["IngredientGroup"]] = relationship(

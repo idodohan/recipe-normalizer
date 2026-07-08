@@ -473,6 +473,107 @@ def test_update_recipe_wrong_owner_raises_404(seeded: Session, owner: User) -> N
     assert exc_info.value.status_code == 404
 
 
+def test_update_recipe_full_replace_preserves_favorite_and_notes(
+    seeded: Session, owner: User
+) -> None:
+    """PATCH /api/recipes/{id} is a full destructive replace of content, but
+    is_favorite/notes are personal metadata outside that replace and must
+    survive it untouched."""
+    created = cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(lines=[IngredientLineIn(original_text="water")]),
+    )
+    cookbook_service.set_personal(
+        seeded, owner_id=owner.id, recipe_id=created.id, is_favorite=True, notes="great recipe"
+    )
+
+    updated = cookbook_service.update_recipe(
+        seeded,
+        owner_id=owner.id,
+        recipe_id=created.id,
+        data=_simple_recipe_in(title="Renamed", lines=[IngredientLineIn(original_text="milk")]),
+        editor_id=owner.id,
+    )
+
+    assert updated.title == "Renamed"
+    assert updated.is_favorite is True
+    assert updated.notes == "great recipe"
+
+
+# ---------------------------------------------------------------------------
+# set_personal
+# ---------------------------------------------------------------------------
+
+
+def test_set_personal_favorite_toggle_persists(seeded: Session, owner: User) -> None:
+    created = cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(lines=[IngredientLineIn(original_text="water")]),
+    )
+    assert created.is_favorite is False
+
+    favorited = cookbook_service.set_personal(
+        seeded, owner_id=owner.id, recipe_id=created.id, is_favorite=True
+    )
+    assert favorited.is_favorite is True
+
+    unfavorited = cookbook_service.set_personal(
+        seeded, owner_id=owner.id, recipe_id=created.id, is_favorite=False
+    )
+    assert unfavorited.is_favorite is False
+
+
+def test_set_personal_notes_set_and_explicit_null_clears(seeded: Session, owner: User) -> None:
+    created = cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(lines=[IngredientLineIn(original_text="water")]),
+    )
+    assert created.notes is None
+
+    set_result = cookbook_service.set_personal(
+        seeded, owner_id=owner.id, recipe_id=created.id, notes="delicious"
+    )
+    assert set_result.notes == "delicious"
+
+    cleared = cookbook_service.set_personal(
+        seeded, owner_id=owner.id, recipe_id=created.id, notes=None
+    )
+    assert cleared.notes is None
+
+
+def test_set_personal_absent_field_leaves_value_unchanged(seeded: Session, owner: User) -> None:
+    created = cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(lines=[IngredientLineIn(original_text="water")]),
+    )
+    cookbook_service.set_personal(
+        seeded, owner_id=owner.id, recipe_id=created.id, is_favorite=True, notes="keep me"
+    )
+
+    # Calling with neither field set (both UNSET by default) leaves both untouched.
+    unchanged = cookbook_service.set_personal(seeded, owner_id=owner.id, recipe_id=created.id)
+    assert unchanged.is_favorite is True
+    assert unchanged.notes == "keep me"
+
+
+def test_set_personal_wrong_owner_raises_404(seeded: Session, owner: User) -> None:
+    other = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    created = cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(lines=[IngredientLineIn(original_text="water")]),
+    )
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.set_personal(
+            seeded, owner_id=other.id, recipe_id=created.id, is_favorite=True
+        )
+    assert exc_info.value.status_code == 404
+
+
 # ---------------------------------------------------------------------------
 # delete_recipe
 # ---------------------------------------------------------------------------

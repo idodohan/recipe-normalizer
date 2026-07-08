@@ -14,17 +14,21 @@ import "./styles/tokens.css";
 import "./styles/base.css";
 import "./components/ui.css";
 
+import { Toaster } from "./components/Toaster";
 import { AuthenticatedApp } from "./layouts/AuthenticatedApp";
 import { CatalogPage } from "./pages/CatalogPage";
 import { CookbookPage } from "./pages/CookbookPage";
 import { InboxPage } from "./pages/InboxPage";
 import { LoginPage } from "./pages/LoginPage";
 import { RecipeDetailPage } from "./pages/RecipeDetailPage";
+import { RecipeEditPage } from "./pages/RecipeEditPage";
 import { RecipeEditorPage } from "./pages/RecipeEditorPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { ReviewPage } from "./pages/ReviewPage";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
+});
 
 const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
@@ -37,6 +41,7 @@ const router = createBrowserRouter([
       { path: "inbox", element: <InboxPage /> },
       { path: "jobs/:id/review", element: <ReviewPage /> },
       { path: "recipes/new", element: <RecipeEditorPage /> },
+      { path: "recipes/:id/edit", element: <RecipeEditPage /> },
       { path: "recipes/:id", element: <RecipeDetailPage /> },
       { path: "catalog", element: <CatalogPage /> },
     ],
@@ -48,6 +53,7 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
+      <Toaster />
     </QueryClientProvider>
   </StrictMode>,
 );

@@ -8,9 +8,15 @@ import {
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { apiErrorMessage } from "../api/errors";
-import { EmptyState } from "../components/EmptyState";
+import { Button } from "../components/Button";
+import { ErrorState } from "../components/ErrorState";
+import { Skeleton } from "../components/Skeleton";
+import { toast } from "../hooks/useToast";
+import { FavoriteButton } from "../components/recipe/FavoriteButton";
 import { IngredientList } from "../components/recipe/IngredientList";
 import type { DisplayGroup } from "../components/recipe/IngredientList";
+import { NotesSection } from "../components/recipe/NotesSection";
+import { RecipeImageBanner } from "../components/recipe/RecipeImageBanner";
 import { ScaleControl } from "../components/recipe/ScaleControl";
 import type { ScaleRequest } from "../components/recipe/ScaleControl";
 import { StepList } from "../components/recipe/StepList";
@@ -121,24 +127,20 @@ export function RecipeDetailPage() {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["recipes"] });
+      toast({ title: "Recipe deleted", variant: "success" });
       navigate("/");
     },
   });
 
   if (recipe.isPending) {
-    return <p className="rd-status">Opening the recipe…</p>;
+    return <Skeleton variant="detail" />;
   }
 
   if (recipe.isError || !recipe.data) {
     return (
-      <EmptyState
-        title="Recipe not found"
-        body={
-          <>
-            We couldn’t open this recipe.{" "}
-            <Link to="/">Back to your cookbook</Link>.
-          </>
-        }
+      <ErrorState
+        message={apiErrorMessage(recipe.error, "We couldn’t open this recipe.")}
+        onRetry={() => void recipe.refetch()}
       />
     );
   }
@@ -211,10 +213,15 @@ export function RecipeDetailPage() {
         <Link to="/" className="rd__back">
           ← Cookbook
         </Link>
-        <DeleteControl
-          onConfirm={() => remove.mutate()}
-          deleting={remove.isPending}
-        />
+        <div className="rd__toolbar-actions">
+          <Button variant="secondary" onClick={() => navigate(`/recipes/${id}/edit`)}>
+            Edit
+          </Button>
+          <DeleteControl
+            onConfirm={() => remove.mutate()}
+            deleting={remove.isPending}
+          />
+        </div>
       </div>
 
       {remove.isError ? (
@@ -223,11 +230,22 @@ export function RecipeDetailPage() {
         </p>
       ) : null}
 
+      <RecipeImageBanner recipeId={id!} imageUrl={data.image_ref ?? null} />
+
       <header className="rd__header">
-        <p className="rd__kicker">
-          {data.dish_types.length > 0 ? data.dish_types.join(" · ") : "Recipe"}
-        </p>
-        <h1 className="rd__title">{data.title}</h1>
+        <div className="rd__heading-row">
+          <div>
+            <p className="rd__kicker">
+              {data.dish_types.length > 0 ? data.dish_types.join(" · ") : "Recipe"}
+            </p>
+            <h1 className="rd__title">{data.title}</h1>
+          </div>
+          <FavoriteButton
+            recipeId={id!}
+            isFavorite={data.is_favorite}
+            className="rd__favorite"
+          />
+        </div>
         {data.description ? <p className="rd__desc">{data.description}</p> : null}
       </header>
 
@@ -299,6 +317,8 @@ export function RecipeDetailPage() {
           <StepList steps={steps} />
         </section>
       </div>
+
+      <NotesSection recipeId={id!} notes={data.notes ?? null} />
     </article>
   );
 }

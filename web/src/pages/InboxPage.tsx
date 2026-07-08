@@ -1,24 +1,18 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { Button } from "../components/Button";
 import { PageHeader } from "../components/PageHeader";
 import { JobList } from "../components/inbox/JobList";
 import { SubmitPanel } from "../components/inbox/SubmitPanel";
-import { type Job } from "../components/inbox/jobStatus";
+import { useJobs } from "../hooks/useJobs";
+import { toast } from "../hooks/useToast";
 import "./inbox.css";
 
 export function InboxPage() {
   const queryClient = useQueryClient();
 
   // Shares the ["jobs"] cache with JobList (react-query dedupes the request).
-  const jobs = useQuery({
-    queryKey: ["jobs"],
-    queryFn: async (): Promise<Job[]> => {
-      const { data, error } = await api.GET("/api/jobs");
-      if (error) throw error;
-      return data;
-    },
-  });
+  const jobs = useJobs();
 
   const reviewCount =
     jobs.data?.filter((job) => job.status === "needs_review").length ?? 0;
@@ -29,7 +23,14 @@ export function InboxPage() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["jobs"] }),
+    onSuccess: (data) => {
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      const count = data.accepted;
+      toast({
+        title: `${count} recipe${count === 1 ? "" : "s"} accepted`,
+        variant: "success",
+      });
+    },
   });
 
   return (

@@ -138,6 +138,18 @@ class RecipeIn(BaseModel):
     steps: list[StepIn] = []
 
 
+class RecipePersonalPatch(BaseModel):
+    """Lightweight patch for personal metadata (favorites/notes).
+
+    Distinct from RecipeIn: does not trigger the full destructive-replace
+    semantics of PATCH /api/recipes/{id}. ``notes`` uses model_fields_set at
+    the router layer to distinguish "field absent" from "explicit null".
+    """
+
+    is_favorite: bool | None = None
+    notes: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Output DTOs
 # ---------------------------------------------------------------------------
@@ -235,6 +247,8 @@ class RecipeOut(BaseModel):
     derived_from: uuid.UUID | None = None
     last_edited_by: uuid.UUID | None = None
     last_edited_at: datetime | None = None
+    is_favorite: bool = False
+    notes: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -270,6 +284,7 @@ class RecipeSummary(BaseModel):
     dish_types: list[str] = []
     total_min: int | None = None
     is_verified: bool = False
+    is_favorite: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}

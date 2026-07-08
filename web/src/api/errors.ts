@@ -13,3 +13,26 @@ export function apiErrorMessage(
   }
   return fallback;
 }
+
+/** Parsed shape of the backend error envelope's `error` object. */
+export type ApiErrorEnvelope = {
+  code?: string;
+  message?: string;
+  existingId?: string;
+  jobId?: string;
+};
+
+/** Pull the error envelope (code + message + extras) out of an openapi-fetch error. */
+export function apiErrorEnvelope(body: unknown): ApiErrorEnvelope {
+  const err =
+    body && typeof body === "object" && "error" in body
+      ? (body as { error: Record<string, unknown> }).error
+      : undefined;
+  if (!err || typeof err !== "object") return {};
+  const code = typeof err["code"] === "string" ? err["code"] : undefined;
+  const message = typeof err["message"] === "string" ? err["message"] : undefined;
+  const existingId =
+    typeof err["existing_id"] === "string" ? err["existing_id"] : undefined;
+  const jobId = typeof err["job_id"] === "string" ? err["job_id"] : undefined;
+  return { code, message, existingId, jobId };
+}

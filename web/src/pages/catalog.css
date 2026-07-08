@@ -1,0 +1,276 @@
+/* ------------------------------------------------------------------ */
+/*  Catalog — searchable ingredient library. Editorial table-like list: */
+/*  2px ink head rule, hairline rows, inline expand for detail/edit.    */
+/* ------------------------------------------------------------------ */
+
+.catalog-explainer {
+  margin: 0 0 var(--space-5);
+  font-size: var(--text-body);
+  color: var(--color-text-muted);
+  max-width: 62ch;
+}
+
+.catalog-count {
+  margin: 0;
+  margin-bottom: var(--space-4);
+  font-size: var(--text-small);
+  color: var(--color-text-muted);
+}
+
+.catalog-search {
+  margin-bottom: var(--space-5);
+}
+
+.catalog-search__input {
+  max-width: 26rem;
+  width: 100%;
+}
+
+/* -- Table shell -------------------------------------------------------- */
+
+.catalog-table {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.catalog-row-wrap {
+  border-bottom: var(--hairline);
+}
+
+.catalog-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) 8rem 8rem minmax(0, 1.3fr);
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3) var(--space-2);
+  text-align: left;
+  background: transparent;
+  border: none;
+}
+
+.catalog-row--head {
+  padding-bottom: var(--space-3);
+  border-bottom: var(--rule-ink);
+  font-size: var(--text-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-text-faint);
+}
+
+.catalog-row--body {
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.catalog-row--body:hover {
+  background-color: var(--color-surface-raised);
+}
+
+.catalog-row--body:focus-visible {
+  outline: none;
+  box-shadow: inset var(--focus-ring);
+}
+
+.catalog-col {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.catalog-col--name {
+  font-family: var(--font-display);
+  font-size: var(--text-body);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--color-ink);
+}
+
+.catalog-col--category {
+  font-size: var(--text-small);
+  color: var(--color-text-muted);
+  text-transform: capitalize;
+}
+
+.catalog-col--flags {
+  font-size: var(--text-small);
+  color: var(--color-text-faint);
+}
+
+.catalog-density {
+  font-variant-numeric: tabular-nums;
+}
+
+/* -- Status chip ---------------------------------------------------- */
+
+.status-chip {
+  display: inline-block;
+  font-size: var(--text-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  font-weight: 600;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  border: var(--hairline);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.status-chip--seeded {
+  color: var(--color-text-faint);
+}
+
+.status-chip--unreviewed {
+  color: var(--color-accent-deep);
+  border-color: var(--color-accent);
+  background-color: var(--color-accent-wash);
+}
+
+.status-chip--reviewed {
+  color: var(--color-ink);
+  border-color: var(--color-ink);
+}
+
+/* -- Expanded detail panel -------------------------------------------- */
+
+.catalog-detail {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-5);
+  padding: var(--space-4) var(--space-2) var(--space-5);
+  background-color: var(--color-surface-raised);
+  border-top: var(--hairline);
+}
+
+@media (max-width: 820px) {
+  .catalog-detail {
+    grid-template-columns: 1fr;
+  }
+}
+
+.catalog-detail__section {
+  min-width: 0;
+}
+
+.catalog-detail__heading {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-text-faint);
+  font-weight: 600;
+}
+
+.catalog-detail__muted {
+  margin: 0;
+  font-size: var(--text-small);
+  color: var(--color-text-muted);
+}
+
+.catalog-detail__chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chip--static {
+  padding: 0 var(--space-3);
+}
+
+.catalog-detail__dl {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.catalog-detail__dl-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--text-small);
+  padding: var(--space-1) 0;
+  border-bottom: var(--hairline);
+}
+
+.catalog-detail__dl-row dt {
+  color: var(--color-text-muted);
+  text-transform: capitalize;
+}
+
+.catalog-detail__dl-row dd {
+  margin: 0;
+  color: var(--color-ink);
+}
+
+/* -- Admin edit + read-only note --------------------------------------- */
+
+.catalog-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.catalog-edit__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.catalog-readonly p {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-small);
+  color: var(--color-text);
+}
+
+.catalog-readonly p:last-child {
+  margin-bottom: 0;
+}
+
+/* -- Small screens: collapse the grid to stacked rows ------------------- */
+
+@media (max-width: 700px) {
+  .catalog-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "name status"
+      "category flags";
+    row-gap: var(--space-1);
+  }
+
+  .catalog-row--head {
+    display: none;
+  }
+
+  .catalog-col--name {
+    grid-area: name;
+    white-space: normal;
+  }
+
+  .catalog-col--status {
+    grid-area: status;
+    justify-self: end;
+  }
+
+  .catalog-col--category {
+    grid-area: category;
+  }
+
+  .catalog-col--flags {
+    grid-area: flags;
+    justify-self: end;
+    white-space: normal;
+    text-align: right;
+  }
+
+  .catalog-col--density {
+    display: none;
+  }
+}

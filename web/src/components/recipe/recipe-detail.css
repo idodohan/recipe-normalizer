@@ -7,7 +7,7 @@
 /*  then the normalized measure in terracotta tabular figures.         */
 /* ------------------------------------------------------------------ */
 
-/* -- Toolbar: back link + delete -------------------------------------- */
+/* -- Toolbar: back link + edit/delete ---------------------------------- */
 
 .rd__toolbar {
   display: flex;
@@ -15,6 +15,12 @@
   justify-content: space-between;
   gap: var(--space-4);
   margin-bottom: var(--space-6);
+}
+
+.rd__toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
 }
 
 .rd__back {
@@ -99,11 +105,80 @@
   font-size: var(--text-small);
 }
 
+/* -- Photo banner: full-bleed, aspect-ratio reserved to avoid CLS ------ */
+
+.rd__image {
+  position: relative;
+  aspect-ratio: 21 / 9;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-raised);
+  margin-bottom: var(--space-6);
+}
+
+.rd__image-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.rd__image-scrim {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 45%;
+  background: linear-gradient(to top, rgba(28, 25, 23, 0.5), transparent);
+  pointer-events: none;
+}
+
+.rd__image-controls {
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-3);
+  display: flex;
+  gap: var(--space-2);
+}
+
+.rd__image-controls .btn--secondary {
+  background-color: var(--color-paper);
+}
+
+.rd__image-remove:hover:not(:disabled) {
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+
+.rd__image-empty {
+  margin-bottom: var(--space-6);
+}
+
+.rd__image-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 /* -- Header: kicker, headline, dek, meta strip ------------------------- */
 
 .rd__header {
   border-bottom: var(--rule-ink);
   padding-bottom: var(--space-5);
+}
+
+.rd__heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.rd__favorite {
+  flex-shrink: 0;
+  margin-top: calc(-1 * var(--space-1));
+  margin-right: calc(-1 * var(--space-2));
 }
 
 .rd__kicker {
@@ -479,6 +554,48 @@
   font-weight: 480;
   color: var(--color-text-faint);
   max-width: none;
+}
+
+/* -- Kitchen notes: marginalia, not a form ------------------------------ */
+
+.rd__notes {
+  border-top: var(--hairline);
+  margin-top: var(--space-7);
+  padding-top: var(--space-5);
+}
+
+.rd__notes-heading {
+  font-family: var(--font-display);
+  font-size: var(--text-heading);
+  font-weight: 560;
+  color: var(--color-ink);
+  margin-bottom: var(--space-3);
+}
+
+.rd__notes-input {
+  display: block;
+  width: 100%;
+  max-width: 58ch;
+  resize: none;
+  overflow: hidden;
+  field-sizing: content;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-family: var(--font-body);
+  font-size: var(--text-small);
+  line-height: var(--leading-body);
+  color: var(--color-text-muted);
+  transition: color 120ms ease;
+}
+
+.rd__notes-input::placeholder {
+  color: var(--color-text-faint);
+}
+
+.rd__notes-input:focus {
+  color: var(--color-ink);
+  outline: none;
 }
 
 /* -- Responsive ------------------------------------------------------------ */

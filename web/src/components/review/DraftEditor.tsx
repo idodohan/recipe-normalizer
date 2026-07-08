@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import { apiErrorMessage } from "../../api/errors";
+import { toast } from "../../hooks/useToast";
+import { useVocab } from "../../hooks/useVocab";
 import { Button } from "../Button";
 import { RecipeFormFields } from "../recipe/RecipeForm";
 import { recipeToFormState, useRecipeForm } from "../recipe/recipeFormState";
@@ -26,19 +28,10 @@ export function DraftEditor({
 }) {
   const queryClient = useQueryClient();
   const form = useRecipeForm(recipeToFormState(recipe));
-  const [savedAt, setSavedAt] = useState<number | null>(null);
   const [confirmingReject, setConfirmingReject] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const vocab = useQuery({
-    queryKey: ["vocab"],
-    staleTime: 5 * 60 * 1000,
-    queryFn: async () => {
-      const { data, error: vocabError } = await api.GET("/api/vocab");
-      if (vocabError) throw vocabError;
-      return data;
-    },
-  });
+  const vocab = useVocab();
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ["job", jobId] });
@@ -57,8 +50,8 @@ export function DraftEditor({
     },
     onSuccess: () => {
       setError(null);
-      setSavedAt(Date.now());
       void queryClient.invalidateQueries({ queryKey: ["recipe", recipe.id] });
+      toast({ title: "Draft saved", variant: "success" });
     },
     onError: (err) =>
       err instanceof Error && err.message === "validation"
@@ -84,6 +77,7 @@ export function DraftEditor({
     onSuccess: () => {
       invalidate();
       onResolved();
+      toast({ title: "Recipe accepted", variant: "success" });
     },
     onError: (err) =>
       err instanceof Error && err.message === "validation"
@@ -102,6 +96,7 @@ export function DraftEditor({
     onSuccess: () => {
       invalidate();
       onResolved();
+      toast({ title: "Draft rejected", variant: "success" });
     },
     onError: (err) => setError(apiErrorMessage(err, "Could not reject this draft.")),
   });
@@ -173,11 +168,7 @@ export function DraftEditor({
               disabled={busy}
               onClick={() => save.mutate()}
             >
-              {save.isPending
-                ? "Saving…"
-                : savedAt
-                  ? "Saved ✓"
-                  : "Save edits"}
+              {save.isPending ? "Saving…" : "Save edits"}
             </Button>
             <Button disabled={busy} onClick={() => accept.mutate()}>
               {accept.isPending ? "Accepting…" : "Accept recipe"}
