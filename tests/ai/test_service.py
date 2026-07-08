@@ -944,7 +944,21 @@ def test_transform_recipe_qualitative_produces_reviewable_draft_through_the_gate
 
 @pytest.mark.parametrize(
     "instruction",
-    ["halve it", "double it", "double the recipe", "for 8 servings", "×3", "3x", "scale to 8"],
+    [
+        "double",
+        "halve",
+        "triple",
+        "quadruple",
+        "halve it",
+        "double it",
+        "double the recipe",
+        "for 8 servings",
+        "×3",
+        "3x",
+        "scale to 8",
+        "cut by half",
+        "reduce it by half",
+    ],
 )
 def test_transform_recipe_pure_scaling_phrase_refused_without_llm_call(
     db_session: Session, owner: User, instruction: str
@@ -984,6 +998,34 @@ def test_transform_recipe_ambiguous_scaling_mention_is_allowed_through_to_the_ll
     )
 
     assert len(fake.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        "double the sugar",  # qualitative change to specific ingredient
+        "double it but make it vegan",  # ambiguous: scaling + qualitative
+        "halve the butter",  # qualitative change to specific ingredient
+    ],
+)
+def test_transform_recipe_qualitative_scaling_mention_reaches_llm(
+    db_session: Session, owner: User, instruction: str
+) -> None:
+    # Instructions that mention a number/scaling but also have qualitative content
+    # or target a specific ingredient (not the whole recipe) are NOT caught by the
+    # pure-scaling regex and must reach the transform LLM.
+    recipe = _create_recipe(db_session, owner.id)
+    fake = FakeStructuredLLM(result=_transform_result())
+
+    ai_service.transform_recipe(
+        db_session,
+        user_id=owner.id,
+        recipe_id=recipe.id,
+        instruction=instruction,
+        llm=fake,  # type: ignore[arg-type]
+    )
+
+    assert len(fake.calls) == 1  # LLM was called
 
 
 def test_transform_recipe_invalid_llm_output_not_a_recipe_rejected(

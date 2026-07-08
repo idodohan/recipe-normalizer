@@ -615,12 +615,13 @@ _PURE_SCALE_RE = re.compile(
     r"""^\s*
     (?:please\s+)?
     (?:
-        (?:cut|reduce)\s+(?:it|this)?\s*(?:in\s+)?half
+        (?:cut|reduce)(?:\s+(?:it|this))?\s*(?:in\s+)?half
+        | (?:cut|reduce)(?:\s+(?:it|this))?\s+by\s+half
         | half\s+(?:it|this)?
-        | halve\s+(?:it|this)?
-        | double\s+(?:it|this)?
-        | triple\s+(?:it|this)?
-        | quadruple\s+(?:it|this)?
+        | halve(?:\s+(?:it|this))?
+        | double(?:\s+(?:it|this|the\s+recipe))?
+        | triple(?:\s+(?:it|this|the\s+recipe))?
+        | quadruple(?:\s+(?:it|this|the\s+recipe))?
         | (?:scale|resize)\s*(?:it|this)?\s*(?:to|by|for)?\s*\d+(?:\.\d+)?\s*x?
         | [x×]\s*\d+(?:\.\d+)?
         | \d+(?:\.\d+)?\s*[x×]
@@ -762,6 +763,8 @@ def transform_recipe(
             "cost_cap_exceeded",
             "This request would exceed the AI budget allowed for this call — try again shortly.",
         ) from exc
+    except LLMError as exc:
+        raise ApiError(502, "llm_error", "The AI could not complete the transformation.") from exc
 
     if not produced_ids:
         raise ApiError(
