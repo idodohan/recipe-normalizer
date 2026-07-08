@@ -148,6 +148,10 @@ export function CookbookPage() {
   /* eslint-disable-next-line react-hooks/exhaustive-deps */
   useEffect(() => {
     if (urlQuery !== debouncedQuery) {
+      // Reseeding local input state from the URL (an external system) on
+      // back/forward nav, not a derived-state sync — the cascading-render
+      // warning doesn't apply here.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setQueryInput(urlQuery);
     }
   }, [urlQuery]);

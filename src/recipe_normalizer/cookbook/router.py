@@ -87,6 +87,7 @@ _MEMBER_SCRUBBED_FIELDS: dict[str, Any] = {
     "is_favorite": False,
     "collection_ids": [],
     "provenance": None,
+    "extraction_meta": None,
 }
 
 
@@ -94,9 +95,11 @@ def _scrub_for_member(recipe: RecipeOut, current_user_id: uuid.UUID) -> RecipeOu
     """Scrub owner-only personal fields from a recipe response if the caller
     is a shared-cookbook member (not the owner).
 
-    A member must never see the OWNER's notes/is_favorite/collection_ids/provenance
-    in any response, whether from GET or PATCH. This helper is applied to both
-    response paths to ensure consistent redaction.
+    A member must never see the OWNER's notes/is_favorite/collection_ids/provenance/
+    extraction_meta in any response, whether from GET or PATCH. This mirrors the
+    anonymous PublicRecipeOut, which already drops extraction_meta so outsiders
+    can't see the owner's ingestion internals (tier_used, confidence, etc.).
+    This helper is applied to both response paths to ensure consistent redaction.
     """
     if recipe.owner_id != current_user_id:
         recipe = recipe.model_copy(update=_MEMBER_SCRUBBED_FIELDS)

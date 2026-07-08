@@ -370,9 +370,12 @@ def test_member_get_recipe_scrubs_owner_personal_fields(
         "shared_at": "2020-01-01T00:00:00+00:00",
         "origin_recipe_id": str(uuid.uuid4()),
     }
+    # extraction_meta isn't settable via a public endpoint either — stamp it
+    # directly, mirroring provenance, to cover the ingestion-internals leak.
+    recipe_row.extraction_meta = {"tier_used": "vision", "confidence": 0.42}
     db_session.flush()
 
-    # Owner GET is unchanged — alice still sees all four fields.
+    # Owner GET is unchanged — alice still sees all five fields.
     owner_resp = alice_client.get(f"/api/recipes/{recipe_id}")
     assert owner_resp.status_code == 200
     owner_body = owner_resp.json()
@@ -380,6 +383,7 @@ def test_member_get_recipe_scrubs_owner_personal_fields(
     assert owner_body["is_favorite"] is True
     assert owner_body["collection_ids"] == [collection["id"]]
     assert owner_body["provenance"] is not None
+    assert owner_body["extraction_meta"] is not None
 
     # Bob (a mere member) sees none of it.
     resp = bob_client.get(f"/api/recipes/{recipe_id}")
@@ -389,6 +393,7 @@ def test_member_get_recipe_scrubs_owner_personal_fields(
     assert body["is_favorite"] is False
     assert body["collection_ids"] == []
     assert body["provenance"] is None
+    assert body["extraction_meta"] is None
 
 
 def test_member_patch_response_scrubs_owner_personal_fields(
@@ -418,6 +423,9 @@ def test_member_patch_response_scrubs_owner_personal_fields(
         "shared_at": "2020-01-01T00:00:00+00:00",
         "origin_recipe_id": str(uuid.uuid4()),
     }
+    # extraction_meta isn't settable via a public endpoint either — stamp it
+    # directly, mirroring provenance, to cover the ingestion-internals leak.
+    recipe_row.extraction_meta = {"tier_used": "vision", "confidence": 0.42}
     db_session.flush()
 
     # Bob (a mere member) PATCHes a valid change (title).
@@ -431,6 +439,7 @@ def test_member_patch_response_scrubs_owner_personal_fields(
     assert patch_response["is_favorite"] is False
     assert patch_response["collection_ids"] == []
     assert patch_response["provenance"] is None
+    assert patch_response["extraction_meta"] is None
 
     # Subsequent owner GET still shows original owner values (scrub is response-only).
     resp = alice_client.get(f"/api/recipes/{recipe_id}")
@@ -440,3 +449,4 @@ def test_member_patch_response_scrubs_owner_personal_fields(
     assert owner_body["is_favorite"] is True
     assert owner_body["collection_ids"] == [collection["id"]]
     assert owner_body["provenance"] is not None
+    assert owner_body["extraction_meta"] is not None

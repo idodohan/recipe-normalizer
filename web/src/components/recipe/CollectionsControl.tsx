@@ -68,9 +68,12 @@ export function CollectionsControl({ recipeId, collectionIds }: CollectionsContr
   }, [open]);
 
   // Closing the panel also leaves manage mode / any in-progress
-  // rename-or-delete confirm, so reopening always starts fresh.
+  // rename-or-delete confirm, so reopening always starts fresh. This is a
+  // deliberate reseed of local UI state keyed off `open`, not a sync with
+  // an external system, so the cascading-render warning doesn't apply.
   useEffect(() => {
     if (!open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setManageMode(false);
       setRenamingId(null);
       setDeletingId(null);
