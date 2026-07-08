@@ -4,11 +4,11 @@ import { apiErrorMessage } from "../api/errors";
 import type { components } from "../api/schema";
 import { toast } from "./useToast";
 
-type RecipeSummary = components["schemas"]["RecipeSummary"];
+type RecipePage = components["schemas"]["RecipePage"];
 type RecipeOut = components["schemas"]["RecipeOut"];
 
 type FavoriteContext = {
-  previousList?: RecipeSummary[];
+  previousList?: RecipePage;
   previousDetail?: RecipeOut;
 };
 
@@ -36,16 +36,16 @@ export function useFavoriteMutation(recipeId: string) {
         queryClient.cancelQueries({ queryKey: ["recipe", recipeId] }),
       ]);
 
-      const previousList = queryClient.getQueryData<RecipeSummary[]>(["recipes"]);
+      const previousList = queryClient.getQueryData<RecipePage>(["recipes"]);
       const previousDetail = queryClient.getQueryData<RecipeOut>(["recipe", recipeId]);
 
       if (previousList) {
-        queryClient.setQueryData<RecipeSummary[]>(
-          ["recipes"],
-          previousList.map((recipe) =>
+        queryClient.setQueryData<RecipePage>(["recipes"], {
+          ...previousList,
+          items: previousList.items.map((recipe) =>
             recipe.id === recipeId ? { ...recipe, is_favorite: isFavorite } : recipe,
           ),
-        );
+        });
       }
 
       if (previousDetail) {

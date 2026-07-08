@@ -11,7 +11,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import exists, func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from recipe_normalizer.catalog import service as catalog_service
@@ -33,6 +33,7 @@ from recipe_normalizer.cookbook.schemas import (
     IngredientLineIn,
     RecipeIn,
     RecipeOut,
+    RecipePage,
     RecipeSummary,
 )
 from recipe_normalizer.errors import ApiError
@@ -380,20 +381,130 @@ def get_recipe(
     return RecipeOut.model_validate(loaded)
 
 
+# Trigram similarity threshold shared by title and ingredient-line matching.
+_TRIGRAM_THRESHOLD = 0.25
+
+_VALID_DIETARY_FILTERS = frozenset({"vegan", "vegetarian", "gluten_free"})
+
+
 def list_recipes(
     db: Session,
     *,
     owner_id: uuid.UUID,
-) -> list[RecipeSummary]:
-    """Return all recipes owned by owner_id, newest first."""
+    q: str | None = None,
+    cuisine: str | None = None,
+    dish_type: str | None = None,
+    tag: str | None = None,
+    dietary: str | None = None,
+    max_total_min: int | None = None,
+    source_type: SourceType | str | None = None,
+    favorites: bool | None = None,
+    limit: int = 1000,
+    offset: int = 0,
+) -> RecipePage:
+    """Return a page of recipes owned by owner_id, newest first, filters ANDed.
+
+    Search (*q*): a recipe matches when ANY of the following hold —
+      1. title/description full-text search: ``to_tsvector('simple', title ||
+         ' ' || coalesce(description, '')) @@ websearch_to_tsquery('simple', q)``.
+      2. title trigram similarity: ``similarity(title, q) > 0.25``.
+      3. an ingredient line's ``original_text`` has trigram
+         ``similarity(original_text, q) > 0.25``.
+
+    Dietary rule (*dietary* — one of ``"vegan"``, ``"vegetarian"``,
+    ``"gluten_free"``): a recipe qualifies when EVERY ingredient line that HAS
+    a canonical-ingredient match is compatible with the diet, per
+    ``catalog.service.dietary_incompatible_ingredient_ids``. Ingredient lines
+    with no canonical match (free-text lines, or lines with no ``name``
+    given) do NOT disqualify — they are simply not considered. See
+    catalog/service.py for how the raw ``dietary_flags`` tags map to each
+    diet.
+
+    ``limit`` defaults to 1000 (offset 0) — high enough that, for realistic
+    cookbook sizes, omitting both params reproduces the pre-pagination
+    behavior of returning every recipe; the search/filter UI (next task)
+    passes explicit page sizes.
+
+    Raises ``ApiError`` 422 for an unrecognised *dietary* value.
+    """
+    conditions: list[Any] = [Recipe.owner_id == owner_id]
+
+    if q and q.strip():
+        q_stripped = q.strip()
+        title_desc_tsvector = func.to_tsvector(
+            "simple", func.concat(Recipe.title, " ", func.coalesce(Recipe.description, ""))
+        )
+        fts_match = title_desc_tsvector.op("@@")(func.websearch_to_tsquery("simple", q_stripped))
+        title_trgm_match = func.similarity(Recipe.title, q_stripped) > _TRIGRAM_THRESHOLD
+        ingredient_trgm_match = exists(
+            select(1)
+            .select_from(IngredientLine)
+            .join(IngredientGroup, IngredientLine.group_id == IngredientGroup.id)
+            .where(
+                IngredientGroup.recipe_id == Recipe.id,
+                func.similarity(IngredientLine.original_text, q_stripped) > _TRIGRAM_THRESHOLD,
+            )
+        )
+        conditions.append(or_(fts_match, title_trgm_match, ingredient_trgm_match))
+
+    if cuisine and cuisine.strip():
+        conditions.append(Recipe.cuisines.any(func.lower(Cuisine.name) == cuisine.strip().lower()))
+
+    if dish_type and dish_type.strip():
+        conditions.append(
+            Recipe.dish_types.any(func.lower(DishType.name) == dish_type.strip().lower())
+        )
+
+    if tag and tag.strip():
+        conditions.append(Recipe.tags.any(func.lower(Tag.name) == tag.strip().lower()))
+
+    if dietary is not None:
+        if dietary not in _VALID_DIETARY_FILTERS:
+            raise ApiError(
+                422,
+                "validation_error",
+                f"Unknown dietary filter {dietary!r}; expected one of "
+                f"{sorted(_VALID_DIETARY_FILTERS)}.",
+            )
+        disqualifying_ids = catalog_service.dietary_incompatible_ingredient_ids(dietary)
+        conditions.append(
+            ~exists(
+                select(1)
+                .select_from(IngredientLine)
+                .join(IngredientGroup, IngredientLine.group_id == IngredientGroup.id)
+                .where(
+                    IngredientGroup.recipe_id == Recipe.id,
+                    IngredientLine.canonical_ingredient_id.in_(disqualifying_ids),
+                )
+            )
+        )
+
+    if max_total_min is not None:
+        conditions.append(Recipe.total_min <= max_total_min)
+
+    if source_type is not None:
+        conditions.append(Recipe.source_type == source_type)
+
+    if favorites is not None:
+        conditions.append(Recipe.is_favorite == favorites)
+
+    total = db.scalar(select(func.count()).select_from(Recipe).where(*conditions)) or 0
+
     stmt = (
         select(Recipe)
-        .where(Recipe.owner_id == owner_id)
+        .where(*conditions)
         .options(*_RECIPE_SUMMARY_OPTIONS)
         .order_by(Recipe.created_at.desc())
+        .limit(limit)
+        .offset(offset)
     )
     recipes = db.scalars(stmt).all()
-    return [RecipeSummary.model_validate(r) for r in recipes]
+    return RecipePage(
+        items=[RecipeSummary.model_validate(r) for r in recipes],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 def update_recipe(

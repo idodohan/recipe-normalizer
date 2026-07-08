@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query, UploadFile
 from fastapi.responses import Response
@@ -17,8 +17,8 @@ from recipe_normalizer.cookbook.scaling import ScaledRecipeOut, scale_factor_for
 from recipe_normalizer.cookbook.schemas import (
     RecipeIn,
     RecipeOut,
+    RecipePage,
     RecipePersonalPatch,
-    RecipeSummary,
 )
 from recipe_normalizer.db import get_db
 from recipe_normalizer.errors import ApiError
@@ -46,12 +46,35 @@ def create_recipe(
     )
 
 
-@router.get("/recipes", response_model=list[RecipeSummary])
+@router.get("/recipes", response_model=RecipePage)
 def list_recipes(
+    q: str | None = Query(default=None, max_length=200),
+    cuisine: str | None = Query(default=None, max_length=100),
+    dish_type: str | None = Query(default=None, max_length=100),
+    tag: str | None = Query(default=None, max_length=100),
+    dietary: Literal["vegan", "vegetarian", "gluten_free"] | None = Query(default=None),
+    max_total_min: int | None = Query(default=None, ge=0),
+    source_type: SourceType | None = Query(default=None),  # noqa: B008
+    favorites: bool | None = Query(default=None),
+    limit: int = Query(default=1000, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),  # noqa: B008
     current_user: Any = Depends(get_current_user),  # noqa: B008
-) -> list[RecipeSummary]:
-    return service.list_recipes(db, owner_id=current_user.id)
+) -> RecipePage:
+    return service.list_recipes(
+        db,
+        owner_id=current_user.id,
+        q=q,
+        cuisine=cuisine,
+        dish_type=dish_type,
+        tag=tag,
+        dietary=dietary,
+        max_total_min=max_total_min,
+        source_type=source_type,
+        favorites=favorites,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/recipes/{recipe_id}", response_model=RecipeOut)

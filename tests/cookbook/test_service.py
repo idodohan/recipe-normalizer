@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 import pytest
 from sqlalchemy.orm import Session
@@ -10,7 +11,7 @@ from sqlalchemy.orm import Session
 from recipe_normalizer.catalog import service as catalog_service
 from recipe_normalizer.catalog.seed_loader import load_seed
 from recipe_normalizer.cookbook import service as cookbook_service
-from recipe_normalizer.cookbook.models import IngredientLine, Recipe
+from recipe_normalizer.cookbook.models import IngredientLine, Recipe, SourceType
 from recipe_normalizer.cookbook.schemas import (
     IngredientGroupIn,
     IngredientLineIn,
@@ -344,10 +345,11 @@ def test_list_recipes_returns_own_newest_first(seeded: Session, owner: User) -> 
                 lines=[IngredientLineIn(original_text="water")],
             ),
         )
-    summaries = cookbook_service.list_recipes(seeded, owner_id=owner.id)
-    assert len(summaries) == 3
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id)
+    assert len(page.items) == 3
+    assert page.total == 3
     # newest first — created_at descending
-    titles = [s.title for s in summaries]
+    titles = [s.title for s in page.items]
     assert titles == ["Recipe 2", "Recipe 1", "Recipe 0"]
 
 
@@ -363,8 +365,9 @@ def test_list_recipes_excludes_other_owners(seeded: Session, owner: User) -> Non
         owner_id=other.id,
         data=_simple_recipe_in(lines=[IngredientLineIn(original_text="water")]),
     )
-    summaries = cookbook_service.list_recipes(seeded, owner_id=owner.id)
-    assert len(summaries) == 1
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id)
+    assert len(page.items) == 1
+    assert page.total == 1
 
 
 # ---------------------------------------------------------------------------
@@ -694,3 +697,303 @@ def test_merge_hook_repoints_ingredient_lines(seeded: Session, owner: User) -> N
     line = seeded.get(IngredientLine, line_id)
     assert line is not None
     assert line.canonical_ingredient_id == flour_id
+
+
+# ---------------------------------------------------------------------------
+# list_recipes — search, filters, dietary rule, pagination
+# ---------------------------------------------------------------------------
+
+
+def _recipe_with_ingredient(
+    seeded: Session,
+    owner: User,
+    *,
+    title: str,
+    ingredient_name: str | None,
+    original_text: str | None = None,
+    **kwargs: Any,
+) -> Any:
+    lines = [
+        IngredientLineIn(
+            original_text=original_text or (ingredient_name or "a pinch of something"),
+            quantity=1,
+            unit="cup" if ingredient_name else None,
+            name=ingredient_name,
+        )
+    ]
+    data = _simple_recipe_in(title=title, lines=lines)
+    return cookbook_service.create_recipe(seeded, owner_id=owner.id, data=data, **kwargs)
+
+
+def test_list_recipes_search_matches_title(seeded: Session, owner: User) -> None:
+    _recipe_with_ingredient(seeded, owner, title="Grandma's Apple Pie", ingredient_name=None)
+    _recipe_with_ingredient(seeded, owner, title="Beef Stew", ingredient_name=None)
+
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id, q="Apple Pie")
+    assert [r.title for r in page.items] == ["Grandma's Apple Pie"]
+    assert page.total == 1
+
+
+def test_list_recipes_search_matches_description_via_fts(seeded: Session, owner: User) -> None:
+    data = _simple_recipe_in(
+        title="Weeknight Dinner",
+        lines=[IngredientLineIn(original_text="a pinch of something")],
+    )
+    data.description = "A comforting bowl of spicy lentil soup for cold nights."
+    cookbook_service.create_recipe(seeded, owner_id=owner.id, data=data)
+    _recipe_with_ingredient(seeded, owner, title="Unrelated Recipe", ingredient_name=None)
+
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id, q="lentil soup")
+    assert [r.title for r in page.items] == ["Weeknight Dinner"]
+
+
+def test_list_recipes_search_matches_ingredient_trigram(seeded: Session, owner: User) -> None:
+    _recipe_with_ingredient(
+        seeded,
+        owner,
+        title="Mystery Bake",
+        ingredient_name=None,
+        original_text="two cups of pomegranate molasses",
+    )
+    _recipe_with_ingredient(seeded, owner, title="Unrelated Recipe", ingredient_name=None)
+
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id, q="pomegranate molasses")
+    assert [r.title for r in page.items] == ["Mystery Bake"]
+
+
+def test_list_recipes_search_no_match_returns_empty(seeded: Session, owner: User) -> None:
+    _recipe_with_ingredient(seeded, owner, title="Beef Stew", ingredient_name=None)
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id, q="xyzzy nonexistent term")
+    assert page.items == []
+    assert page.total == 0
+
+
+def test_list_recipes_filter_by_cuisine(seeded: Session, owner: User) -> None:
+    cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(
+            title="Pasta", cuisines=["Italian"], lines=[IngredientLineIn(original_text="water")]
+        ),
+    )
+    cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(
+            title="Curry", cuisines=["Indian"], lines=[IngredientLineIn(original_text="water")]
+        ),
+    )
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id, cuisine="italian")
+    assert [r.title for r in page.items] == ["Pasta"]
+
+
+def test_list_recipes_filter_by_dish_type(seeded: Session, owner: User) -> None:
+    cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(
+            title="Cake", dish_types=["dessert"], lines=[IngredientLineIn(original_text="water")]
+        ),
+    )
+    cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(
+            title="Stew", dish_types=["main"], lines=[IngredientLineIn(original_text="water")]
+        ),
+    )
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id, dish_type="dessert")
+    assert [r.title for r in page.items] == ["Cake"]
+
+
+def test_list_recipes_filter_by_tag(seeded: Session, owner: User) -> None:
+    cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(
+            title="Quick Salad", tags=["quick"], lines=[IngredientLineIn(original_text="water")]
+        ),
+    )
+    cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(
+            title="Slow Roast", tags=["slow"], lines=[IngredientLineIn(original_text="water")]
+        ),
+    )
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id, tag="quick")
+    assert [r.title for r in page.items] == ["Quick Salad"]
+
+
+def test_list_recipes_filter_by_max_total_min(seeded: Session, owner: User) -> None:
+    quick = _simple_recipe_in(title="Quick", lines=[IngredientLineIn(original_text="water")])
+    quick.total_min = 15
+    slow = _simple_recipe_in(title="Slow", lines=[IngredientLineIn(original_text="water")])
+    slow.total_min = 120
+    unknown = _simple_recipe_in(title="Unknown", lines=[IngredientLineIn(original_text="water")])
+
+    cookbook_service.create_recipe(seeded, owner_id=owner.id, data=quick)
+    cookbook_service.create_recipe(seeded, owner_id=owner.id, data=slow)
+    cookbook_service.create_recipe(seeded, owner_id=owner.id, data=unknown)
+
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id, max_total_min=30)
+    # Recipes with unknown total_min are excluded — we can't confirm they fit.
+    assert [r.title for r in page.items] == ["Quick"]
+
+
+def test_list_recipes_filter_by_source_type(seeded: Session, owner: User) -> None:
+    cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(title="Manual", lines=[IngredientLineIn(original_text="water")]),
+        source_type=SourceType.manual,
+    )
+    cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(title="Web", lines=[IngredientLineIn(original_text="water")]),
+        source_type=SourceType.web,
+    )
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id, source_type=SourceType.web)
+    assert [r.title for r in page.items] == ["Web"]
+
+
+def test_list_recipes_filter_by_favorites(seeded: Session, owner: User) -> None:
+    fav = cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(title="Favorite", lines=[IngredientLineIn(original_text="water")]),
+    )
+    cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(
+            title="Not Favorite", lines=[IngredientLineIn(original_text="water")]
+        ),
+    )
+    cookbook_service.set_personal(seeded, owner_id=owner.id, recipe_id=fav.id, is_favorite=True)
+
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id, favorites=True)
+    assert [r.title for r in page.items] == ["Favorite"]
+
+
+def test_list_recipes_filters_compose(seeded: Session, owner: User) -> None:
+    """cuisine + q both apply (ANDed) — a recipe matching only one is excluded."""
+    cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(
+            title="Italian Apple Cake",
+            cuisines=["Italian"],
+            lines=[IngredientLineIn(original_text="water")],
+        ),
+    )
+    cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(
+            title="Indian Apple Curry",
+            cuisines=["Indian"],
+            lines=[IngredientLineIn(original_text="water")],
+        ),
+    )
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id, q="Apple", cuisine="italian")
+    assert [r.title for r in page.items] == ["Italian Apple Cake"]
+
+
+def test_list_recipes_pagination_total_and_slice(seeded: Session, owner: User) -> None:
+    for i in range(5):
+        cookbook_service.create_recipe(
+            seeded,
+            owner_id=owner.id,
+            data=_simple_recipe_in(
+                title=f"Recipe {i}", lines=[IngredientLineIn(original_text="water")]
+            ),
+        )
+    page1 = cookbook_service.list_recipes(seeded, owner_id=owner.id, limit=2, offset=0)
+    assert page1.total == 5
+    assert page1.limit == 2
+    assert page1.offset == 0
+    assert [r.title for r in page1.items] == ["Recipe 4", "Recipe 3"]
+
+    page2 = cookbook_service.list_recipes(seeded, owner_id=owner.id, limit=2, offset=2)
+    assert page2.total == 5
+    assert [r.title for r in page2.items] == ["Recipe 2", "Recipe 1"]
+
+
+def test_list_recipes_default_behavior_returns_all_newest_first(
+    seeded: Session, owner: User
+) -> None:
+    """No params: identical to the pre-pagination behavior, just RecipePage-wrapped."""
+    for i in range(3):
+        cookbook_service.create_recipe(
+            seeded,
+            owner_id=owner.id,
+            data=_simple_recipe_in(
+                title=f"Recipe {i}", lines=[IngredientLineIn(original_text="water")]
+            ),
+        )
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id)
+    assert page.total == 3
+    assert [r.title for r in page.items] == ["Recipe 2", "Recipe 1", "Recipe 0"]
+
+
+def test_list_recipes_invalid_dietary_raises_422(seeded: Session, owner: User) -> None:
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.list_recipes(seeded, owner_id=owner.id, dietary="carnivore")
+    assert exc_info.value.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# list_recipes — dietary rule
+# ---------------------------------------------------------------------------
+
+
+def test_list_recipes_dietary_gluten_free_excludes_gluten(seeded: Session, owner: User) -> None:
+    _recipe_with_ingredient(seeded, owner, title="Bread", ingredient_name="all-purpose flour")
+    _recipe_with_ingredient(seeded, owner, title="Rice Bowl", ingredient_name="olive oil")
+
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id, dietary="gluten_free")
+    assert [r.title for r in page.items] == ["Rice Bowl"]
+
+
+def test_list_recipes_dietary_vegan_excludes_animal_products(seeded: Session, owner: User) -> None:
+    _recipe_with_ingredient(seeded, owner, title="Vinaigrette", ingredient_name="olive oil")
+    _recipe_with_ingredient(seeded, owner, title="Omelet", ingredient_name="egg")
+    _recipe_with_ingredient(seeded, owner, title="Beef Stew", ingredient_name="ground beef")
+
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id, dietary="vegan")
+    assert [r.title for r in page.items] == ["Vinaigrette"]
+
+
+def test_list_recipes_dietary_vegetarian_allows_dairy_and_egg_excludes_meat_and_fish(
+    seeded: Session, owner: User
+) -> None:
+    _recipe_with_ingredient(seeded, owner, title="Omelet", ingredient_name="egg")
+    _recipe_with_ingredient(seeded, owner, title="Milk Pudding", ingredient_name="milk")
+    _recipe_with_ingredient(seeded, owner, title="Beef Stew", ingredient_name="ground beef")
+    _recipe_with_ingredient(seeded, owner, title="Grilled Salmon", ingredient_name="salmon")
+    _recipe_with_ingredient(seeded, owner, title="Shrimp Cocktail", ingredient_name="shrimp")
+
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id, dietary="vegetarian")
+    assert {r.title for r in page.items} == {"Omelet", "Milk Pudding"}
+
+
+def test_list_recipes_dietary_unmatched_ingredient_line_does_not_disqualify(
+    seeded: Session, owner: User
+) -> None:
+    """A free-text line with no catalog match doesn't disqualify a vegan recipe,
+    even though its text mentions a non-vegan word."""
+    data = _simple_recipe_in(
+        title="Ambiguous Salad",
+        lines=[
+            IngredientLineIn(original_text="olive oil", quantity=1, unit="cup", name="olive oil"),
+            # No `name` -> no catalog match attempted -> canonical_ingredient_id stays
+            # None regardless of what the free text says.
+            IngredientLineIn(original_text="a dash of bacon flavoring (imaginary)"),
+        ],
+    )
+    cookbook_service.create_recipe(seeded, owner_id=owner.id, data=data)
+
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id, dietary="vegan")
+    assert [r.title for r in page.items] == ["Ambiguous Salad"]

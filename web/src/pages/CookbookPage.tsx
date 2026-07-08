@@ -26,11 +26,9 @@ export function CookbookPage() {
     },
   });
 
-  const count = recipes.data?.length ?? 0;
-  const visible =
-    filter === "favorites"
-      ? (recipes.data ?? []).filter((recipe) => recipe.is_favorite)
-      : (recipes.data ?? []);
+  const items = recipes.data?.items ?? [];
+  const count = items.length;
+  const visible = filter === "favorites" ? items.filter((recipe) => recipe.is_favorite) : items;
 
   return (
     <>

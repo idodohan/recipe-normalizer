@@ -298,3 +298,12 @@ class RecipeSummary(BaseModel):
     @classmethod
     def vocab_to_names(cls, v: Any) -> list[str]:
         return extract_vocab_names(v)
+
+
+class RecipePage(BaseModel):
+    """Paginated result of ``GET /api/recipes``."""
+
+    items: list[RecipeSummary]
+    total: int
+    limit: int
+    offset: int

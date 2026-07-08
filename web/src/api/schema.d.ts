@@ -858,6 +858,20 @@ export interface components {
             total_min?: number | null;
         };
         /**
+         * RecipePage
+         * @description Paginated result of ``GET /api/recipes``.
+         */
+        RecipePage: {
+            /** Items */
+            items: components["schemas"]["RecipeSummary"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /**
          * RecipePersonalPatch
          * @description Lightweight patch for personal metadata (favorites/notes).
          *
@@ -1008,6 +1022,11 @@ export interface components {
             /** Unit Text */
             unit_text?: string | null;
         };
+        /**
+         * SourceType
+         * @enum {string}
+         */
+        SourceType: "web" | "pdf" | "image" | "text" | "manual";
         /** StepIn */
         StepIn: {
             /** Original Text */
@@ -1655,7 +1674,18 @@ export interface operations {
     };
     list_recipes_api_recipes_get: {
         parameters: {
-            query?: never;
+            query?: {
+                q?: string | null;
+                cuisine?: string | null;
+                dish_type?: string | null;
+                tag?: string | null;
+                dietary?: ("vegan" | "vegetarian" | "gluten_free") | null;
+                max_total_min?: number | null;
+                source_type?: components["schemas"]["SourceType"] | null;
+                favorites?: boolean | null;
+                limit?: number;
+                offset?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1668,7 +1698,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RecipeSummary"][];
+                    "application/json": components["schemas"]["RecipePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

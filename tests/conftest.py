@@ -28,6 +28,14 @@ def engine(pg_url: str) -> Iterator[Engine]:
     import recipe_normalizer.llm.models  # noqa: F401
     import recipe_normalizer.users.models  # noqa: F401
 
+    # Tests build schema via Base.metadata.create_all (not alembic), so the
+    # pg_trgm extension the migration enables (for trigram similarity search
+    # and the trigram/tsvector indexes) must be created here too — indexes
+    # themselves are performance-only and are skipped (create_all doesn't
+    # know about them), but queries must still work without them.
+    with eng.begin() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+
     Base.metadata.create_all(eng)
     # Throwaway table used by tests asserting db_session transaction isolation.
     with eng.begin() as conn:

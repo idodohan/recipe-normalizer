@@ -147,14 +147,18 @@ def test_create_recipe_201(app_client: TestClient) -> None:
 def test_list_recipes_contains_summary(app_client: TestClient) -> None:
     resp = app_client.get("/api/recipes")
     assert resp.status_code == 200
-    titles = [r["title"] for r in resp.json()]
+    body = resp.json()
+    assert set(body.keys()) == {"items", "total", "limit", "offset"}
+    titles = [r["title"] for r in body["items"]]
     assert "Test Cocktail Bread" in titles
 
 
 def test_get_recipe_detail(app_client: TestClient) -> None:
     # First get the recipe id from the list
     list_resp = app_client.get("/api/recipes")
-    recipe_id = next(r["id"] for r in list_resp.json() if r["title"] == "Test Cocktail Bread")
+    recipe_id = next(
+        r["id"] for r in list_resp.json()["items"] if r["title"] == "Test Cocktail Bread"
+    )
 
     resp = app_client.get(f"/api/recipes/{recipe_id}")
     assert resp.status_code == 200
@@ -165,7 +169,9 @@ def test_get_recipe_detail(app_client: TestClient) -> None:
 
 def test_scaled_by_factor(app_client: TestClient) -> None:
     list_resp = app_client.get("/api/recipes")
-    recipe_id = next(r["id"] for r in list_resp.json() if r["title"] == "Test Cocktail Bread")
+    recipe_id = next(
+        r["id"] for r in list_resp.json()["items"] if r["title"] == "Test Cocktail Bread"
+    )
 
     resp = app_client.get(f"/api/recipes/{recipe_id}/scaled", params={"factor": 2})
     assert resp.status_code == 200
@@ -182,7 +188,9 @@ def test_scaled_by_factor(app_client: TestClient) -> None:
 
 def test_scaled_by_target_servings(app_client: TestClient) -> None:
     list_resp = app_client.get("/api/recipes")
-    recipe_id = next(r["id"] for r in list_resp.json() if r["title"] == "Test Cocktail Bread")
+    recipe_id = next(
+        r["id"] for r in list_resp.json()["items"] if r["title"] == "Test Cocktail Bread"
+    )
 
     resp = app_client.get(f"/api/recipes/{recipe_id}/scaled", params={"target_servings": 8})
     assert resp.status_code == 200
@@ -193,7 +201,9 @@ def test_scaled_by_target_servings(app_client: TestClient) -> None:
 
 def test_scaled_both_params_422(app_client: TestClient) -> None:
     list_resp = app_client.get("/api/recipes")
-    recipe_id = next(r["id"] for r in list_resp.json() if r["title"] == "Test Cocktail Bread")
+    recipe_id = next(
+        r["id"] for r in list_resp.json()["items"] if r["title"] == "Test Cocktail Bread"
+    )
 
     resp = app_client.get(
         f"/api/recipes/{recipe_id}/scaled",
@@ -206,7 +216,9 @@ def test_scaled_both_params_422(app_client: TestClient) -> None:
 
 def test_scaled_no_params_422(app_client: TestClient) -> None:
     list_resp = app_client.get("/api/recipes")
-    recipe_id = next(r["id"] for r in list_resp.json() if r["title"] == "Test Cocktail Bread")
+    recipe_id = next(
+        r["id"] for r in list_resp.json()["items"] if r["title"] == "Test Cocktail Bread"
+    )
 
     resp = app_client.get(f"/api/recipes/{recipe_id}/scaled")
     assert resp.status_code == 422
@@ -216,7 +228,9 @@ def test_scaled_no_params_422(app_client: TestClient) -> None:
 
 def test_delete_recipe_then_404(app_client: TestClient) -> None:
     list_resp = app_client.get("/api/recipes")
-    recipe_id = next(r["id"] for r in list_resp.json() if r["title"] == "Test Cocktail Bread")
+    recipe_id = next(
+        r["id"] for r in list_resp.json()["items"] if r["title"] == "Test Cocktail Bread"
+    )
 
     del_resp = app_client.delete(f"/api/recipes/{recipe_id}")
     assert del_resp.status_code == 204

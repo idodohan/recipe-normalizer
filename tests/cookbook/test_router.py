@@ -59,6 +59,49 @@ def _create_recipe(client: TestClient) -> str:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/recipes — RecipePage shape + query params
+# ---------------------------------------------------------------------------
+
+
+def test_list_recipes_returns_recipe_page_shape(auth_client: TestClient) -> None:
+    _create_recipe(auth_client)
+    resp = auth_client.get("/api/recipes")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert set(body.keys()) == {"items", "total", "limit", "offset"}
+    assert body["total"] == 1
+    assert len(body["items"]) == 1
+    assert body["items"][0]["title"] == "Test Cake"
+
+
+def test_list_recipes_q_param_filters(auth_client: TestClient) -> None:
+    _create_recipe(auth_client)
+    resp = auth_client.get("/api/recipes", params={"q": "nonexistent term xyz"})
+    assert resp.status_code == 200
+    assert resp.json()["items"] == []
+    assert resp.json()["total"] == 0
+
+
+def test_list_recipes_limit_offset_params(auth_client: TestClient) -> None:
+    _create_recipe(auth_client)
+    resp = auth_client.get("/api/recipes", params={"limit": 1, "offset": 0})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["limit"] == 1
+    assert body["offset"] == 0
+
+
+def test_list_recipes_invalid_dietary_returns_422(auth_client: TestClient) -> None:
+    resp = auth_client.get("/api/recipes", params={"dietary": "carnivore"})
+    assert resp.status_code == 422
+
+
+def test_list_recipes_unauthenticated_returns_401(client: TestClient) -> None:
+    resp = client.get("/api/recipes")
+    assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
 # Unauthenticated → 401 envelope
 # ---------------------------------------------------------------------------
 
