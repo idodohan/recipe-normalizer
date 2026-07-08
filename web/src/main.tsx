@@ -25,6 +25,8 @@ import { RecipeEditPage } from "./pages/RecipeEditPage";
 import { RecipeEditorPage } from "./pages/RecipeEditorPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { ReviewPage } from "./pages/ReviewPage";
+import { SharedCookbookPage } from "./pages/SharedCookbookPage";
+import { SharesPage } from "./pages/SharesPage";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
@@ -44,6 +46,8 @@ const router = createBrowserRouter([
       { path: "recipes/:id/edit", element: <RecipeEditPage /> },
       { path: "recipes/:id", element: <RecipeDetailPage /> },
       { path: "catalog", element: <CatalogPage /> },
+      { path: "shares", element: <SharesPage /> },
+      { path: "shares/:id", element: <SharedCookbookPage /> },
     ],
   },
   { path: "*", element: <Navigate to="/" replace /> },

@@ -210,6 +210,12 @@
   max-width: 58ch;
 }
 
+.rd__provenance {
+  margin-top: var(--space-3);
+  font-size: var(--text-small);
+  color: var(--color-text-faint);
+}
+
 /* Meta strip under the ink rule: hairline-bottom, small-caps labels. */
 
 .rd__meta {

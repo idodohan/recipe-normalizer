@@ -1,0 +1,306 @@
+/* ------------------------------------------------------------------ */
+/*  Shared cookbook detail — a recipe grid on the left, a members       */
+/*  panel on the right. Mirrors RecipeDetailPage's two-column spread.   */
+/* ------------------------------------------------------------------ */
+
+.shc__toolbar {
+  margin-bottom: var(--space-6);
+}
+
+.shc__back {
+  font-size: var(--text-small);
+  font-weight: 500;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  transition: color 120ms ease;
+}
+
+.shc__back:hover {
+  color: var(--color-accent-deep);
+  text-decoration: none;
+}
+
+.shc__header {
+  border-bottom: var(--rule-ink);
+  padding-bottom: var(--space-5);
+  margin-bottom: var(--space-6);
+}
+
+.shc__kicker {
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--color-accent);
+  margin-bottom: var(--space-2);
+}
+
+.shc__title {
+  font-size: var(--text-display);
+}
+
+.shc__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  gap: var(--space-8);
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .shc__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.shc__colhead {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: var(--text-heading);
+  font-weight: 520;
+  margin-bottom: var(--space-4);
+}
+
+/* -- Recipe grid --------------------------------------------------------- */
+
+.shc__grid {
+  list-style: none;
+  margin: 0 0 var(--space-6);
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-6);
+}
+
+@media (max-width: 560px) {
+  .shc__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.shc-tile-shell {
+  position: relative;
+  display: flex;
+}
+
+.shc-tile {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-top: 2px solid var(--color-ink);
+  padding-top: var(--space-3);
+  color: var(--color-ink);
+  transition: border-color 160ms ease;
+}
+
+.shc-tile:hover {
+  text-decoration: none;
+  border-top-color: var(--color-accent);
+}
+
+.shc-tile__kicker {
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+  padding-right: var(--space-6);
+}
+
+.shc-tile__initial {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 3rem;
+  font-weight: 600;
+  line-height: 0.95;
+  color: var(--color-accent);
+  margin: var(--space-3) 0 var(--space-3);
+}
+
+.shc-tile__image {
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  margin: var(--space-3) 0;
+}
+
+.shc-tile__title {
+  font-size: var(--text-body);
+  font-weight: 560;
+  line-height: var(--leading-snug);
+  margin-bottom: var(--space-3);
+}
+
+.shc-tile:hover .shc-tile__title {
+  color: var(--color-accent-deep);
+}
+
+.shc-tile__foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  border-top: var(--hairline);
+  padding-top: var(--space-2);
+  font-size: var(--text-small);
+  color: var(--color-text-muted);
+}
+
+.shc-tile__remove {
+  position: absolute;
+  top: calc(-1 * var(--space-2));
+  right: calc(-1 * var(--space-2));
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  background-color: var(--color-surface-raised);
+  border: var(--hairline-strong);
+  color: var(--color-text-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.shc-tile__remove:hover {
+  color: var(--color-error);
+  border-color: var(--color-error);
+}
+
+.shc-tile__confirm {
+  position: absolute;
+  top: calc(-1 * var(--space-2));
+  right: calc(-1 * var(--space-2));
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background-color: var(--color-surface-raised);
+  border: var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+}
+
+/* -- Add-recipe / invite forms -------------------------------------------- */
+
+.shc__add-label {
+  display: block;
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+  margin-bottom: var(--space-2);
+}
+
+.shc__add-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.shc__add-select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.shc__invite-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* -- Members panel --------------------------------------------------------- */
+
+.shc__members {
+  border: var(--hairline-strong);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+  background-color: var(--color-surface-raised);
+}
+
+.shc__member-list {
+  list-style: none;
+  margin: 0 0 var(--space-4);
+  padding: 0;
+}
+
+.shc__member-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 2.5rem;
+  border-bottom: var(--hairline);
+}
+
+.shc__member-item:last-child {
+  border-bottom: none;
+}
+
+.shc__member-name {
+  font-size: var(--text-small);
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+
+.shc__member-badge {
+  margin-left: var(--space-2);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-accent-deep);
+}
+
+.shc__invite-form {
+  border-top: var(--hairline);
+  padding-top: var(--space-4);
+}
+
+.shc__error {
+  margin-top: var(--space-2);
+  font-size: var(--text-small);
+  color: var(--color-error);
+}
+
+.shc__confirm {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.shc__confirm-q {
+  font-size: var(--text-small);
+  color: var(--color-ink);
+}
+
+.shc__text-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  min-height: 1.75rem;
+  font-size: var(--text-small);
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.shc__text-btn:hover:not(:disabled) {
+  color: var(--color-accent-deep);
+}
+
+.shc__text-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.shc__text-btn--danger {
+  color: var(--color-text-faint);
+}
+
+.shc__text-btn--danger:hover:not(:disabled) {
+  color: var(--color-error);
+}
