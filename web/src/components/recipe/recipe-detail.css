@@ -7,7 +7,7 @@
 /*  then the normalized measure in terracotta tabular figures.         */
 /* ------------------------------------------------------------------ */
 
-/* -- Toolbar: back link + delete -------------------------------------- */
+/* -- Toolbar: back link + edit/delete ---------------------------------- */
 
 .rd__toolbar {
   display: flex;
@@ -15,6 +15,12 @@
   justify-content: space-between;
   gap: var(--space-4);
   margin-bottom: var(--space-6);
+}
+
+.rd__toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
 }
 
 .rd__back {

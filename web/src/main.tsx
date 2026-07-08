@@ -21,6 +21,7 @@ import { CookbookPage } from "./pages/CookbookPage";
 import { InboxPage } from "./pages/InboxPage";
 import { LoginPage } from "./pages/LoginPage";
 import { RecipeDetailPage } from "./pages/RecipeDetailPage";
+import { RecipeEditPage } from "./pages/RecipeEditPage";
 import { RecipeEditorPage } from "./pages/RecipeEditorPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { ReviewPage } from "./pages/ReviewPage";
@@ -40,6 +41,7 @@ const router = createBrowserRouter([
       { path: "inbox", element: <InboxPage /> },
       { path: "jobs/:id/review", element: <ReviewPage /> },
       { path: "recipes/new", element: <RecipeEditorPage /> },
+      { path: "recipes/:id/edit", element: <RecipeEditPage /> },
       { path: "recipes/:id", element: <RecipeDetailPage /> },
       { path: "catalog", element: <CatalogPage /> },
     ],

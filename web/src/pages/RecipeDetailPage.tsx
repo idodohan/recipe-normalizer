@@ -8,6 +8,7 @@ import {
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { apiErrorMessage } from "../api/errors";
+import { Button } from "../components/Button";
 import { ErrorState } from "../components/ErrorState";
 import { Skeleton } from "../components/Skeleton";
 import { toast } from "../hooks/useToast";
@@ -209,10 +210,15 @@ export function RecipeDetailPage() {
         <Link to="/" className="rd__back">
           ← Cookbook
         </Link>
-        <DeleteControl
-          onConfirm={() => remove.mutate()}
-          deleting={remove.isPending}
-        />
+        <div className="rd__toolbar-actions">
+          <Button variant="secondary" onClick={() => navigate(`/recipes/${id}/edit`)}>
+            Edit
+          </Button>
+          <DeleteControl
+            onConfirm={() => remove.mutate()}
+            deleting={remove.isPending}
+          />
+        </div>
       </div>
 
       {remove.isError ? (
