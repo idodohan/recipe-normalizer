@@ -2,7 +2,7 @@
 
 Transaction convention: service flushes; HTTP layer (or test) owns commit.
 Import-linter: ingestion may import its own models + cookbook.service/schemas
-+ filestore + extraction.netguard (dependency-free SSRF guard); NOT sibling
++ filestore + netguard (dependency-free SSRF guard); NOT sibling
 models nor the rest of extraction.
 """
 
@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session
 from recipe_normalizer.cookbook import service as cookbook_service
 from recipe_normalizer.cookbook.service import DuplicateRecipeError  # re-used
 from recipe_normalizer.errors import ApiError
-from recipe_normalizer.extraction.netguard import UnsafeUrlError, assert_public_url
 from recipe_normalizer.filestore import FileStore
 from recipe_normalizer.ingestion.fingerprint import (
     fingerprint_bytes,
@@ -27,6 +26,7 @@ from recipe_normalizer.ingestion.fingerprint import (
     fingerprint_url as _fingerprint_url,
 )
 from recipe_normalizer.ingestion.models import InputType, Job, JobStatus
+from recipe_normalizer.netguard import UnsafeUrlError, assert_public_url
 
 if TYPE_CHECKING:
     pass

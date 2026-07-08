@@ -6,8 +6,8 @@ import httpx
 import pytest
 
 from recipe_normalizer.extraction.base import TierFailed
-from recipe_normalizer.extraction.netguard import UnsafeUrlError, assert_public_url
 from recipe_normalizer.extraction.url_plugin import default_fetch
+from recipe_normalizer.netguard import UnsafeUrlError, assert_public_url
 
 
 def _fake_getaddrinfo(ip: str):

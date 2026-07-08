@@ -44,5 +44,5 @@ def assert_public_url(url: str) -> None:
             ip = ipaddress.ip_address(info[4][0])
         except ValueError as exc:
             raise UnsafeUrlError(f"host '{host}' resolved to an invalid address") from exc
-        if not ip.is_global:
+        if not ip.is_global:  # is_global handles IPv4-mapped IPv6 correctly on Python >= 3.12.4
             raise UnsafeUrlError(f"host '{host}' resolves to a non-public address")

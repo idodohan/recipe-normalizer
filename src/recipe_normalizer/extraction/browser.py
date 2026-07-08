@@ -32,8 +32,8 @@ from typing import TYPE_CHECKING, Any
 import trafilatura
 
 from recipe_normalizer.extraction.base import Acquired, TierFailed
-from recipe_normalizer.extraction.netguard import UnsafeUrlError, assert_public_url
 from recipe_normalizer.llm.client import BudgetExceeded, image_block
+from recipe_normalizer.netguard import UnsafeUrlError, assert_public_url
 
 if TYPE_CHECKING:
     from contextlib import AbstractContextManager

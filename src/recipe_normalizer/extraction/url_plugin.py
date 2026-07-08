@@ -36,8 +36,8 @@ from recipe_normalizer.extraction.jsonld import (
     is_complete,
     jsonld_to_normalize_result,
 )
-from recipe_normalizer.extraction.netguard import MAX_REDIRECTS, UnsafeUrlError, assert_public_url
 from recipe_normalizer.llm.client import CostCapExceeded, LLMError
+from recipe_normalizer.netguard import MAX_REDIRECTS, UnsafeUrlError, assert_public_url
 
 if TYPE_CHECKING:
     from recipe_normalizer.extraction.normalize import NormalizeResult
