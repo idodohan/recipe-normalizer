@@ -10,7 +10,7 @@ Each phase gets its own full plan document written when the phase starts.
 
 | Phase | Plan doc | Contents | Status |
 |---|---|---|---|
-| 0 | `2026-07-08-plan-3-hardening.md` | SSRF guard, catalog authz (admin role), per-job LLM cost cap, rate limiting, poison-job cap, 500-handler + request logging, config-driven CORS, upload magic-byte sniffing + image-bomb guards, correctness nits | in progress |
+| 0 | `2026-07-08-plan-3-hardening.md` | SSRF guard, catalog authz (admin role), per-job LLM cost cap, rate limiting, poison-job cap, 500-handler + request logging, config-driven CORS, upload magic-byte sniffing + image-bomb guards, correctness nits | done (merged 2026-07-08, 15 commits, final review clean) |
 | 1 | `2026-07-08-plan-4-ux-systems.md` | UX systems + product gaps (THE FOCUS): edit-saved-recipe flow, toast layer, skeletons + retry affordances, auth-loading fix, recipe detail image + manual image upload, personal notes + favorites, Catalog page, mobile/fluid type + reduced-motion, dark mode token set, a11y (tabs/combobox/focus), QueryClient defaults + shared hooks + centralized error parsing | not started |
 | 2 | `2026-07-09-plan-5-search-collections-sharing.md` | Cookbook entity, search/filters (FTS + pg_trgm so Hebrew works later), collections, copy-on-share, public links, shared cookbooks (LWW) | not started |
 | 3 | `2026-07-09-plan-6-ai-layer.md` | Per-recipe chat, cookbook Q&A (tool-use over search), transformations via review gate + derived_from, content-based recommendations | not started |
