@@ -14,7 +14,12 @@ from recipe_normalizer.api_deps import get_current_user
 from recipe_normalizer.cookbook import service
 from recipe_normalizer.cookbook.models import Cuisine, DishType, SourceType, Tag
 from recipe_normalizer.cookbook.scaling import ScaledRecipeOut, scale_factor_for, scale_recipe
-from recipe_normalizer.cookbook.schemas import RecipeIn, RecipeOut, RecipeSummary
+from recipe_normalizer.cookbook.schemas import (
+    RecipeIn,
+    RecipeOut,
+    RecipePersonalPatch,
+    RecipeSummary,
+)
 from recipe_normalizer.db import get_db
 from recipe_normalizer.errors import ApiError
 
@@ -70,6 +75,24 @@ def update_recipe(
         recipe_id=recipe_id,
         data=body,
         editor_id=current_user.id,
+    )
+
+
+@router.patch("/recipes/{recipe_id}/personal", response_model=RecipeOut)
+def update_recipe_personal(
+    recipe_id: uuid.UUID,
+    body: RecipePersonalPatch,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> RecipeOut:
+    return service.set_personal(
+        db,
+        owner_id=current_user.id,
+        recipe_id=recipe_id,
+        is_favorite=body.is_favorite if body.is_favorite is not None else service.UNSET,
+        # model_fields_set distinguishes an absent field from an explicit
+        # null: {"notes": null} clears the value.
+        notes=body.notes if "notes" in body.model_fields_set else service.UNSET,
     )
 
 

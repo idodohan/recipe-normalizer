@@ -978,6 +978,11 @@
             ],
             "title": "Image Ref"
           },
+          "is_favorite": {
+            "default": false,
+            "title": "Is Favorite",
+            "type": "boolean"
+          },
           "is_verified": {
             "default": false,
             "title": "Is Verified",
@@ -1011,6 +1016,17 @@
               }
             ],
             "title": "Last Edited By"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
           },
           "owner_id": {
             "format": "uuid",
@@ -1112,6 +1128,35 @@
           "servings"
         ],
         "title": "RecipeOut",
+        "type": "object"
+      },
+      "RecipePersonalPatch": {
+        "description": "Lightweight patch for personal metadata (favorites/notes).\n\nDistinct from RecipeIn: does not trigger the full destructive-replace\nsemantics of PATCH /api/recipes/{id}. ``notes`` uses model_fields_set at\nthe router layer to distinguish \"field absent\" from \"explicit null\".",
+        "properties": {
+          "is_favorite": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Favorite"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "title": "RecipePersonalPatch",
         "type": "object"
       },
       "RecipeSummary": {
@@ -2564,6 +2609,59 @@
           }
         },
         "summary": "Update Recipe",
+        "tags": [
+          "recipes"
+        ]
+      }
+    },
+    "/api/recipes/{recipe_id}/personal": {
+      "patch": {
+        "operationId": "update_recipe_personal_api_recipes__recipe_id__personal_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "recipe_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Recipe Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecipePersonalPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecipeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Recipe Personal",
         "tags": [
           "recipes"
         ]

@@ -38,6 +38,7 @@ from recipe_normalizer.cookbook.schemas import (
 from recipe_normalizer.errors import ApiError
 
 __all__ = [
+    "UNSET",
     "DuplicateRecipeError",
     "SourceType",
     "are_verified",
@@ -48,9 +49,15 @@ __all__ = [
     "list_recipes",
     "register_hooks",
     "repoint_ingredient_lines",
+    "set_personal",
     "update_recipe",
     "verify_recipe",
 ]
+
+
+# Public sentinel for "field not provided" in set_personal, so callers can
+# explicitly pass notes=None (clearing it) vs. leaving it untouched.
+UNSET: Any = object()
 
 
 # ---------------------------------------------------------------------------
@@ -477,6 +484,40 @@ def verify_recipe(
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
     recipe.is_verified = True
     db.flush()
+
+
+def set_personal(
+    db: Session,
+    *,
+    owner_id: uuid.UUID,
+    recipe_id: uuid.UUID,
+    is_favorite: bool | Any = UNSET,
+    notes: str | None | Any = UNSET,
+) -> RecipeOut:
+    """Patch personal metadata (is_favorite/notes) without touching recipe content.
+
+    Owner-scoped: raises ApiError 404 if not found or wrong owner.
+    Both fields use the ``UNSET`` sentinel so callers can explicitly pass
+    ``notes=None`` (clearing it) vs. leaving it untouched.
+    Flushes; caller owns commit.
+    """
+    recipe = db.scalars(
+        select(Recipe).where(Recipe.id == recipe_id, Recipe.owner_id == owner_id)
+    ).first()
+    if recipe is None:
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+
+    if is_favorite is not UNSET:
+        recipe.is_favorite = is_favorite
+
+    if notes is not UNSET:
+        recipe.notes = notes
+
+    db.flush()
+
+    loaded = _load_recipe_full(db, recipe_id)
+    assert loaded is not None
+    return RecipeOut.model_validate(loaded)
 
 
 def are_verified(
