@@ -295,6 +295,17 @@ def process_job(db: Session, job: Job, *, worker_id: str | None = None) -> None:
 
     llm = make_llm_for_job(db, job)
     store = get_file_store()
+    # llm is seeded with already_spent_usd=job.cost_usd (per-job cap across
+    # attempts/retries), so llm.spent_usd INCLUDES this prior spend. Every
+    # handled outcome below must record only THIS attempt's delta —
+    # queue._add_cost is additive, so passing the full seeded total would
+    # double-count prior spend. Captured once, before any spend this attempt;
+    # nothing mutates job.cost_usd until the outcome clauses call into
+    # queue.complete_needs_review / complete_not_a_recipe / fail.
+    prior_spend = job.cost_usd or Decimal("0")
+
+    def _attempt_cost() -> Decimal:
+        return max(_spent(llm) - prior_spend, Decimal("0"))
 
     try:
         acquired = _acquire(job, llm=llm, store=store)
@@ -317,7 +328,7 @@ def process_job(db: Session, job: Job, *, worker_id: str | None = None) -> None:
                 job,
                 reason=result.reason or "not a recipe",
                 artifacts=dict(acquired.artifacts),
-                cost_usd=_spent(llm),
+                cost_usd=_attempt_cost(),
                 expected_locked_by=worker_id,
             )
             _log_transition(job, started)
@@ -347,7 +358,7 @@ def process_job(db: Session, job: Job, *, worker_id: str | None = None) -> None:
             extraction_meta=extraction_meta,
             produced_ids=[str(recipe_id) for recipe_id in produced],
             artifacts=dict(acquired.artifacts),
-            cost_usd=_spent(llm),
+            cost_usd=_attempt_cost(),
             expected_locked_by=worker_id,
         )
     except TierFailed as exc:
@@ -361,7 +372,7 @@ def process_job(db: Session, job: Job, *, worker_id: str | None = None) -> None:
             job,
             error=exc.reason,
             artifacts=artifacts,
-            cost_usd=_spent(llm),
+            cost_usd=_attempt_cost(),
             retryable=True,
             expected_locked_by=worker_id,
         )
@@ -370,7 +381,7 @@ def process_job(db: Session, job: Job, *, worker_id: str | None = None) -> None:
             db,
             job,
             error=str(exc),
-            cost_usd=_spent(llm),
+            cost_usd=_attempt_cost(),
             retryable=False,
             expected_locked_by=worker_id,
         )
@@ -379,16 +390,16 @@ def process_job(db: Session, job: Job, *, worker_id: str | None = None) -> None:
             db,
             job,
             error=f"duplicate of existing recipe {exc.existing_id}",
-            cost_usd=_spent(llm),
+            cost_usd=_attempt_cost(),
             retryable=False,
             expected_locked_by=worker_id,
         )
     except Exception as exc:
         # Unexpected crash — propagate to _process_one, but carry THIS attempt's
         # spend (spent_usd includes already_spent_usd, seeded from job.cost_usd)
-        # so it isn't lost when the processing session rolls back.
-        attempt_cost = max(_spent(llm) - (job.cost_usd or Decimal("0")), Decimal("0"))
-        raise JobProcessingError(exc, attempt_cost) from exc
+        # so it isn't lost when the processing session rolls back. Same formula
+        # as every handled outcome above — _attempt_cost() closes over prior_spend.
+        raise JobProcessingError(exc, _attempt_cost()) from exc
     _log_transition(job, started)
 
 
