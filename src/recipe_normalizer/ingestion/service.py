@@ -2,7 +2,8 @@
 
 Transaction convention: service flushes; HTTP layer (or test) owns commit.
 Import-linter: ingestion may import its own models + cookbook.service/schemas
-+ filestore; NOT sibling models.
++ filestore + extraction.netguard (dependency-free SSRF guard); NOT sibling
+models nor the rest of extraction.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from sqlalchemy.orm import Session
 from recipe_normalizer.cookbook import service as cookbook_service
 from recipe_normalizer.cookbook.service import DuplicateRecipeError  # re-used
 from recipe_normalizer.errors import ApiError
+from recipe_normalizer.extraction.netguard import UnsafeUrlError, assert_public_url
 from recipe_normalizer.filestore import FileStore
 from recipe_normalizer.ingestion.fingerprint import (
     fingerprint_bytes,
@@ -150,6 +152,14 @@ def submit_url(
         raise ApiError(422, "validation_error", "URL must use http or https scheme.")
     if len(url) > _MAX_URL_LEN:
         raise ApiError(422, "validation_error", f"URL must be ≤{_MAX_URL_LEN} characters.")
+    try:
+        assert_public_url(url)
+    except UnsafeUrlError as exc:
+        raise ApiError(
+            422,
+            "unsafe_url",
+            "This URL points to a private or internal address and cannot be fetched.",
+        ) from exc
 
     fingerprint = _fingerprint_url(url)
 

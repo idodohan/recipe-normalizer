@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy.orm import Session
@@ -121,6 +122,18 @@ def store(tmp_path: Path):  # type: ignore[no-untyped-def]
 
 
 class TestSubmitUrl:
+    @pytest.fixture(autouse=True)
+    def _public_dns(self) -> Iterator[None]:
+        """submit_url now resolves the host via netguard; pin every lookup in
+        this class to a public address so tests stay deterministic and don't
+        depend on real DNS for example.com."""
+
+        def fake(host: str, port: object, *args: object, **kwargs: object) -> object:
+            return [(2, 1, 6, "", ("93.184.216.34", 0))]
+
+        with patch("socket.getaddrinfo", fake):
+            yield
+
     def test_happy_path_queued(self, db: Session, user: User) -> None:
         job = svc.submit_url(db, user_id=user.id, url="https://example.com/recipe")
         assert job.status == JobStatus.queued
@@ -184,6 +197,14 @@ class TestSubmitUrl:
         with pytest.raises(ApiError) as exc:
             svc.submit_url(db, user_id=user.id, url=url_with_utm)
         assert exc.value.code == "duplicate_job"
+
+    def test_submit_url_rejects_private_address(self, db: Session, user: User) -> None:
+        def fake(host: str, port: object, *args: object, **kwargs: object) -> object:
+            return [(2, 1, 6, "", ("127.0.0.1", 0))]
+
+        with patch("socket.getaddrinfo", fake), pytest.raises(ApiError) as exc_info:
+            svc.submit_url(db, user_id=user.id, url="http://localhost:8000/admin")
+        assert exc_info.value.code == "unsafe_url"
 
 
 # ---------------------------------------------------------------------------

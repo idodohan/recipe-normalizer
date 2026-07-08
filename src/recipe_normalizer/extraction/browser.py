@@ -11,6 +11,12 @@ Playwright is imported lazily (only the real page factory needs it) so this
 module — and url_plugin's ``_load_browse`` seam — import cleanly without it.
 NO network / NO real browser in tests: ``page_factory`` and ``clock`` are
 injectable, and the LLM tool loop is the seam from llm.client.
+
+SSRF guard: the initial navigation is checked with netguard.assert_public_url
+before ``page.goto``. Per-request interception of in-page navigation/redirects
+driven by the browser itself is out of scope (documented residual risk) —
+tier 3 only runs after tiers 1/2 already fetched the same URL through
+netguard-validated ``default_fetch``.
 """
 
 from __future__ import annotations
@@ -26,6 +32,7 @@ from typing import TYPE_CHECKING, Any
 import trafilatura
 
 from recipe_normalizer.extraction.base import Acquired, TierFailed
+from recipe_normalizer.extraction.netguard import UnsafeUrlError, assert_public_url
 from recipe_normalizer.llm.client import BudgetExceeded, image_block
 
 if TYPE_CHECKING:
@@ -195,6 +202,10 @@ def browse_for_recipe(
     actions_log: list[dict[str, Any]] = []
 
     with page_factory() as page:
+        try:
+            assert_public_url(url)
+        except UnsafeUrlError as exc:
+            raise TierFailed(f"blocked unsafe URL: {exc}") from exc
         page.goto(url, wait_until="domcontentloaded", timeout=20_000)
         opening = page.screenshot(type="png")
         start = clock()

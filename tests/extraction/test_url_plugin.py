@@ -12,6 +12,7 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -33,6 +34,13 @@ FIXTURES = Path(__file__).parent / "fixtures" / "html"
 
 def _fixture(name: str) -> str:
     return (FIXTURES / name).read_text(encoding="utf-8")
+
+
+def _fake_public_getaddrinfo(host: str, port: Any, *args: Any, **kwargs: Any) -> Any:
+    """netguard now resolves every host default_fetch is pointed at; these
+    tests exercise httpx.MockTransport wiring, not real DNS, so pin every
+    lookup to a public address."""
+    return [(2, 1, 6, "", ("93.184.216.34", 0))]
 
 
 # ---------------------------------------------------------------------------
@@ -431,7 +439,10 @@ def test_non_html_content_type_fails(store: LocalFileStore) -> None:
 
 def test_default_fetch_http_error_raises_tier_failed() -> None:
     transport = httpx.MockTransport(lambda request: httpx.Response(503))
-    with pytest.raises(TierFailed) as exc_info:
+    with (
+        patch("socket.getaddrinfo", _fake_public_getaddrinfo),
+        pytest.raises(TierFailed) as exc_info,
+    ):
         default_fetch("https://down.test/", client=httpx.Client(transport=transport))
     assert "could not fetch" in exc_info.value.reason
 
@@ -441,7 +452,10 @@ def test_default_fetch_network_error_raises_tier_failed() -> None:
         raise httpx.ConnectError("dns failure")
 
     transport = httpx.MockTransport(explode)
-    with pytest.raises(TierFailed) as exc_info:
+    with (
+        patch("socket.getaddrinfo", _fake_public_getaddrinfo),
+        pytest.raises(TierFailed) as exc_info,
+    ):
         default_fetch("https://nowhere.test/", client=httpx.Client(transport=transport))
     assert "could not fetch" in exc_info.value.reason
 
@@ -452,7 +466,8 @@ def test_default_fetch_success_builds_fetch_result() -> None:
             200, text="<html></html>", headers={"content-type": "text/html; charset=utf-8"}
         )
     )
-    fetched = default_fetch("https://ok.test/page", client=httpx.Client(transport=transport))
+    with patch("socket.getaddrinfo", _fake_public_getaddrinfo):
+        fetched = default_fetch("https://ok.test/page", client=httpx.Client(transport=transport))
     assert fetched.status == 200
     assert fetched.html == "<html></html>"
     assert fetched.content_type == "text/html; charset=utf-8"
