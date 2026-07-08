@@ -33,6 +33,9 @@ class SourceType(enum.StrEnum):
     image = "image"
     text = "text"
     manual = "manual"
+    # An AI transform (ai.service.transform_recipe) produced this draft from
+    # another recipe + an instruction — never from an external acquire tier.
+    transform = "transform"
 
 
 # ---------------------------------------------------------------------------

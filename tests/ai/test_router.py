@@ -8,9 +8,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from recipe_normalizer.ai.router import _chat_limit, _cookbook_qa_limit
+from recipe_normalizer.ai.router import _chat_limit, _cookbook_qa_limit, _transform_limit
 from recipe_normalizer.ai.router import router as ai_router
 from recipe_normalizer.cookbook.router import router as cookbook_router
+from recipe_normalizer.ingestion.router import router as ingestion_router
 from recipe_normalizer.users.router import router as users_router
 from tests.api_helpers import make_client
 
@@ -22,7 +23,11 @@ _SIMPLE_RECIPE_BODY = {
 
 @pytest.fixture()
 def client(db_session):  # type: ignore[no-untyped-def]
-    return make_client(db_session, users_router, cookbook_router, ai_router)
+    # ingestion_router is included so transform tests can follow a returned
+    # job_id straight into the EXISTING review-gate endpoints
+    # (GET /api/jobs, GET /api/jobs/{id}, POST .../accept) — the whole point
+    # of Task 6's integration choice is that those need zero changes.
+    return make_client(db_session, users_router, cookbook_router, ai_router, ingestion_router)
 
 
 def _register_and_login(client: TestClient, email: str) -> None:
@@ -52,7 +57,7 @@ def _register_second_client(db_session: Session, email: str = "other@example.com
 
     Mirrors tests/sharing/test_router.py's `_register_recipient` pattern.
     """
-    second = make_client(db_session, users_router, cookbook_router, ai_router)
+    second = make_client(db_session, users_router, cookbook_router, ai_router, ingestion_router)
     resp = second.post(
         "/api/auth/register",
         json={"email": email, "password": "securepass1", "display_name": "Other"},
@@ -341,3 +346,113 @@ def test_post_cookbook_qa_rate_limited_after_60_per_hour(owner_client: TestClien
     assert resp.status_code == 429
 
     _cookbook_qa_limit.limiter.reset()  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# POST /recipes/{recipe_id}/transform
+# ---------------------------------------------------------------------------
+
+
+def test_post_transform_returns_job_and_recipe_ids_routed_through_the_review_gate(
+    owner_client: TestClient,
+) -> None:
+    recipe_id = _create_recipe(owner_client)
+
+    resp = owner_client.post(
+        f"/api/ai/recipes/{recipe_id}/transform", json={"instruction": "make it vegan"}
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["job_id"]
+    assert body["recipe_id"]
+
+    # Reachable via the EXISTING job/review endpoints — zero new review UI.
+    job_resp = owner_client.get(f"/api/jobs/{body['job_id']}")
+    assert job_resp.status_code == 200
+    job = job_resp.json()
+    assert job["status"] == "needs_review"
+    assert job["input_type"] == "transform"
+    assert job["produced_recipe_ids"] == [body["recipe_id"]]
+
+    jobs_list = owner_client.get("/api/jobs").json()
+    assert any(j["id"] == body["job_id"] for j in jobs_list)
+
+    # The produced draft carries derived_from — fetchable via the normal recipe GET.
+    draft = owner_client.get(f"/api/recipes/{body['recipe_id']}").json()
+    assert draft["derived_from"] == recipe_id
+    assert draft["provenance"]["transformed_from"] == recipe_id
+    assert draft["provenance"]["instruction"] == "make it vegan"
+    assert draft["is_verified"] is False
+
+    # The existing accept endpoint works on it unmodified.
+    accept_resp = owner_client.post(
+        f"/api/jobs/{body['job_id']}/recipes/{body['recipe_id']}/accept"
+    )
+    assert accept_resp.status_code == 204
+
+
+def test_post_transform_pure_scaling_instruction_refused_without_llm_call(
+    owner_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Unset the stub for this one call to prove NO LLM client method is ever
+    # invoked for a pure-scaling instruction — if the scaling boundary didn't
+    # short-circuit before the LLM call, this would blow up trying to reach
+    # the real Anthropic API (no ANTHROPIC_API_KEY in tests).
+    monkeypatch.delenv("RN_LLM_STUB", raising=False)
+    recipe_id = _create_recipe(owner_client)
+
+    resp = owner_client.post(
+        f"/api/ai/recipes/{recipe_id}/transform", json={"instruction": "halve it"}
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "use_scale_feature"
+    assert resp.json()["error"]["scale_endpoint"] == f"/api/recipes/{recipe_id}/scaled"
+
+
+def test_post_transform_requires_authentication(client: TestClient) -> None:
+    resp = client.post(
+        f"/api/ai/recipes/{uuid.uuid4()}/transform", json={"instruction": "make it vegan"}
+    )
+    assert resp.status_code == 401
+
+
+def test_post_transform_rejects_empty_instruction(owner_client: TestClient) -> None:
+    recipe_id = _create_recipe(owner_client)
+    resp = owner_client.post(f"/api/ai/recipes/{recipe_id}/transform", json={"instruction": ""})
+    assert resp.status_code == 422
+
+
+def test_post_transform_missing_recipe_returns_404(owner_client: TestClient) -> None:
+    resp = owner_client.post(
+        f"/api/ai/recipes/{uuid.uuid4()}/transform", json={"instruction": "make it vegan"}
+    )
+    assert resp.status_code == 404
+
+
+def test_post_transform_foreign_recipe_returns_404(
+    owner_client: TestClient, db_session: Session
+) -> None:
+    other = _register_second_client(db_session)
+    foreign_recipe_id = _create_recipe(other)
+
+    resp = owner_client.post(
+        f"/api/ai/recipes/{foreign_recipe_id}/transform", json={"instruction": "make it vegan"}
+    )
+    assert resp.status_code == 404
+
+
+def test_post_transform_rate_limited_after_20_per_hour(owner_client: TestClient) -> None:
+    for _ in range(20):
+        recipe_id = _create_recipe(owner_client)
+        resp = owner_client.post(
+            f"/api/ai/recipes/{recipe_id}/transform", json={"instruction": "make it vegan"}
+        )
+        assert resp.status_code == 201
+
+    recipe_id = _create_recipe(owner_client)
+    resp = owner_client.post(
+        f"/api/ai/recipes/{recipe_id}/transform", json={"instruction": "one too many"}
+    )
+    assert resp.status_code == 429
+
+    _transform_limit.limiter.reset()  # type: ignore[attr-defined]

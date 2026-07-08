@@ -108,6 +108,8 @@ def persist_drafts(
     source_fingerprint: str | None,
     extraction_meta: dict[str, Any] | None,
     image_ref: str | None,
+    derived_from: uuid.UUID | None = None,
+    provenance: dict[str, Any] | None = None,
 ) -> list[uuid.UUID]:
     """Persist each extracted recipe as an unverified draft; return ids in order.
 
@@ -116,6 +118,14 @@ def persist_drafts(
       index on (owner_id, source_fingerprint) is per-recipe, so N drafts from
       one source would collide.
     - DuplicateRecipeError from the fingerprinted draft propagates to the caller.
+    - *derived_from* / *provenance*, when given, are stamped on EVERY draft
+      produced from *result* (plural results are rare — a transform's prompt
+      asks for exactly one, but this stays correct if the model returns more).
+      None/None (the default) for every normal extraction call site — this
+      parameter pair exists for `ai.service.transform_recipe`, which reuses
+      this function to convert its transformed `NormalizeResult` into a
+      reviewable draft exactly like an extracted one (see cookbook.service.
+      create_recipe's docstring for what these fields mean).
     """
     created: list[uuid.UUID] = []
     for index, normalized in enumerate(result.recipes):
@@ -135,6 +145,8 @@ def persist_drafts(
             llm=llm,
             extraction_meta=extraction_meta,
             image_ref=image_ref,
+            derived_from=derived_from,
+            provenance=provenance,
         )
         created.append(out.id)
     return created

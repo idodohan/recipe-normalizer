@@ -9,6 +9,8 @@ models nor the rest of extraction.
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -31,6 +33,7 @@ from recipe_normalizer.sniff import detect_media_type
 __all__ = [
     "accept_all_high_confidence",
     "accept_draft",
+    "create_transform_job",
     "get_job",
     "list_jobs",
     "reject_draft",
@@ -267,6 +270,55 @@ def submit_file(
         payload={"file_ref": file_ref, "filename": filename, "media_type": media_type},
         source_fingerprint=fingerprint,
         status=JobStatus.queued,
+    )
+    db.add(job)
+    db.flush()
+    return job
+
+
+# ---------------------------------------------------------------------------
+# AI transform integration (Phase 3 Task 6)
+# ---------------------------------------------------------------------------
+
+
+def create_transform_job(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    source_recipe_id: uuid.UUID,
+    instruction: str,
+    produced_recipe_ids: list[uuid.UUID],
+    extraction_meta: dict[str, Any],
+    cost_usd: Decimal,
+) -> Job:
+    """Create a Job that lands *already-produced* transform drafts in the review gate.
+
+    Called ONLY by `ai.service.transform_recipe`, AFTER the transform LLM call and
+    `extraction.persist.persist_drafts` have already succeeded — unlike every other
+    `submit_*` function here, this never enters `queued`. It is created directly in
+    `needs_review` with `produced_recipe_ids` already populated, which is exactly the
+    state a URL/PDF/text job reaches once the worker finishes extracting it. That means
+    the EXISTING review surface (`GET /api/jobs`, `GET /api/jobs/{id}`,
+    `accept_draft`/`reject_draft`, `accept_all_high_confidence`) handles a transform's
+    drafts with zero code changes — this function's entire job is to satisfy the "there
+    is a queued/running/needs_review Job row" precondition those already assume.
+
+    Deliberately never `queued`: `queue.claim_next` only selects `status == queued`, so
+    a job created straight into `needs_review` is never claimed by the worker, and no
+    `InputType.transform` extractor is (or needs to be) registered in
+    `extraction.EXTRACTORS` — see `InputType.transform`'s docstring. `payload` records
+    *source_recipe_id*/*instruction* for debugging only; nothing reads it back.
+
+    Flushes; caller owns commit.
+    """
+    job = Job(
+        user_id=user_id,
+        input_type=InputType.transform,
+        payload={"recipe_id": str(source_recipe_id), "instruction": instruction},
+        status=JobStatus.needs_review,
+        produced_recipe_ids=[str(rid) for rid in produced_recipe_ids],
+        extraction_meta=dict(extraction_meta),
+        cost_usd=cost_usd,
     )
     db.add(job)
     db.flush()

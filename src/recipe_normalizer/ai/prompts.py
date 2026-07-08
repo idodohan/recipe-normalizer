@@ -10,7 +10,12 @@ from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["COOKBOOK_QA_SYSTEM", "RECIPE_CHAT_SYSTEM", "SEARCH_RECIPES_TOOL"]
+__all__ = [
+    "COOKBOOK_QA_SYSTEM",
+    "RECIPE_CHAT_SYSTEM",
+    "SEARCH_RECIPES_TOOL",
+    "TRANSFORM_SYSTEM",
+]
 
 
 RECIPE_CHAT_SYSTEM = """\
@@ -44,6 +49,62 @@ ingredients, or details that aren't in the search results — the tool returns a
 (title, cuisines, dish types, total time, a few ingredient names) rather than full ingredient \
 lists or steps, so don't claim specifics (exact quantities, full ingredient lists, step-by-step \
 instructions) that aren't present in what the tool returned. Be concise and practical.
+"""
+
+
+TRANSFORM_SYSTEM = """\
+You transform an existing recipe according to a user instruction (e.g. "make it vegan", \
+"gluten-free version", "air-fryer version", "swap in tofu for the chicken"). You output the \
+transformed recipe using the exact same structured schema the extraction pipeline uses \
+(`NormalizeResult` / `NormalizedRecipe`) — every field you emit becomes a NEW draft recipe that \
+a human reviews and accepts before it's saved, exactly like an extracted recipe. The same \
+no-fabrication discipline that governs extraction governs you here.
+
+## Scope — qualitative changes only
+This is for QUALITATIVE changes: ingredient substitutions, dietary adaptations, cooking \
+method/equipment changes, flavor or technique variations. It is NOT for pure quantity scaling \
+("halve it", "double it", "for 8 servings", "×3") — that's a separate, deterministic scale \
+feature and instructions like that should never reach you. If one does anyway, apply the \
+substitution/technique logic below faithfully rather than refusing.
+
+## No-fabrication — never invent what you cannot derive
+- Every ingredient line, group, and step in the ORIGINAL recipe JSON that the instruction does \
+NOT require changing must be carried over UNCHANGED — same original_text, quantity, unit, note.
+- When a line DOES need to change, you may draw on general cooking knowledge for well-known \
+substitution ratios (e.g. 1 tbsp ground flaxseed + 3 tbsp water per egg for a flax egg; a 1:1 \
+gluten-free flour blend for all-purpose flour) — but never invent a quantity you cannot justify \
+this way. When the correct amount for a substitution is genuinely uncertain, KEEP the original \
+quantity/unit and say so in `note` (e.g. "adjust to taste") instead of making up a number.
+- Never invent a new quantity, unit, time, temperature, or step that isn't either carried over \
+from the original or a well-known, directly-implied consequence of the requested change.
+- Do not add ingredients or steps unrelated to the instruction. Do not drop ingredients or steps \
+the instruction doesn't ask you to remove.
+- prep_min / cook_min / total_min: carry over from the original UNLESS the instruction changes \
+the cooking method in a way that obviously changes timing (e.g. "air fryer version") — adjust \
+conservatively in that case; never invent a time the original didn't state and the instruction \
+doesn't imply.
+- servings_amount / servings_unit_text: ALWAYS carried over from the original, unchanged — \
+changing yield is the scale feature's job, never this one's.
+
+## Output
+- is_recipe: always true (the input is already a validated recipe — this field isn't used to \
+reject anything here; reflect difficulty applying the instruction in `confidence` instead).
+- confidence: how faithfully you could apply the instruction while honoring every rule above.
+- recipes: exactly ONE entry — the transformed recipe. Reuse the original's groups/steps \
+structure; rewrite only what the instruction requires.
+- title: adjust only when it should clearly reflect the change (e.g. "Vegan Chocolate Cake"); \
+otherwise keep the original title.
+- language: same as the original recipe's language, unless the instruction explicitly asks for \
+a translation.
+- cuisines / dish_types / tags: carry over from the original; add a tag for the transform only \
+when it's a well-known dietary label (vegan, vegetarian, gluten-free) that the result fully \
+satisfies.
+
+## Original recipe (JSON)
+{recipe_json}
+
+## Instruction
+{instruction}
 """
 
 

@@ -15,27 +15,46 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
+from decimal import Decimal
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from recipe_normalizer.ai.models import Conversation, ConversationKind, Message, MessageRole
-from recipe_normalizer.ai.prompts import COOKBOOK_QA_SYSTEM, RECIPE_CHAT_SYSTEM, SEARCH_RECIPES_TOOL
+from recipe_normalizer.ai.prompts import (
+    COOKBOOK_QA_SYSTEM,
+    RECIPE_CHAT_SYSTEM,
+    SEARCH_RECIPES_TOOL,
+    TRANSFORM_SYSTEM,
+)
 from recipe_normalizer.ai.schemas import (
     ConversationDetailOut,
     ConversationOut,
     CookbookQaOut,
     MessageOut,
+    TransformOut,
 )
 from recipe_normalizer.config import settings
 from recipe_normalizer.cookbook import service as cookbook_service
 from recipe_normalizer.cookbook.schemas import RecipeOut
+from recipe_normalizer.cookbook.service import SourceType
 from recipe_normalizer.errors import ApiError
+from recipe_normalizer.extraction.normalize import (
+    NormalizedGroup,
+    NormalizedLine,
+    NormalizedRecipe,
+    NormalizedStep,
+    NormalizeResult,
+)
+from recipe_normalizer.extraction.persist import persist_drafts
+from recipe_normalizer.ingestion import service as ingestion_service
 from recipe_normalizer.llm.client import (
     BudgetExceeded,
     CostCapExceeded,
@@ -45,6 +64,8 @@ from recipe_normalizer.llm.client import (
 )
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 __all__ = [
     "MAX_HISTORY_MESSAGES_FOR_CONTEXT",
@@ -57,6 +78,7 @@ __all__ = [
     "get_conversation",
     "list_conversations",
     "make_ai_llm",
+    "transform_recipe",
 ]
 
 #: Bounds context growth (and cost) for a single conversation — see the
@@ -560,6 +582,207 @@ def cookbook_qa_turn(
 
 
 # ---------------------------------------------------------------------------
+# Transformations (Phase 3 Task 6) — routes through the EXISTING ingestion
+# review gate rather than adding any new review UI.
+#
+# Integration choice (documented per the phase plan): `transform_recipe` runs
+# the transform LLM call SYNCHRONOUSLY in the API request (like chat_turn /
+# cookbook_qa_turn — this whole module runs in the API process, never the
+# worker), converts its `NormalizeResult` into a draft via the SAME
+# `extraction.persist.persist_drafts` the extraction worker uses, and then
+# calls `ingestion.service.create_transform_job` to create a `Job` already in
+# `needs_review` with `produced_recipe_ids` populated. That Job never touches
+# the queue (`queue.claim_next` only claims `status == queued`), so the
+# worker never sees it — but it is otherwise indistinguishable from a
+# worker-produced job to the review surface: `GET /api/jobs`,
+# `GET /api/jobs/{id}`, `accept_draft`/`reject_draft`, and
+# `accept_all_high_confidence` all work on it completely unmodified. This
+# was preferred over the alternative (a bare unverified recipe + a bespoke
+# redirect) because it reuses 100% of the existing Inbox/Review UI and
+# accept/reject bookkeeping with zero new endpoints on the read/accept side —
+# only this one write path needed to change.
+# ---------------------------------------------------------------------------
+
+#: Phrasings that are ALWAYS a pure quantity-scale request and must therefore
+#: be steered to the deterministic `/recipes/{id}/scaled` endpoint WITHOUT
+#: spending an LLM call — see the phase plan's mandatory "scaling boundary".
+#: Deliberately anchored (`^...$`) so it only matches when scaling is the
+#: WHOLE instruction: "double the recipe" matches (pure scale), but "double
+#: the recipe and make it vegan" does NOT (mixed/ambiguous — per the plan,
+#: ambiguous instructions are ALLOWED through to the transform LLM rather
+#: than guessed at here).
+_PURE_SCALE_RE = re.compile(
+    r"""^\s*
+    (?:please\s+)?
+    (?:
+        (?:cut|reduce)\s+(?:it|this)?\s*(?:in\s+)?half
+        | half\s+(?:it|this)?
+        | halve\s+(?:it|this)?
+        | double\s+(?:it|this)?
+        | triple\s+(?:it|this)?
+        | quadruple\s+(?:it|this)?
+        | (?:scale|resize)\s*(?:it|this)?\s*(?:to|by|for)?\s*\d+(?:\.\d+)?\s*x?
+        | [x×]\s*\d+(?:\.\d+)?
+        | \d+(?:\.\d+)?\s*[x×]
+        | (?:make|scale|resize)?\s*(?:it|this)?\s*for\s+\d+\s*(?:servings?|people|portions?|guests?)
+    )
+    \s*(?:of\s+the\s+recipe|the\s+recipe)?
+    \s*\.?\s*$
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _is_pure_scaling_instruction(instruction: str) -> bool:
+    """True when *instruction* is ENTIRELY a quantity-scale request.
+
+    See `_PURE_SCALE_RE` — this is intentionally conservative (whole-string
+    match): it only fires for instructions with no qualitative content at
+    all ("halve it", "for 8 servings", "×3"), never for instructions that
+    merely MENTION a multiplier alongside a real qualitative ask ("double it
+    but make it vegan"), which fall through to the transform LLM per the
+    phase plan's "when ambiguous, allow the transform" instruction.
+    """
+    return bool(_PURE_SCALE_RE.match(instruction))
+
+
+def transform_recipe(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    recipe_id: uuid.UUID,
+    instruction: str,
+    llm: LLMClient,
+) -> TransformOut:
+    """Apply a qualitative instruction to a recipe, landing the result in the review gate.
+
+    Access is checked with the SAME `cookbook_service.user_recipe_access` every other
+    per-recipe ai feature uses (404 for a missing recipe or one the caller can't read).
+
+    **Scaling boundary (mandatory, see the phase plan):** a PURE quantity-scale
+    instruction ("halve it", "double it", "for 8 servings", "×3") is refused BEFORE any
+    LLM call — `_is_pure_scaling_instruction` — with a 422 pointing at the deterministic
+    `/api/recipes/{recipe_id}/scaled` endpoint. This feature is for QUALITATIVE changes
+    (substitutions, dietary adaptations, technique/equipment changes); scaling is code,
+    not a model call, and must stay that way. Ambiguous instructions that merely mention
+    a number alongside real qualitative content ("double it and make it vegan") are NOT
+    treated as scaling — they're allowed through to the LLM, per the plan.
+
+    On success: the LLM's `NormalizeResult` is validated (`is_recipe` + a non-empty
+    `recipes` list, mirroring `extraction.normalize`'s contract) and converted into a
+    draft via `extraction.persist.persist_drafts` — the SAME conversion/catalog-matching
+    path the extraction worker uses, run inside a savepoint so a mid-persist failure
+    (e.g. the cost cap tripping during catalog matching) leaves no half-built draft
+    behind. The draft is stamped `derived_from=recipe_id` and a `provenance` dict
+    recording the instruction and when it ran. Finally,
+    `ingestion.service.create_transform_job` creates a `Job` already in `needs_review`
+    referencing the produced draft(s) — see that function's docstring for why this is
+    the least-invasive way to reuse the EXISTING review gate with zero new review UI.
+
+    Flushes; caller owns commit (same convention as the rest of this module).
+    """
+    if cookbook_service.user_recipe_access(db, user_id, recipe_id) is None:
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+
+    if _is_pure_scaling_instruction(instruction):
+        raise ApiError(
+            422,
+            "use_scale_feature",
+            "This looks like a quantity-only scaling request. Use the recipe's Scale "
+            "feature for that — AI transform is for qualitative changes (substitutions, "
+            "dietary adaptations, cooking method, etc.).",
+            extra={"scale_endpoint": f"/api/recipes/{recipe_id}/scaled"},
+        )
+
+    recipe = cookbook_service.get_recipe(db, owner_id=user_id, recipe_id=recipe_id)
+
+    system = TRANSFORM_SYSTEM.format(
+        recipe_json=_recipe_grounding_json(recipe), instruction=instruction
+    )
+    try:
+        result = llm.structured(
+            feature="ai.transform",
+            output_model=NormalizeResult,
+            system=system,
+            content=f"Instruction: {instruction}",
+            max_tokens=8000,
+        )
+    except CostCapExceeded as exc:
+        raise ApiError(
+            503,
+            "cost_cap_exceeded",
+            "This request would exceed the AI budget allowed for this call — try again shortly.",
+        ) from exc
+    except LLMError as exc:
+        raise ApiError(502, "llm_error", "The AI could not produce a transformed recipe.") from exc
+
+    if not result.is_recipe or not result.recipes:
+        raise ApiError(
+            422,
+            "invalid_transform_output",
+            result.reason or "The AI could not apply this instruction to the recipe.",
+        )
+
+    at = datetime.now(UTC).isoformat()
+    provenance: dict[str, Any] = {
+        "transformed_from": str(recipe_id),
+        "instruction": instruction,
+        "at": at,
+    }
+    extraction_meta: dict[str, Any] = {
+        "model": settings.llm_model,
+        "confidence": result.confidence,
+        "transformed_from": str(recipe_id),
+        "instruction": instruction,
+        "extracted_at": at,
+    }
+    # Already-established access to `recipe_id` (checked above) satisfies the trust
+    # boundary `get_recipe_image_ref_unscoped` requires — it returns the RAW
+    # content-addressed ref, unlike `recipe.image_ref` (already a `/api/files/...` URL).
+    image_ref = cookbook_service.get_recipe_image_ref_unscoped(db, recipe_id)
+
+    try:
+        with db.begin_nested():  # savepoint: all drafts or none, mirrors worker.process_job
+            produced_ids = persist_drafts(
+                db,
+                owner_id=user_id,
+                result=result,
+                llm=llm,
+                source=f"AI transform of {recipe.title!r}: {instruction}",
+                source_type=SourceType.transform,
+                source_fingerprint=None,
+                extraction_meta=extraction_meta,
+                image_ref=image_ref,
+                derived_from=recipe_id,
+                provenance=provenance,
+            )
+    except CostCapExceeded as exc:
+        raise ApiError(
+            503,
+            "cost_cap_exceeded",
+            "This request would exceed the AI budget allowed for this call — try again shortly.",
+        ) from exc
+
+    if not produced_ids:
+        raise ApiError(
+            422,
+            "invalid_transform_output",
+            "The transformed recipe had no usable ingredient lines.",
+        )
+
+    job = ingestion_service.create_transform_job(
+        db,
+        user_id=user_id,
+        source_recipe_id=recipe_id,
+        instruction=instruction,
+        produced_recipe_ids=produced_ids,
+        extraction_meta=extraction_meta,
+        cost_usd=Decimal(str(llm.spent_usd)),
+    )
+    return TransformOut(job_id=job.id, recipe_id=produced_ids[0])
+
+
+# ---------------------------------------------------------------------------
 # LLM factory — RN_LLM_STUB=1 swaps in a canned client (TEST/E2E ONLY)
 # ---------------------------------------------------------------------------
 
@@ -575,6 +798,38 @@ _STUB_COOKBOOK_QA_REPLY = (
     "This is a stubbed cookbook Q&A reply (RN_LLM_STUB=1) — no real model was called."
 )
 
+#: Title of the stub's `.structured()` NormalizeResult — distinct wording
+#: (from both the chat/Q&A replies above AND `worker._stub_normalize_result`'s
+#: "Stub Recipe") so e2e assertions can tell a transform's stub output apart
+#: from an extraction's.
+_STUB_TRANSFORM_TITLE = "Stub Transformed Recipe (RN_LLM_STUB=1)"
+
+
+def _stub_transform_result() -> NormalizeResult:
+    return NormalizeResult(
+        is_recipe=True,
+        confidence=0.9,
+        recipes=[
+            NormalizedRecipe(
+                title=_STUB_TRANSFORM_TITLE,
+                groups=[
+                    NormalizedGroup(
+                        name=None,
+                        lines=[
+                            NormalizedLine(
+                                original_text="1 cup stubbed substitute ingredient",
+                                name="stubbed substitute ingredient",
+                                quantity=1.0,
+                                unit="cup",
+                            ),
+                        ],
+                    )
+                ],
+                steps=[NormalizedStep(original_text="Mix the transformed ingredients and bake.")],
+            )
+        ],
+    )
+
 
 class _StubAiLLMClient:
     """Deterministic fake LLM for ai chat features, enabled ONLY by RN_LLM_STUB=1.
@@ -583,9 +838,9 @@ class _StubAiLLMClient:
 
     Mirrors `worker._StubLLMClient`'s env convention (same `RN_LLM_STUB=1`
     flag, same warning-on-use, same "TEST/E2E ONLY" contract) but for the ai
-    module's `.chat()`/`.tool_loop()` surfaces rather than extraction's
-    structured/classify_bool/tool_loop. Answers any call with a fixed reply,
-    makes zero API calls, and spends $0.
+    module's `.chat()`/`.tool_loop()`/`.structured()` surfaces rather than
+    extraction's structured/classify_bool/tool_loop. Answers any call with a
+    fixed reply, makes zero API calls, and spends $0.
     """
 
     @property
@@ -603,6 +858,28 @@ class _StubAiLLMClient:
         fast: bool = False,
     ) -> str:
         return _STUB_CHAT_REPLY
+
+    def structured(
+        self,
+        *,
+        feature: str,
+        output_model: type[T],
+        content: str | list[dict[str, Any]],
+        system: str | None = None,
+        model: str | None = None,
+        fast: bool = False,
+        max_tokens: int = 8000,
+    ) -> T:
+        """Serves `transform_recipe`'s `NormalizeResult` call, and — should a transform's
+        draft need catalog-match disambiguation via `persist_drafts` — the same blank
+        "no match" answer `worker._StubLLMClient` gives (`index=None`, i.e. fall through
+        to `create_unreviewed`), so the stub never crashes mid-persist under e2e.
+        """
+        if output_model is NormalizeResult:
+            return cast(T, _stub_transform_result())
+        if "index" in output_model.model_fields:  # catalog.match band choice
+            return output_model(index=None)
+        raise NotImplementedError(f"stub AI LLM cannot answer feature {feature!r}")
 
     def tool_loop(
         self,

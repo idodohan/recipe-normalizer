@@ -12,6 +12,9 @@ payload:
   url inputs:   {"url": "<str>"}
   pdf/image:    {"file_ref": "<object-store-key>"}
   text:         {"text": "<raw text>"}
+  transform:    {"recipe_id": "<uuid str>", "instruction": "<str>"} — record-keeping only;
+                the Job is created already in needs_review with produced_recipe_ids set, so
+                this payload is never read back by any acquire/normalize code path.
 
 artifacts (populated during/after extraction):
   {"raw_text_ref": "<object-store-key>",   # OCR / fetched text
@@ -42,6 +45,12 @@ class InputType(enum.StrEnum):
     pdf = "pdf"
     image = "image"
     text = "text"
+    # An ai.service.transform_recipe draft — this Job is created DIRECTLY in
+    # needs_review (see ingestion.service.create_transform_job); it never
+    # passes through queued/running, so the worker's queue.claim_next (which
+    # only selects status=queued) never touches it and no extractor is
+    # registered for this input_type.
+    transform = "transform"
 
 
 class JobStatus(enum.StrEnum):

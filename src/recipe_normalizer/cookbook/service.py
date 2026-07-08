@@ -407,6 +407,8 @@ def create_recipe(
     llm: LLMClient | None = None,
     extraction_meta: dict[str, Any] | None = None,
     image_ref: str | None = None,
+    derived_from: uuid.UUID | None = None,
+    provenance: dict[str, Any] | None = None,
 ) -> RecipeOut:
     """Create a new recipe and return a fully-populated RecipeOut.
 
@@ -414,6 +416,11 @@ def create_recipe(
     - Vocab rows get-or-created.
     - Ingredient lines: catalog-matched (or unreviewed created), normalized when possible.
     - extraction_meta / image_ref: provenance from the extraction pipeline (None for manual).
+    - derived_from / provenance: set when this recipe was produced FROM another recipe rather
+      than an external source — currently only `ai.service.transform_recipe` (a recipe transform
+      draft, e.g. "make it vegan"). None/None for every other caller (extraction, manual create).
+      Mirrors `copy_recipe`'s `provenance` convention but as an optional pass-through here rather
+      than always-set, since most `create_recipe` callers have no such lineage to record.
     - Flushes; caller owns commit.
     """
     # Fingerprint uniqueness check
@@ -442,6 +449,8 @@ def create_recipe(
         prep_min=data.prep_min,
         cook_min=data.cook_min,
         total_min=data.total_min,
+        derived_from=derived_from,
+        provenance=provenance,
     )
     db.add(recipe)
     db.flush()  # get recipe.id

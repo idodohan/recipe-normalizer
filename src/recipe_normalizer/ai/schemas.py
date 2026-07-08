@@ -31,6 +31,12 @@ class CookbookQaCreateIn(BaseModel):
     conversation_id: uuid.UUID | None = None
 
 
+class TransformCreateIn(BaseModel):
+    """Body for POST /api/ai/recipes/{recipe_id}/transform."""
+
+    instruction: str = Field(min_length=1, max_length=1000)
+
+
 class MessageOut(BaseModel):
     id: uuid.UUID
     role: MessageRole
@@ -73,3 +79,17 @@ class CookbookQaOut(BaseModel):
     conversation_id: uuid.UUID
     message: MessageOut
     referenced_recipe_ids: list[uuid.UUID] = []
+
+
+class TransformOut(BaseModel):
+    """Response for POST /api/ai/recipes/{recipe_id}/transform.
+
+    The transform never returns the draft recipe itself — it routes through the
+    EXISTING ingestion review gate (see `ai.service.transform_recipe`), so these two
+    ids are exactly what a caller needs to land on that flow: `job_id` for
+    `GET /api/jobs/{job_id}` (the review screen, same one URL/PDF/text jobs use) and
+    `recipe_id` (the first produced draft) as a direct shortcut straight to it.
+    """
+
+    job_id: uuid.UUID
+    recipe_id: uuid.UUID

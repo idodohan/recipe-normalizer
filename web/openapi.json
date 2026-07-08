@@ -791,7 +791,8 @@
           "url",
           "pdf",
           "image",
-          "text"
+          "text",
+          "transform"
         ],
         "title": "InputType",
         "type": "string"
@@ -2458,7 +2459,8 @@
           "pdf",
           "image",
           "text",
-          "manual"
+          "manual",
+          "transform"
         ],
         "title": "SourceType",
         "type": "string"
@@ -2528,6 +2530,43 @@
           "url"
         ],
         "title": "SubmitUrlIn",
+        "type": "object"
+      },
+      "TransformCreateIn": {
+        "description": "Body for POST /api/ai/recipes/{recipe_id}/transform.",
+        "properties": {
+          "instruction": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Instruction",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instruction"
+        ],
+        "title": "TransformCreateIn",
+        "type": "object"
+      },
+      "TransformOut": {
+        "description": "Response for POST /api/ai/recipes/{recipe_id}/transform.\n\nThe transform never returns the draft recipe itself \u2014 it routes through the\nEXISTING ingestion review gate (see `ai.service.transform_recipe`), so these two\nids are exactly what a caller needs to land on that flow: `job_id` for\n`GET /api/jobs/{job_id}` (the review screen, same one URL/PDF/text jobs use) and\n`recipe_id` (the first produced draft) as a direct shortcut straight to it.",
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "recipe_id": {
+            "format": "uuid",
+            "title": "Recipe Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "recipe_id"
+        ],
+        "title": "TransformOut",
         "type": "object"
       },
       "UserOut": {
@@ -2834,6 +2873,60 @@
           }
         },
         "summary": "Post Cookbook Qa",
+        "tags": [
+          "ai"
+        ]
+      }
+    },
+    "/api/ai/recipes/{recipe_id}/transform": {
+      "post": {
+        "description": "Apply a qualitative instruction to a recipe; the result lands in the review gate.\n\nReturns `{job_id, recipe_id}` \u2014 NOT the draft recipe itself. There is deliberately no\nnew review UI for this: `job_id` is the SAME kind of id `GET /api/jobs/{job_id}` (the\nexisting Inbox/Review screen) already handles, and the caller is expected to navigate\nthere (or straight to `recipe_id`) exactly as it would after any other extraction job\nreaches `needs_review`. See `ai.service.transform_recipe`'s docstring for the scaling\nboundary (a pure \"halve it\"/\"double it\" instruction is refused here with a 422 before\nany LLM call, pointing at the deterministic `/api/recipes/{recipe_id}/scaled` endpoint).",
+        "operationId": "post_transform_recipe_api_ai_recipes__recipe_id__transform_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "recipe_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Recipe Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransformCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransformOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Transform Recipe",
         "tags": [
           "ai"
         ]

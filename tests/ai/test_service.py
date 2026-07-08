@@ -21,6 +21,15 @@ from recipe_normalizer.cookbook.schemas import (
     RecipeOut,
 )
 from recipe_normalizer.errors import ApiError
+from recipe_normalizer.extraction.normalize import (
+    NormalizedGroup,
+    NormalizedLine,
+    NormalizedRecipe,
+    NormalizedStep,
+    NormalizeResult,
+)
+from recipe_normalizer.ingestion import service as ingestion_service
+from recipe_normalizer.ingestion.models import InputType, JobStatus
 from recipe_normalizer.llm.client import CostCapExceeded, DbUsageRecorder, LLMClient, LLMError
 from recipe_normalizer.llm.models import LlmUsage
 
@@ -31,7 +40,7 @@ from recipe_normalizer.llm.models import LlmUsage
 # ownership.
 from recipe_normalizer.sharing import service as sharing_service
 from recipe_normalizer.users.models import User
-from tests.ai.fakes import FakeChatLLM
+from tests.ai.fakes import FakeChatLLM, FakeStructuredLLM
 from tests.llm.stubs import (
     StubAnthropicClient,
     message_response,
@@ -846,3 +855,245 @@ def test_cookbook_qa_turn_wrong_owner_raises_404(
 
     assert exc_info.value.status_code == 404
     assert stub.messages.create_calls == []
+
+
+# ---------------------------------------------------------------------------
+# transform_recipe
+#
+# Routes through the EXISTING ingestion review gate — every "happy path" test
+# below asserts the produced draft is reachable via ingestion.service's own
+# job/accept API (the same one the Inbox/Review screen reads from), not just
+# that `transform_recipe` returned something.
+# ---------------------------------------------------------------------------
+
+
+def _transform_result(title: str = "Vegan Test Cake") -> NormalizeResult:
+    return NormalizeResult(
+        is_recipe=True,
+        confidence=0.85,
+        recipes=[
+            NormalizedRecipe(
+                title=title,
+                groups=[
+                    NormalizedGroup(
+                        name=None,
+                        lines=[
+                            NormalizedLine(
+                                original_text="1 cup vegan butter",
+                                name="vegan butter",
+                                quantity=1.0,
+                                unit="cup",
+                            ),
+                        ],
+                    )
+                ],
+                steps=[NormalizedStep(original_text="Mix and bake as before.")],
+            )
+        ],
+    )
+
+
+def test_transform_recipe_qualitative_produces_reviewable_draft_through_the_gate(
+    db_session: Session, owner: User
+) -> None:
+    recipe = _create_recipe(db_session, owner.id, title="Butter Cake")
+    fake = FakeStructuredLLM(result=_transform_result())
+
+    out = ai_service.transform_recipe(
+        db_session,
+        user_id=owner.id,
+        recipe_id=recipe.id,
+        instruction="make it vegan",
+        llm=fake,  # type: ignore[arg-type]
+    )
+
+    # The LLM was actually called, grounded on the original recipe + instruction.
+    [call] = fake.calls
+    assert call["feature"] == "ai.transform"
+    assert "Butter Cake" in call["system"]
+    assert "make it vegan" in call["system"]
+
+    # derived_from / provenance are set on the produced draft.
+    draft = cookbook_service.get_recipe(db_session, owner_id=owner.id, recipe_id=out.recipe_id)
+    assert draft.title == "Vegan Test Cake"
+    assert draft.derived_from == recipe.id
+    assert draft.provenance == {
+        "transformed_from": str(recipe.id),
+        "instruction": "make it vegan",
+        "at": draft.provenance["at"],  # timestamp — just assert it's present/round-trips
+    }
+    assert draft.is_verified is False
+
+    # It shows up wherever the review screen reads from: list_jobs, get_job,
+    # and the draft is in produced_recipe_ids with status needs_review — THE
+    # SAME shape a URL/PDF/text extraction job reaches.
+    job = ingestion_service.get_job(db_session, user_id=owner.id, job_id=out.job_id)
+    assert job.status == JobStatus.needs_review
+    assert job.input_type == InputType.transform
+    assert job.produced_recipe_ids == [str(out.recipe_id)]
+    all_jobs = ingestion_service.list_jobs(db_session, user_id=owner.id)
+    assert any(j.id == out.job_id for j in all_jobs)
+
+    # The existing accept_draft gate works on it completely unmodified.
+    ingestion_service.accept_draft(
+        db_session, user_id=owner.id, job_id=out.job_id, recipe_id=out.recipe_id
+    )
+    accepted = cookbook_service.get_recipe(db_session, owner_id=owner.id, recipe_id=out.recipe_id)
+    assert accepted.is_verified is True
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    ["halve it", "double it", "double the recipe", "for 8 servings", "×3", "3x", "scale to 8"],
+)
+def test_transform_recipe_pure_scaling_phrase_refused_without_llm_call(
+    db_session: Session, owner: User, instruction: str
+) -> None:
+    recipe = _create_recipe(db_session, owner.id)
+    fake = FakeStructuredLLM(result=_transform_result())
+
+    with pytest.raises(ApiError) as exc_info:
+        ai_service.transform_recipe(
+            db_session,
+            user_id=owner.id,
+            recipe_id=recipe.id,
+            instruction=instruction,
+            llm=fake,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.code == "use_scale_feature"
+    assert exc_info.value.extra == {"scale_endpoint": f"/api/recipes/{recipe.id}/scaled"}
+    assert fake.calls == []  # the LLM was NEVER called
+
+
+def test_transform_recipe_ambiguous_scaling_mention_is_allowed_through_to_the_llm(
+    db_session: Session, owner: User
+) -> None:
+    # "double" appears, but this isn't a PURE scaling request — the plan says
+    # ambiguous instructions are allowed through to the transform LLM.
+    recipe = _create_recipe(db_session, owner.id)
+    fake = FakeStructuredLLM(result=_transform_result())
+
+    ai_service.transform_recipe(
+        db_session,
+        user_id=owner.id,
+        recipe_id=recipe.id,
+        instruction="double it but also make it vegan",
+        llm=fake,  # type: ignore[arg-type]
+    )
+
+    assert len(fake.calls) == 1
+
+
+def test_transform_recipe_invalid_llm_output_not_a_recipe_rejected(
+    db_session: Session, owner: User
+) -> None:
+    recipe = _create_recipe(db_session, owner.id)
+    fake = FakeStructuredLLM(
+        result=NormalizeResult(is_recipe=False, reason="could not apply the instruction")
+    )
+
+    with pytest.raises(ApiError) as exc_info:
+        ai_service.transform_recipe(
+            db_session,
+            user_id=owner.id,
+            recipe_id=recipe.id,
+            instruction="make it vegan",
+            llm=fake,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.code == "invalid_transform_output"
+    assert ingestion_service.list_jobs(db_session, user_id=owner.id) == []
+
+
+def test_transform_recipe_invalid_llm_output_empty_recipes_rejected(
+    db_session: Session, owner: User
+) -> None:
+    recipe = _create_recipe(db_session, owner.id)
+    fake = FakeStructuredLLM(result=NormalizeResult(is_recipe=True, confidence=0.5, recipes=[]))
+
+    with pytest.raises(ApiError) as exc_info:
+        ai_service.transform_recipe(
+            db_session,
+            user_id=owner.id,
+            recipe_id=recipe.id,
+            instruction="make it vegan",
+            llm=fake,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.code == "invalid_transform_output"
+
+
+def test_transform_recipe_missing_recipe_raises_404(db_session: Session, owner: User) -> None:
+    fake = FakeStructuredLLM(result=_transform_result())
+
+    with pytest.raises(ApiError) as exc_info:
+        ai_service.transform_recipe(
+            db_session,
+            user_id=owner.id,
+            recipe_id=uuid.uuid4(),
+            instruction="make it vegan",
+            llm=fake,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 404
+    assert fake.calls == []
+
+
+def test_transform_recipe_foreign_recipe_raises_404(
+    db_session: Session, owner: User, other_user: User
+) -> None:
+    foreign_recipe = _create_recipe(db_session, other_user.id)
+    fake = FakeStructuredLLM(result=_transform_result())
+
+    with pytest.raises(ApiError) as exc_info:
+        ai_service.transform_recipe(
+            db_session,
+            user_id=owner.id,
+            recipe_id=foreign_recipe.id,
+            instruction="make it vegan",
+            llm=fake,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 404
+    assert fake.calls == []
+
+
+def test_transform_recipe_cost_cap_exceeded_maps_to_503_and_persists_nothing(
+    db_session: Session, owner: User
+) -> None:
+    recipe = _create_recipe(db_session, owner.id)
+    fake = FakeStructuredLLM(raises=CostCapExceeded("budget exhausted"))
+
+    with pytest.raises(ApiError) as exc_info:
+        ai_service.transform_recipe(
+            db_session,
+            user_id=owner.id,
+            recipe_id=recipe.id,
+            instruction="make it vegan",
+            llm=fake,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.code == "cost_cap_exceeded"
+    assert ingestion_service.list_jobs(db_session, user_id=owner.id) == []
+
+
+def test_transform_recipe_llm_error_maps_to_502(db_session: Session, owner: User) -> None:
+    recipe = _create_recipe(db_session, owner.id)
+    fake = FakeStructuredLLM(raises=LLMError("model refused"))
+
+    with pytest.raises(ApiError) as exc_info:
+        ai_service.transform_recipe(
+            db_session,
+            user_id=owner.id,
+            recipe_id=recipe.id,
+            instruction="make it vegan",
+            llm=fake,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.code == "llm_error"

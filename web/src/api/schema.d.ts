@@ -87,6 +87,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ai/recipes/{recipe_id}/transform": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Transform Recipe
+         * @description Apply a qualitative instruction to a recipe; the result lands in the review gate.
+         *
+         *     Returns `{job_id, recipe_id}` — NOT the draft recipe itself. There is deliberately no
+         *     new review UI for this: `job_id` is the SAME kind of id `GET /api/jobs/{job_id}` (the
+         *     existing Inbox/Review screen) already handles, and the caller is expected to navigate
+         *     there (or straight to `recipe_id`) exactly as it would after any other extraction job
+         *     reaches `needs_review`. See `ai.service.transform_recipe`'s docstring for the scaling
+         *     boundary (a pure "halve it"/"double it" instruction is refused here with a 422 before
+         *     any LLM call, pointing at the deterministic `/api/recipes/{recipe_id}/scaled` endpoint).
+         */
+        post: operations["post_transform_recipe_api_ai_recipes__recipe_id__transform_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/login": {
         parameters: {
             query?: never;
@@ -1118,7 +1146,7 @@ export interface components {
          * InputType
          * @enum {string}
          */
-        InputType: "url" | "pdf" | "image" | "text";
+        InputType: "url" | "pdf" | "image" | "text" | "transform";
         /**
          * InviteMemberIn
          * @description Body for POST /api/shared-cookbooks/{id}/members.
@@ -1916,7 +1944,7 @@ export interface components {
          * SourceType
          * @enum {string}
          */
-        SourceType: "web" | "pdf" | "image" | "text" | "manual";
+        SourceType: "web" | "pdf" | "image" | "text" | "manual" | "transform";
         /** StepIn */
         StepIn: {
             /** Original Text */
@@ -1946,6 +1974,36 @@ export interface components {
         SubmitUrlIn: {
             /** Url */
             url: string;
+        };
+        /**
+         * TransformCreateIn
+         * @description Body for POST /api/ai/recipes/{recipe_id}/transform.
+         */
+        TransformCreateIn: {
+            /** Instruction */
+            instruction: string;
+        };
+        /**
+         * TransformOut
+         * @description Response for POST /api/ai/recipes/{recipe_id}/transform.
+         *
+         *     The transform never returns the draft recipe itself — it routes through the
+         *     EXISTING ingestion review gate (see `ai.service.transform_recipe`), so these two
+         *     ids are exactly what a caller needs to land on that flow: `job_id` for
+         *     `GET /api/jobs/{job_id}` (the review screen, same one URL/PDF/text jobs use) and
+         *     `recipe_id` (the first produced draft) as a direct shortcut straight to it.
+         */
+        TransformOut: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Recipe Id
+             * Format: uuid
+             */
+            recipe_id: string;
         };
         /** UserOut */
         UserOut: {
@@ -2136,6 +2194,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CookbookQaOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_transform_recipe_api_ai_recipes__recipe_id__transform_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recipe_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransformCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransformOut"];
                 };
             };
             /** @description Validation Error */

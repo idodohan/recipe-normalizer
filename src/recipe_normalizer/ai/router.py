@@ -24,6 +24,8 @@ from recipe_normalizer.ai.schemas import (
     CookbookQaOut,
     MessageCreateIn,
     MessageOut,
+    TransformCreateIn,
+    TransformOut,
 )
 from recipe_normalizer.api_deps import get_current_user, limit_by_user
 from recipe_normalizer.db import get_db
@@ -39,6 +41,11 @@ _chat_limit = limit_by_user("ai_chat", 60, 3600.0)
 #: heavy recipe-chat use doesn't eat into a user's cookbook Q&A allowance or
 #: vice versa.
 _cookbook_qa_limit = limit_by_user("ai_cookbook_qa", 60, 3600.0)
+
+#: Tighter than chat/Q&A — transforms are the most expensive ai call (a full
+#: structured-output pass plus catalog matching over a whole recipe), so the
+#: phase plan calls for a tighter cap here.
+_transform_limit = limit_by_user("ai_transform", 20, 3600.0)
 
 
 @router.get("/conversations", response_model=list[ConversationOut])
@@ -125,5 +132,37 @@ def post_cookbook_qa(
         user_id=current_user.id,
         content=body.content,
         conversation_id=body.conversation_id,
+        llm=llm,
+    )
+
+
+@router.post(
+    "/recipes/{recipe_id}/transform",
+    status_code=201,
+    response_model=TransformOut,
+    dependencies=[Depends(_transform_limit)],
+)
+def post_transform_recipe(
+    recipe_id: uuid.UUID,
+    body: TransformCreateIn,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> TransformOut:
+    """Apply a qualitative instruction to a recipe; the result lands in the review gate.
+
+    Returns `{job_id, recipe_id}` — NOT the draft recipe itself. There is deliberately no
+    new review UI for this: `job_id` is the SAME kind of id `GET /api/jobs/{job_id}` (the
+    existing Inbox/Review screen) already handles, and the caller is expected to navigate
+    there (or straight to `recipe_id`) exactly as it would after any other extraction job
+    reaches `needs_review`. See `ai.service.transform_recipe`'s docstring for the scaling
+    boundary (a pure "halve it"/"double it" instruction is refused here with a 422 before
+    any LLM call, pointing at the deterministic `/api/recipes/{recipe_id}/scaled` endpoint).
+    """
+    llm = service.make_ai_llm(db, user_id=current_user.id, feature="ai.transform")
+    return service.transform_recipe(
+        db,
+        user_id=current_user.id,
+        recipe_id=recipe_id,
+        instruction=body.instruction,
         llm=llm,
     )
