@@ -70,6 +70,14 @@ export function CatalogPage() {
         The shared ingredient library that powers unit conversion.
       </p>
 
+      {!showSkeleton && !ingredients.isError && ingredients.data && (
+        <p className="catalog-count">
+          {ingredients.data.length === 200
+            ? "Showing the first 200 — search to narrow down."
+            : `${ingredients.data.length} ${debouncedQuery ? "matches" : "ingredients"}`}
+        </p>
+      )}
+
       <div className="catalog-search">
         <input
           type="search"
@@ -157,6 +165,7 @@ function IngredientRow({
   // Re-seed the edit fields from the latest server values each time the
   // panel opens, so a save-then-reopen (or a background refetch) doesn't
   // leave stale draft values sitting in the inputs.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!isExpanded) return;
     setDensityInput(
@@ -165,6 +174,7 @@ function IngredientRow({
     setStatusInput(ingredient.status);
     setSaveError(null);
   }, [isExpanded, ingredient.density_g_per_ml, ingredient.status]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const save = useMutation({
     mutationFn: async (patch: IngredientPatch) => {

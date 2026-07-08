@@ -10,6 +10,13 @@
   max-width: 62ch;
 }
 
+.catalog-count {
+  margin: 0;
+  margin-bottom: var(--space-4);
+  font-size: var(--text-small);
+  color: var(--color-text-muted);
+}
+
 .catalog-search {
   margin-bottom: var(--space-5);
 }
