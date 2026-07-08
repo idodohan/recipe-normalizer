@@ -18,6 +18,7 @@ import { FavoriteButton } from "../components/recipe/FavoriteButton";
 import { IngredientList } from "../components/recipe/IngredientList";
 import type { DisplayGroup } from "../components/recipe/IngredientList";
 import { NotesSection } from "../components/recipe/NotesSection";
+import { RecipeChatPanel } from "../components/recipe/RecipeChatPanel";
 import { RecipeImageBanner } from "../components/recipe/RecipeImageBanner";
 import { ScaleControl } from "../components/recipe/ScaleControl";
 import type { ScaleRequest } from "../components/recipe/ScaleControl";
@@ -365,6 +366,8 @@ export function RecipeDetailPage() {
       </div>
 
       <NotesSection recipeId={id!} notes={data.notes ?? null} />
+
+      <RecipeChatPanel recipeId={id!} recipeTitle={data.title} />
     </article>
   );
 }
