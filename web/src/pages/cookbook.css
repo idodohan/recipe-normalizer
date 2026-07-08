@@ -4,12 +4,63 @@
 /*  error states.                                                      */
 /* ------------------------------------------------------------------ */
 
-/* -- Filter chips: All / Favorites ----------------------------------- */
+/* -- Search --------------------------------------------------------- */
+
+.cookbook-search {
+  margin-bottom: var(--space-5);
+}
+
+.cookbook-search__input {
+  max-width: 26rem;
+  width: 100%;
+}
+
+/* -- Count line ------------------------------------------------------- */
+
+.cookbook-count {
+  margin: 0;
+  margin-bottom: var(--space-4);
+  font-size: var(--text-small);
+  color: var(--color-text-muted);
+}
+
+/* -- Filter chips: All / Favorites / dietary, plus vocab selects ----- */
 
 .cookbook-filters {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-2);
   margin-bottom: var(--space-6);
+}
+
+.cookbook-filters__select {
+  width: auto;
+  max-width: 12rem;
+  font-size: var(--text-small);
+}
+
+.cookbook-clear {
+  border: none;
+  background: transparent;
+  padding: 0 var(--space-2);
+  font-size: var(--text-small);
+  color: var(--color-text-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.cookbook-clear:hover {
+  color: var(--color-accent-deep);
+}
+
+/* -- Load more -------------------------------------------------------- */
+
+.cookbook-load-more {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-7);
 }
 
 /* Reuses .chip's shape/type — a neutral hairline outline by default,
