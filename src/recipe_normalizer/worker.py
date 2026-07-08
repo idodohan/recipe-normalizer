@@ -62,11 +62,30 @@ from recipe_normalizer.ingestion import queue
 from recipe_normalizer.ingestion.models import Job
 from recipe_normalizer.llm.client import CostCapExceeded, DbUsageRecorder, LLMClient
 
-__all__ = ["main", "make_llm_for_job", "process_job", "run_worker"]
+__all__ = ["JobProcessingError", "main", "make_llm_for_job", "process_job", "run_worker"]
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+
+
+class JobProcessingError(Exception):
+    """Wraps a processing exception with the LLM cost spent this attempt.
+
+    ``process_job`` seeds its LLM client with the job's prior spend (so the
+    cost cap is per-job across attempts/retries, not per-attempt). When an
+    attempt crashes, the processing session is rolled back before the crash
+    is recorded — so the spend the attempt made this time would otherwise
+    never reach ``job.cost_usd``. This wraps the original exception together
+    with just this attempt's cost so ``_fail_in_fresh_session`` can account
+    it via ``queue.fail(cost_usd=...)``.
+    """
+
+    def __init__(self, original: BaseException, cost_usd: Decimal) -> None:
+        super().__init__(str(original))
+        self.original = original
+        self.cost_usd = cost_usd
+
 
 # InputType value → cookbook SourceType for persisted drafts.
 _SOURCE_TYPE_BY_INPUT: dict[str, SourceType] = {
@@ -196,6 +215,7 @@ def make_llm_for_job(db: Session, job: Job) -> LLMClient:
     return LLMClient(
         recorder=DbUsageRecorder(db, user_id=job.user_id, job_id=job.id),
         cost_cap_usd=settings.job_cost_cap_usd,
+        already_spent_usd=float(job.cost_usd or 0),
     )
 
 
@@ -363,6 +383,12 @@ def process_job(db: Session, job: Job, *, worker_id: str | None = None) -> None:
             retryable=False,
             expected_locked_by=worker_id,
         )
+    except Exception as exc:
+        # Unexpected crash — propagate to _process_one, but carry THIS attempt's
+        # spend (spent_usd includes already_spent_usd, seeded from job.cost_usd)
+        # so it isn't lost when the processing session rolls back.
+        attempt_cost = max(_spent(llm) - (job.cost_usd or Decimal("0")), Decimal("0"))
+        raise JobProcessingError(exc, attempt_cost) from exc
     _log_transition(job, started)
 
 
@@ -395,14 +421,26 @@ def _claim_one(worker_id: str) -> uuid.UUID | None:
     return job_id
 
 
-def _fail_in_fresh_session(job_id: uuid.UUID, exc: Exception, worker_id: str) -> None:
+def _fail_in_fresh_session(
+    job_id: uuid.UUID,
+    exc: BaseException,
+    worker_id: str,
+    *,
+    cost_usd: Decimal | None = None,
+) -> None:
     """Record an unexpected crash on a NEW session, isolated from the broken one."""
     try:
         with db_module.SessionLocal() as db:
             job = db.get(Job, job_id)
             if job is None:
                 return
-            queue.fail(db, job, error=f"{type(exc).__name__}: {exc}", expected_locked_by=worker_id)
+            queue.fail(
+                db,
+                job,
+                error=f"{type(exc).__name__}: {exc}",
+                cost_usd=cost_usd,
+                expected_locked_by=worker_id,
+            )
             db.commit()
             logger.info("job=%s status=%s after crash", job_id, job.status.value)
     except Exception:
@@ -423,7 +461,10 @@ def _process_one(job_id: uuid.UUID, worker_id: str) -> None:
         session.rollback()
         logger.exception("job=%s crashed during processing", job_id)
         session.close()
-        _fail_in_fresh_session(job_id, exc, worker_id)
+        if isinstance(exc, JobProcessingError):
+            _fail_in_fresh_session(job_id, exc.original, worker_id, cost_usd=exc.cost_usd)
+        else:
+            _fail_in_fresh_session(job_id, exc, worker_id)
     finally:
         session.close()
 

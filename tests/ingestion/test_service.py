@@ -445,6 +445,25 @@ class TestRetryJob:
         retried = svc.retry_job(db, user_id=user.id, job_id=job.id)
         assert retried.artifacts == {"raw_text_ref": "shard/abc.txt"}
 
+    def test_retry_preserves_cost_usd_so_cap_counts_prior_spend(
+        self, db: Session, user: User
+    ) -> None:
+        """attempts resets to 0 on retry, but cost_usd must survive — the per-job
+        cost cap is seeded from job.cost_usd (worker.make_llm_for_job), so a
+        retry that wiped it would let a user re-spend the cap forever."""
+        from decimal import Decimal
+
+        job = svc.submit_url(db, user_id=user.id, url="https://example.com/retry5")
+        job.status = JobStatus.failed
+        job.attempts = 3
+        job.cost_usd = Decimal("1.50")
+        db.flush()
+
+        retried = svc.retry_job(db, user_id=user.id, job_id=job.id)
+
+        assert retried.attempts == 0
+        assert retried.cost_usd == Decimal("1.50")
+
 
 # ---------------------------------------------------------------------------
 # accept_draft / reject_draft

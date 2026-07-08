@@ -109,11 +109,12 @@ class LLMClient:
         recorder: UsageRecorder | None = None,
         cost_cap_usd: float | None = None,
         anthropic_client: Any | None = None,
+        already_spent_usd: float = 0.0,
     ) -> None:
         self._recorder = recorder
         self._cost_cap_usd = cost_cap_usd
         self._anthropic_client = anthropic_client
-        self._spent_usd = 0.0
+        self._spent_usd = already_spent_usd
 
     @property
     def spent_usd(self) -> float:
