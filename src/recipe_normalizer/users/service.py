@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from recipe_normalizer.config import settings
 from recipe_normalizer.errors import ApiError
 from recipe_normalizer.users.auth import (
     PasswordAuthProvider,
@@ -43,6 +44,9 @@ def register(
         raise AuthError("An account with that email already exists.")
     password_hash = _provider.hash_password(password)
     user = User(email=normalized, password_hash=password_hash, display_name=display_name)
+    admin_emails = {e.strip().lower() for e in settings.admin_emails.split(",") if e.strip()}
+    if user.email.lower() in admin_emails:
+        user.is_admin = True
     db.add(user)
     db.flush()
     return user

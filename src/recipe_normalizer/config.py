@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     llm_max_retries: int = 3
     llm_timeout_s: float = 120.0
     job_cost_cap_usd: float = 1.50
+    admin_emails: str = ""
 
 
 settings = Settings()

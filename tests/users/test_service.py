@@ -1,5 +1,6 @@
 import pytest
 
+from recipe_normalizer.config import settings
 from recipe_normalizer.users import service
 from recipe_normalizer.users.service import AuthError
 
@@ -38,6 +39,22 @@ def test_logout_invalidates_token(db_session):
     token, _ = service.login(db_session, email="a@x.com", password="p1234567")
     service.logout(db_session, token)
     assert service.get_user_by_token(db_session, token) is None
+
+
+def test_register_admin_email_is_admin(db_session, monkeypatch):
+    monkeypatch.setattr(settings, "admin_emails", "boss@example.com")
+    user = service.register(
+        db_session, email="boss@example.com", password="hunter22", display_name="Boss"
+    )
+    assert user.is_admin is True
+
+
+def test_register_non_admin_email_is_not_admin(db_session, monkeypatch):
+    monkeypatch.setattr(settings, "admin_emails", "boss@example.com")
+    user = service.register(
+        db_session, email="worker@example.com", password="hunter22", display_name="Worker"
+    )
+    assert user.is_admin is False
 
 
 def test_expired_session_rejected(db_session):

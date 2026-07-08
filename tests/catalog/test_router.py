@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from recipe_normalizer.catalog import service
 from recipe_normalizer.catalog.router import router as catalog_router
@@ -40,6 +41,26 @@ def auth_client(client: TestClient, db_session):  # type: ignore[no-untyped-def]
 def seeded_auth_client(auth_client: TestClient, db_session):  # type: ignore[no-untyped-def]
     load_seed(db_session)
     return auth_client
+
+
+@pytest.fixture()
+def admin_client(client: TestClient, db_session):  # type: ignore[no-untyped-def]
+    """A TestClient already authenticated with a registered + logged-in admin user."""
+    client.post(
+        "/api/auth/register",
+        json={"email": "admin@example.com", "password": "securepass1", "display_name": "Admin"},
+    )
+    from recipe_normalizer.users.models import User
+
+    user = db_session.scalars(select(User).where(User.email == "admin@example.com")).one()
+    user.is_admin = True
+    db_session.flush()
+    resp = client.post(
+        "/api/auth/login",
+        json={"email": "admin@example.com", "password": "securepass1"},
+    )
+    assert resp.status_code == 200
+    return client
 
 
 # ---------------------------------------------------------------------------
@@ -143,9 +164,9 @@ def test_get_ingredient_not_found_returns_404(auth_client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_patch_ingredient_updates_status(auth_client: TestClient, db_session) -> None:  # type: ignore[no-untyped-def]
+def test_patch_ingredient_updates_status(admin_client: TestClient, db_session) -> None:  # type: ignore[no-untyped-def]
     ing = service.create_unreviewed(db_session, name="patchable herb")
-    resp = auth_client.patch(
+    resp = admin_client.patch(
         f"/api/catalog/ingredients/{ing.id}",
         json={"status": "reviewed"},
     )
@@ -154,11 +175,11 @@ def test_patch_ingredient_updates_status(auth_client: TestClient, db_session) ->
 
 
 def test_patch_ingredient_updates_dietary_flags(
-    auth_client: TestClient,
+    admin_client: TestClient,
     db_session,  # type: ignore[no-untyped-def]
 ) -> None:
     ing = service.create_unreviewed(db_session, name="patchable herb2")
-    resp = auth_client.patch(
+    resp = admin_client.patch(
         f"/api/catalog/ingredients/{ing.id}",
         json={"dietary_flags": ["dairy"]},
     )
@@ -167,15 +188,40 @@ def test_patch_ingredient_updates_dietary_flags(
 
 
 def test_patch_ingredient_invalid_gram_weights_returns_422(
-    auth_client: TestClient,
+    admin_client: TestClient,
     db_session,  # type: ignore[no-untyped-def]
 ) -> None:
     ing = service.create_unreviewed(db_session, name="patchable herb3")
-    resp = auth_client.patch(
+    resp = admin_client.patch(
         f"/api/catalog/ingredients/{ing.id}",
         json={"gram_weights": {"badunit": 100.0}},
     )
     assert resp.status_code == 422
+
+
+def test_patch_ingredient_non_admin_returns_403(
+    auth_client: TestClient,
+    db_session,  # type: ignore[no-untyped-def]
+) -> None:
+    ing = service.create_unreviewed(db_session, name="non-admin patch herb")
+    resp = auth_client.patch(
+        f"/api/catalog/ingredients/{ing.id}",
+        json={"status": "reviewed"},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "forbidden"
+
+
+def test_patch_ingredient_admin_returns_200(
+    admin_client: TestClient,
+    db_session,  # type: ignore[no-untyped-def]
+) -> None:
+    ing = service.create_unreviewed(db_session, name="admin patch herb")
+    resp = admin_client.patch(
+        f"/api/catalog/ingredients/{ing.id}",
+        json={"status": "reviewed"},
+    )
+    assert resp.status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -183,10 +229,10 @@ def test_patch_ingredient_invalid_gram_weights_returns_422(
 # ---------------------------------------------------------------------------
 
 
-def test_merge_happy_path(auth_client: TestClient, db_session) -> None:  # type: ignore[no-untyped-def]
+def test_merge_happy_path(admin_client: TestClient, db_session) -> None:  # type: ignore[no-untyped-def]
     source = service.create_unreviewed(db_session, name="source herb")
     target = service.create_unreviewed(db_session, name="target herb")
-    resp = auth_client.post(
+    resp = admin_client.post(
         f"/api/catalog/ingredients/{source.id}/merge",
         json={"target_id": str(target.id)},
     )
@@ -197,25 +243,46 @@ def test_merge_happy_path(auth_client: TestClient, db_session) -> None:  # type:
     assert "source herb" in alias_texts
 
 
-def test_merge_into_itself_returns_422(auth_client: TestClient, db_session) -> None:  # type: ignore[no-untyped-def]
+def test_merge_into_itself_returns_422(admin_client: TestClient, db_session) -> None:  # type: ignore[no-untyped-def]
     source = service.create_unreviewed(db_session, name="self herb")
-    resp = auth_client.post(
+    resp = admin_client.post(
         f"/api/catalog/ingredients/{source.id}/merge",
         json={"target_id": str(source.id)},
     )
     assert resp.status_code == 422
 
 
-def test_merge_already_merged_returns_409(auth_client: TestClient, db_session) -> None:  # type: ignore[no-untyped-def]
+def test_merge_already_merged_returns_409(admin_client: TestClient, db_session) -> None:  # type: ignore[no-untyped-def]
     source = service.create_unreviewed(db_session, name="merged source herb")
     target = service.create_unreviewed(db_session, name="merged target herb")
     third = service.create_unreviewed(db_session, name="third herb")
     service.merge(db_session, source_id=source.id, target_id=target.id)
-    resp = auth_client.post(
+    resp = admin_client.post(
         f"/api/catalog/ingredients/{source.id}/merge",
         json={"target_id": str(third.id)},
     )
     assert resp.status_code == 409
+
+
+def test_merge_non_admin_returns_403(auth_client: TestClient, db_session) -> None:  # type: ignore[no-untyped-def]
+    source = service.create_unreviewed(db_session, name="non-admin merge source")
+    target = service.create_unreviewed(db_session, name="non-admin merge target")
+    resp = auth_client.post(
+        f"/api/catalog/ingredients/{source.id}/merge",
+        json={"target_id": str(target.id)},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "forbidden"
+
+
+def test_merge_admin_returns_200(admin_client: TestClient, db_session) -> None:  # type: ignore[no-untyped-def]
+    source = service.create_unreviewed(db_session, name="admin merge source")
+    target = service.create_unreviewed(db_session, name="admin merge target")
+    resp = admin_client.post(
+        f"/api/catalog/ingredients/{source.id}/merge",
+        json={"target_id": str(target.id)},
+    )
+    assert resp.status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -223,16 +290,16 @@ def test_merge_already_merged_returns_409(auth_client: TestClient, db_session) -
 # ---------------------------------------------------------------------------
 
 
-def test_patch_density_null_clears_it(auth_client: TestClient, db_session) -> None:  # type: ignore[no-untyped-def]
+def test_patch_density_null_clears_it(admin_client: TestClient, db_session) -> None:  # type: ignore[no-untyped-def]
     ing = service.create_unreviewed(db_session, name="density herb")
-    set_resp = auth_client.patch(
+    set_resp = admin_client.patch(
         f"/api/catalog/ingredients/{ing.id}",
         json={"density_g_per_ml": 0.5},
     )
     assert set_resp.status_code == 200
     assert set_resp.json()["density_g_per_ml"] == 0.5
 
-    clear_resp = auth_client.patch(
+    clear_resp = admin_client.patch(
         f"/api/catalog/ingredients/{ing.id}",
         json={"density_g_per_ml": None},
     )
@@ -241,15 +308,15 @@ def test_patch_density_null_clears_it(auth_client: TestClient, db_session) -> No
 
 
 def test_patch_without_density_leaves_it_unchanged(
-    auth_client: TestClient,
+    admin_client: TestClient,
     db_session,  # type: ignore[no-untyped-def]
 ) -> None:
     ing = service.create_unreviewed(db_session, name="density herb2")
-    auth_client.patch(
+    admin_client.patch(
         f"/api/catalog/ingredients/{ing.id}",
         json={"density_g_per_ml": 0.5},
     )
-    resp = auth_client.patch(
+    resp = admin_client.patch(
         f"/api/catalog/ingredients/{ing.id}",
         json={"category": "spices"},
     )

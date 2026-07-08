@@ -23,3 +23,10 @@ def get_current_user(
     if user is None:
         raise ApiError(401, "unauthorized", "Not signed in.")
     return user
+
+
+def require_admin(user: User = Depends(get_current_user)) -> User:  # noqa: B008
+    """Gate for endpoints that mutate global shared data (the catalog)."""
+    if not user.is_admin:
+        raise ApiError(403, "forbidden", "Admin access required.")
+    return user
