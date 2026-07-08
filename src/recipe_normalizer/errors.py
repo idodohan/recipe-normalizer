@@ -56,6 +56,7 @@ def install_error_handlers(app: FastAPI) -> None:
             404: "not_found",
             405: "method_not_allowed",
             422: "validation_error",
+            429: "rate_limited",
         }
         code = code_map.get(exc.status_code, "http_error")
         message = str(exc.detail) if exc.detail else "An error occurred."

@@ -121,6 +121,40 @@ def test_me_without_cookie_returns_401_envelope(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Rate limiting
+# ---------------------------------------------------------------------------
+
+
+def test_login_rate_limited_after_threshold_returns_429(client: TestClient) -> None:
+    client.post(
+        "/api/auth/register",
+        json={"email": "harry@example.com", "password": "securepass1", "display_name": "Harry"},
+    )
+    payload = {"email": "harry@example.com", "password": "wrongpassword"}
+    statuses = [client.post("/api/auth/login", json=payload).status_code for _ in range(11)]
+    assert 429 in statuses
+    limited_resp = client.post("/api/auth/login", json=payload)
+    assert limited_resp.status_code == 429
+    assert limited_resp.json()["error"]["code"] == "rate_limited"
+
+
+def test_register_rate_limited_after_threshold_returns_429(client: TestClient) -> None:
+    responses = [
+        client.post(
+            "/api/auth/register",
+            json={
+                "email": f"reguser{i}@example.com",
+                "password": "securepass1",
+                "display_name": f"Reg{i}",
+            },
+        )
+        for i in range(11)
+    ]
+    statuses = [r.status_code for r in responses]
+    assert 429 in statuses
+
+
 def test_logout_returns_204_and_subsequent_me_returns_401(client: TestClient) -> None:
     client.post(
         "/api/auth/register",

@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
-from recipe_normalizer.api_deps import get_current_user
+from recipe_normalizer.api_deps import get_current_user, limit_by_ip
 from recipe_normalizer.config import settings
 from recipe_normalizer.db import get_db
 from recipe_normalizer.users import service
@@ -13,9 +13,16 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 _SESSION_COOKIE = "session"
 
+_register_limit = limit_by_ip("register", settings.rate_limit_auth_per_minute, 60.0)
+_login_limit = limit_by_ip("login", settings.rate_limit_auth_per_minute, 60.0)
+
 
 @router.post("/register", status_code=201, response_model=UserOut)
-def register(body: RegisterIn, db: Session = Depends(get_db)) -> UserOut:  # noqa: B008
+def register(
+    body: RegisterIn,
+    db: Session = Depends(get_db),  # noqa: B008
+    _: None = Depends(_register_limit),  # noqa: B008
+) -> UserOut:
     user = service.register(
         db,
         email=body.email,
@@ -26,7 +33,12 @@ def register(body: RegisterIn, db: Session = Depends(get_db)) -> UserOut:  # noq
 
 
 @router.post("/login", status_code=200, response_model=UserOut)
-def login(body: LoginIn, response: Response, db: Session = Depends(get_db)) -> UserOut:  # noqa: B008
+def login(
+    body: LoginIn,
+    response: Response,
+    db: Session = Depends(get_db),  # noqa: B008
+    _: None = Depends(_login_limit),  # noqa: B008
+) -> UserOut:
     token, user = service.login(db, email=body.email, password=body.password)
     response.set_cookie(
         key=_SESSION_COOKIE,
