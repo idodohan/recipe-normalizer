@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
+import { apiErrorEnvelope } from "../../api/errors";
 
 type Notice =
   | { kind: "error"; message: string }
@@ -10,21 +11,15 @@ type Notice =
 
 /** Pull the error envelope (code + message + extras) out of an openapi-fetch error. */
 function readEnvelope(error: unknown): Notice {
-  const err =
-    error && typeof error === "object" && "error" in error
-      ? (error as { error: Record<string, unknown> }).error
-      : undefined;
-  const message =
-    typeof err?.["message"] === "string"
-      ? (err["message"] as string)
-      : "Could not submit. Please try again.";
-  if (err?.["code"] === "duplicate_recipe" && typeof err["existing_id"] === "string") {
-    return { kind: "duplicate-recipe", message, recipeId: err["existing_id"] };
+  const { code, message, existingId, jobId } = apiErrorEnvelope(error);
+  const resolvedMessage = message ?? "Could not submit. Please try again.";
+  if (code === "duplicate_recipe" && existingId) {
+    return { kind: "duplicate-recipe", message: resolvedMessage, recipeId: existingId };
   }
-  if (err?.["code"] === "duplicate_job" && typeof err["job_id"] === "string") {
-    return { kind: "duplicate-job", message, jobId: err["job_id"] };
+  if (code === "duplicate_job" && jobId) {
+    return { kind: "duplicate-job", message: resolvedMessage, jobId };
   }
-  return { kind: "error", message };
+  return { kind: "error", message: resolvedMessage };
 }
 
 export function SubmitPanel() {

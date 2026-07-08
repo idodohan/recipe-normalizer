@@ -24,7 +24,9 @@ import { RecipeEditorPage } from "./pages/RecipeEditorPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { ReviewPage } from "./pages/ReviewPage";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
+});
 
 const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },

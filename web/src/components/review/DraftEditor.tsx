@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import { apiErrorMessage } from "../../api/errors";
+import { useVocab } from "../../hooks/useVocab";
 import { Button } from "../Button";
 import { RecipeFormFields } from "../recipe/RecipeForm";
 import { recipeToFormState, useRecipeForm } from "../recipe/recipeFormState";
@@ -30,15 +31,7 @@ export function DraftEditor({
   const [confirmingReject, setConfirmingReject] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const vocab = useQuery({
-    queryKey: ["vocab"],
-    staleTime: 5 * 60 * 1000,
-    queryFn: async () => {
-      const { data, error: vocabError } = await api.GET("/api/vocab");
-      if (vocabError) throw vocabError;
-      return data;
-    },
-  });
+  const vocab = useVocab();
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ["job", jobId] });

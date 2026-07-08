@@ -1,24 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
-import { api } from "../../api/client";
 import { apiErrorMessage } from "../../api/errors";
+import { useJobs } from "../../hooks/useJobs";
 import { EmptyState } from "../EmptyState";
 import { JobRow } from "./JobRow";
-import { hasActiveJob, type Job } from "./jobStatus";
-
-async function fetchJobs(): Promise<Job[]> {
-  const { data, error } = await api.GET("/api/jobs");
-  if (error) throw error;
-  return data;
-}
 
 export function JobList() {
-  const jobs = useQuery({
-    queryKey: ["jobs"],
-    queryFn: fetchJobs,
-    // Live progress (spec §8): poll while anything is queued/running, else rest.
-    refetchInterval: (query) =>
-      hasActiveJob(query.state.data as Job[] | undefined) ? 2500 : false,
-  });
+  // Live progress (spec §8): poll while anything is queued/running, else rest.
+  const jobs = useJobs({ poll: true });
 
   if (jobs.isPending) {
     return <p className="inbox-status">Loading your inbox…</p>;
