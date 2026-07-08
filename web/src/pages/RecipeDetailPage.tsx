@@ -367,7 +367,7 @@ export function RecipeDetailPage() {
 
       <NotesSection recipeId={id!} notes={data.notes ?? null} />
 
-      <RecipeChatPanel recipeId={id!} recipeTitle={data.title} />
+      <RecipeChatPanel key={id} recipeId={id!} recipeTitle={data.title} />
     </article>
   );
 }

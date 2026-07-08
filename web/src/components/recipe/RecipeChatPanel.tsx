@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import { apiErrorEnvelope, apiErrorMessage } from "../../api/errors";
@@ -35,6 +35,13 @@ export function RecipeChatPanel({ recipeId, recipeTitle }: RecipeChatPanelProps)
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  // `conversationId` state only updates on the next render, which isn't fast
+  // enough for `mutationFn`: it needs to see a conversation created earlier
+  // in the SAME attempt (or by a still-in-flight prior attempt) before a
+  // retry decides whether to create another one. This ref is the
+  // synchronously-readable source of truth mutationFn consults; state stays
+  // for rendering and is kept in sync alongside it.
+  const conversationIdRef = useRef<string | null>(null);
   const [draft, setDraft] = useState("");
   const [pendingUser, setPendingUser] = useState<ChatMessageItem | null>(null);
   const [unavailable, setUnavailable] = useState(false);
@@ -59,10 +66,19 @@ export function RecipeChatPanel({ recipeId, recipeTitle }: RecipeChatPanelProps)
   // recipe_id) — no client-side kind filter needed.
   useEffect(() => {
     if (conversationId === null && list.data && list.data.length > 0) {
+      const id = list.data[0].id;
+      conversationIdRef.current = id;
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setConversationId(list.data[0].id);
+      setConversationId(id);
     }
   }, [list.data, conversationId]);
+
+  // The initial list fetch tells us whether a conversation already exists
+  // server-side. Until it settles, `conversationId`/`conversationIdRef` may
+  // still be null even though one exists — sending before then would create
+  // a duplicate. `list` is enabled only while `open`, so this is only ever
+  // consulted while the panel is actually rendered.
+  const listSettled = list.isSuccess || list.isError;
 
   const detail = useQuery({
     queryKey: ["ai", "conversation", conversationId],
@@ -78,13 +94,22 @@ export function RecipeChatPanel({ recipeId, recipeTitle }: RecipeChatPanelProps)
 
   const send = useMutation({
     mutationFn: async (content: string) => {
-      let convId = conversationId;
+      let convId = conversationIdRef.current;
       if (convId === null) {
         const { data, error } = await api.POST("/api/ai/conversations", {
           body: { recipe_id: recipeId, kind: "recipe_chat" },
         });
         if (error) throw error;
         convId = data.id;
+        // Record the created conversation the instant it exists — BEFORE
+        // the message POST that can still fail (e.g. the ai_chat rate
+        // limit sits on the messages endpoint). A ref is used because it's
+        // readable synchronously; `conversationId` state wouldn't be
+        // visible to a retry fired within the same render cycle. Without
+        // this, a message-POST failure leaves conversationIdRef null and
+        // "Try again" would create a second, orphaned conversation.
+        conversationIdRef.current = convId;
+        setConversationId(convId);
       }
       const { error } = await api.POST("/api/ai/conversations/{conversation_id}/messages", {
         params: { path: { conversation_id: convId } },
@@ -94,6 +119,10 @@ export function RecipeChatPanel({ recipeId, recipeTitle }: RecipeChatPanelProps)
       return { conversationId: convId };
     },
     onSuccess: async ({ conversationId: convId }) => {
+      // Reconciles state with the ref (already set above in the common
+      // case) — kept so onSuccess remains the single place that guarantees
+      // consistency regardless of how the id was resolved.
+      conversationIdRef.current = convId;
       setConversationId(convId);
       // Wait for the transcript to refetch BEFORE dropping the optimistic
       // bubble/thinking placeholder, so the real messages are already in
@@ -137,7 +166,7 @@ export function RecipeChatPanel({ recipeId, recipeTitle }: RecipeChatPanelProps)
 
   function handleSend() {
     const trimmed = draft.trim();
-    if (!trimmed || send.isPending) return;
+    if (!trimmed || send.isPending || !listSettled) return;
     setDraft("");
     setPendingUser({ id: `optimistic-${Date.now()}`, role: "user", content: trimmed });
     send.mutate(trimmed);
@@ -170,7 +199,9 @@ export function RecipeChatPanel({ recipeId, recipeTitle }: RecipeChatPanelProps)
       ? "This conversation has reached its message limit."
       : list.isError
         ? apiErrorMessage(list.error, "Could not load this conversation.")
-        : null;
+        : !listSettled
+          ? "Loading conversation…"
+          : null;
 
   return (
     <section className="rd__chat">
@@ -193,7 +224,7 @@ export function RecipeChatPanel({ recipeId, recipeTitle }: RecipeChatPanelProps)
             onSend={handleSend}
             onRetry={handleRetry}
             sending={send.isPending}
-            disabled={unavailable || capped}
+            disabled={unavailable || capped || !listSettled}
             inputLabel={`Ask a question about ${recipeTitle}`}
             inputPlaceholder="e.g. Can I substitute butter for oil?"
             emptyHint="Ask anything about this recipe — ingredients, steps, timing. Answers are grounded in the recipe only."
