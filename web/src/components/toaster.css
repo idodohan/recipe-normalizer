@@ -1,0 +1,123 @@
+/* ------------------------------------------------------------------ */
+/*  Toaster — fixed stack, bottom-right (bottom-center under 640px)    */
+/* ------------------------------------------------------------------ */
+
+.toast-stack {
+  position: fixed;
+  z-index: 1000;
+  bottom: var(--space-5);
+  right: var(--space-5);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: var(--space-3);
+  width: 20rem;
+  max-width: calc(100vw - var(--space-5) * 2);
+  list-style: none;
+  padding: 0;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  background-color: var(--color-surface-raised);
+  border: var(--hairline);
+  border-top: 2px solid var(--color-ink);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  font-family: var(--font-body);
+  font-size: var(--text-small);
+  color: var(--color-text);
+  box-shadow: none;
+
+  opacity: 0;
+  transform: translateY(var(--space-3));
+  transition:
+    opacity 200ms ease-out,
+    transform 200ms ease-out;
+}
+
+.toast--entered {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.toast--leaving {
+  opacity: 0;
+  transform: translateY(var(--space-3));
+}
+
+.toast--success {
+  border-top-color: var(--color-accent);
+}
+
+.toast--error {
+  border-top-color: var(--color-error);
+}
+
+.toast__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.toast__title {
+  font-weight: 500;
+  color: var(--color-ink);
+  line-height: var(--leading-snug);
+}
+
+.toast__description {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  line-height: var(--leading-snug);
+}
+
+.toast__dismiss {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem; /* 44px hit area */
+  height: 2.75rem;
+  margin: calc(var(--space-4) * -1) calc(var(--space-4) * -1) calc(var(--space-4) * -1) 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-faint);
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+
+.toast__dismiss:hover {
+  color: var(--color-ink);
+  background-color: var(--color-neutral-100);
+}
+
+.toast__dismiss:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    transition: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .toast-stack {
+    right: var(--space-5);
+    left: var(--space-5);
+    bottom: var(--space-5);
+    width: auto;
+    align-items: center;
+  }
+
+  .toast {
+    width: 100%;
+    max-width: 24rem;
+  }
+}

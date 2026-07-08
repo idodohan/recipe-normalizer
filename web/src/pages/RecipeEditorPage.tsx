@@ -8,6 +8,7 @@ import { PageHeader } from "../components/PageHeader";
 import { RecipeFormFields } from "../components/recipe/RecipeForm";
 import { emptyFormState, useRecipeForm } from "../components/recipe/recipeFormState";
 import { useVocab } from "../hooks/useVocab";
+import { toast } from "../hooks/useToast";
 import "../components/recipe/recipe-editor.css";
 
 type Banner = {
@@ -34,6 +35,7 @@ export function RecipeEditorPage() {
         body: form.build(),
       });
       if (data) {
+        toast({ title: "Recipe created", variant: "success" });
         navigate(`/recipes/${data.id}`);
         return;
       }

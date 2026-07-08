@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { apiErrorEnvelope } from "../../api/errors";
+import { toast } from "../../hooks/useToast";
 
 type Notice =
   | { kind: "error"; message: string }
@@ -46,6 +47,7 @@ export function SubmitPanel() {
       setUrl("");
       setNotice(null);
       onSettled();
+      toast({ title: "Added to the inbox", variant: "success" });
     },
     onError: (error) => setNotice(readEnvelope(error)),
   });
@@ -62,6 +64,7 @@ export function SubmitPanel() {
       setText("");
       setNotice(null);
       onSettled();
+      toast({ title: "Added to the inbox", variant: "success" });
     },
     onError: (error) => setNotice(readEnvelope(error)),
   });
@@ -82,6 +85,7 @@ export function SubmitPanel() {
     onSuccess: () => {
       setNotice(null);
       onSettled();
+      toast({ title: "Added to the inbox", variant: "success" });
     },
     onError: (error) => setNotice(readEnvelope(error)),
   });

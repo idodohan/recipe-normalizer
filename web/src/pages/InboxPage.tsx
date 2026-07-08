@@ -5,6 +5,7 @@ import { PageHeader } from "../components/PageHeader";
 import { JobList } from "../components/inbox/JobList";
 import { SubmitPanel } from "../components/inbox/SubmitPanel";
 import { useJobs } from "../hooks/useJobs";
+import { toast } from "../hooks/useToast";
 import "./inbox.css";
 
 export function InboxPage() {
@@ -22,7 +23,14 @@ export function InboxPage() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["jobs"] }),
+    onSuccess: (data) => {
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      const count = data.accepted;
+      toast({
+        title: `${count} recipe${count === 1 ? "" : "s"} accepted`,
+        variant: "success",
+      });
+    },
   });
 
   return (

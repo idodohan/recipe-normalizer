@@ -14,6 +14,7 @@ import "./styles/tokens.css";
 import "./styles/base.css";
 import "./components/ui.css";
 
+import { Toaster } from "./components/Toaster";
 import { AuthenticatedApp } from "./layouts/AuthenticatedApp";
 import { CatalogPage } from "./pages/CatalogPage";
 import { CookbookPage } from "./pages/CookbookPage";
@@ -50,6 +51,7 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
+      <Toaster />
     </QueryClientProvider>
   </StrictMode>,
 );

@@ -9,6 +9,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { apiErrorMessage } from "../api/errors";
 import { EmptyState } from "../components/EmptyState";
+import { toast } from "../hooks/useToast";
 import { IngredientList } from "../components/recipe/IngredientList";
 import type { DisplayGroup } from "../components/recipe/IngredientList";
 import { ScaleControl } from "../components/recipe/ScaleControl";
@@ -121,6 +122,7 @@ export function RecipeDetailPage() {
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["recipes"] });
+      toast({ title: "Recipe deleted", variant: "success" });
       navigate("/");
     },
   });
