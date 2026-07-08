@@ -20,6 +20,7 @@ import { CatalogPage } from "./pages/CatalogPage";
 import { CookbookPage } from "./pages/CookbookPage";
 import { InboxPage } from "./pages/InboxPage";
 import { LoginPage } from "./pages/LoginPage";
+import { PublicRecipePage } from "./pages/PublicRecipePage";
 import { RecipeDetailPage } from "./pages/RecipeDetailPage";
 import { RecipeEditPage } from "./pages/RecipeEditPage";
 import { RecipeEditorPage } from "./pages/RecipeEditorPage";
@@ -35,6 +36,9 @@ const queryClient = new QueryClient({
 const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
   { path: "/register", element: <RegisterPage /> },
+  // Unauthenticated public-link view — a sibling of /login, NOT nested under
+  // AuthenticatedApp: no session is required (or checked) to view it.
+  { path: "/p/:token", element: <PublicRecipePage /> },
   {
     path: "/",
     element: <AuthenticatedApp />,
