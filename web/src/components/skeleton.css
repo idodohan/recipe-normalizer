@@ -28,14 +28,6 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .skel {
-    animation: none;
-    background-image: none;
-    background-color: var(--color-neutral-100);
-  }
-}
-
 /* -- card-grid: mirrors .cookbook-grid + .recipe-card ------------------ */
 
 .skel-cookbook-grid {

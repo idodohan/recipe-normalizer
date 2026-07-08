@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { components } from "../../api/schema";
+import { useTabList } from "../Tabs";
 
 type InputType = components["schemas"]["InputType"];
 
@@ -60,10 +61,17 @@ export function SourcePanel({
   inputType: InputType;
   textPreview: string | null;
 }) {
-  const tabs = buildTabs(artifacts, inputType);
+  const sourceTabs = buildTabs(artifacts, inputType);
   const [active, setActive] = useState(0);
+  const activeIndex = Math.min(active, Math.max(0, sourceTabs.length - 1));
+  const tabs = useTabList({
+    count: sourceTabs.length,
+    activeIndex,
+    onChange: setActive,
+    idBase: "source-panel",
+  });
 
-  if (tabs.length === 0) {
+  if (sourceTabs.length === 0) {
     return (
       <aside className="source-panel">
         <span className="source-panel__overline">Source</span>
@@ -78,26 +86,24 @@ export function SourcePanel({
     );
   }
 
-  const current = tabs[Math.min(active, tabs.length - 1)];
+  const current = sourceTabs[activeIndex];
 
   return (
     <aside className="source-panel">
       <div className="source-panel__head">
         <span className="source-panel__overline">Source</span>
-        {tabs.length > 1 ? (
-          <div className="source-panel__tabs" role="tablist">
-            {tabs.map((tab, index) => (
+        {sourceTabs.length > 1 ? (
+          <div className="source-panel__tabs" {...tabs.tablistProps}>
+            {sourceTabs.map((tab, index) => (
               <button
                 key={tab.key}
                 type="button"
-                role="tab"
-                aria-selected={index === active}
                 className={
-                  index === active
+                  index === activeIndex
                     ? "source-panel__tab is-active"
                     : "source-panel__tab"
                 }
-                onClick={() => setActive(index)}
+                {...tabs.getTabProps(index)}
               >
                 {tab.label}
               </button>
@@ -106,7 +112,10 @@ export function SourcePanel({
         ) : null}
       </div>
 
-      <div className="source-panel__body">
+      <div
+        className="source-panel__body"
+        {...(sourceTabs.length > 1 ? tabs.getPanelProps(activeIndex) : {})}
+      >
         {current.kind === "text" ? <TextArtifact url={current.url} /> : null}
         {current.kind === "image" ? (
           <img className="source-panel__image" src={current.url} alt={current.label} />

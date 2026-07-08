@@ -180,7 +180,8 @@
   border-top: none;
 }
 
-.vms__option:hover {
+.vms__option:hover,
+.vms__option.is-active {
   background-color: var(--color-accent-wash);
   color: var(--color-accent-deep);
 }

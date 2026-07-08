@@ -40,8 +40,8 @@
   --font-body:
     "Inter Variable", "Inter", -apple-system, "Segoe UI", sans-serif;
 
-  --text-display: 2.75rem; /* 44px — page titles */
-  --text-title: 1.875rem; /* 30px — section titles */
+  --text-display: clamp(2rem, 5vw + 1rem, 2.75rem); /* fluid — page titles, up to 44px */
+  --text-title: clamp(1.5rem, 3vw + 0.75rem, 1.875rem); /* fluid — section titles, up to 30px */
   --text-heading: 1.375rem; /* 22px — sub heads */
   --text-body: 0.9375rem; /* 15px — default UI/body */
   --text-small: 0.8125rem; /* 13px — meta, labels */

@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { apiErrorMessage } from "../api/errors";
 import { ErrorState } from "../components/ErrorState";
 import { Skeleton } from "../components/Skeleton";
+import { useTabList } from "../components/Tabs";
 import { DraftEditor } from "../components/review/DraftEditor";
 import { SourcePanel } from "../components/review/SourcePanel";
 import { jobConfidence } from "../components/inbox/jobStatus";
@@ -56,6 +57,18 @@ export function ReviewPage() {
     },
   });
 
+  const total = unresolved.length;
+  const activeIndex = Math.max(
+    0,
+    unresolved.findIndex((draft) => draft.id === effectiveId),
+  );
+  const tabs = useTabList({
+    count: total,
+    activeIndex,
+    onChange: (index) => setSelectedId(unresolved[index].id),
+    idBase: "review-draft",
+  });
+
   if (job.isPending) {
     return <Skeleton variant="rows" count={3} />;
   }
@@ -69,9 +82,7 @@ export function ReviewPage() {
   }
 
   const detail = job.data;
-  const total = unresolved.length;
-  const position =
-    unresolved.findIndex((draft) => draft.id === effectiveId) + 1 || 1;
+  const position = activeIndex + 1;
 
   return (
     <div className="review">
@@ -88,19 +99,17 @@ export function ReviewPage() {
       </header>
 
       {total > 1 ? (
-        <div className="review__draft-tabs" role="tablist">
+        <div className="review__draft-tabs" {...tabs.tablistProps}>
           {unresolved.map((draft, index) => (
             <button
               key={draft.id}
               type="button"
-              role="tab"
-              aria-selected={draft.id === effectiveId}
               className={
-                draft.id === effectiveId
+                index === activeIndex
                   ? "review__draft-tab is-active"
                   : "review__draft-tab"
               }
-              onClick={() => setSelectedId(draft.id)}
+              {...tabs.getTabProps(index)}
             >
               Recipe {index + 1} of {total}
               <span className="review__draft-tab-title">{draft.title}</span>
@@ -115,7 +124,10 @@ export function ReviewPage() {
           inputType={detail.input_type}
           textPreview={detail.text_preview ?? null}
         />
-        <main className="review__draft">
+        <main
+          className="review__draft"
+          {...(total > 1 ? tabs.getPanelProps(activeIndex) : {})}
+        >
           {total > 1 ? (
             <p className="review__draft-position">
               Recipe {position} of {total}

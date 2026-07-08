@@ -213,9 +213,3 @@
     opacity: 0.4;
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .auth-loading__wordmark {
-    animation: none;
-  }
-}

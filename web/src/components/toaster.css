@@ -101,12 +101,6 @@
   box-shadow: var(--focus-ring);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .toast {
-    transition: none;
-  }
-}
-
 @media (max-width: 640px) {
   .toast-stack {
     right: var(--space-5);

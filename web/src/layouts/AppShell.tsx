@@ -1,4 +1,11 @@
-import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useEffect, useRef } from "react";
+import {
+  Link,
+  NavLink,
+  Outlet,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import { api } from "../api/client";
 import { Button } from "../components/Button";
 import { useTheme } from "../hooks/useTheme";
@@ -16,8 +23,24 @@ const NAV_ITEMS: Array<
 
 export function AppShell({ user }: { user: User }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { clear } = useUserActions();
   const { resolvedTheme, toggle } = useTheme();
+  const mainRef = useRef<HTMLElement>(null);
+  // Captured once, at mount, via the lazy useRef initializer — unlike a
+  // mutable "have I run yet" flag flipped inside the effect body, this
+  // survives React StrictMode's dev-only double-invoke of effects (mount ->
+  // cleanup -> mount) without falsely treating the second invoke as a real
+  // navigation.
+  const initialPathRef = useRef(location.pathname);
+
+  // Move focus to the main content on route changes, so screen-reader and
+  // keyboard users land somewhere sensible instead of staying on the old
+  // nav link. Skip the very first render — don't steal focus on initial load.
+  useEffect(() => {
+    if (location.pathname === initialPathRef.current) return;
+    mainRef.current?.focus();
+  }, [location.pathname]);
 
   async function signOut() {
     await api.POST("/api/auth/logout");
@@ -27,6 +50,9 @@ export function AppShell({ user }: { user: User }) {
 
   return (
     <div className="shell">
+      <a className="skip-link" href="#main">
+        Skip to content
+      </a>
       <header className="shell__topbar">
         <div className="shell__topbar-inner">
           <Link className="shell__wordmark" to="/">
@@ -117,7 +143,7 @@ export function AppShell({ user }: { user: User }) {
           </div>
         </div>
       </header>
-      <main className="shell__main">
+      <main id="main" className="shell__main" tabIndex={-1} ref={mainRef}>
         <Outlet />
       </main>
     </div>
