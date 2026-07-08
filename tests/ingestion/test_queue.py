@@ -328,7 +328,7 @@ def test_release_stale_flips_only_stale_running_jobs(
             status=JobStatus.running,
             locked_at=datetime.now(UTC) - timedelta(minutes=30),
             locked_by="dead-worker",
-            attempts=1,
+            attempts=0,
         )
         fresh = _add_job(
             s,
@@ -346,10 +346,61 @@ def test_release_stale_flips_only_stale_running_jobs(
         s.expire_all()
         assert stale.status == JobStatus.queued
         assert stale.locked_at is None and stale.locked_by is None
-        assert stale.attempts == 1  # attempts unchanged
+        assert stale.attempts == 1  # incremented by release
         assert fresh.status == JobStatus.running
         assert fresh.locked_by == "live-worker"
         assert queued.status == JobStatus.queued
+
+
+def test_release_stale_increments_attempts(
+    queue_env: tuple[sessionmaker[Session], uuid.UUID],
+) -> None:
+    """Stale release counts as an attempt; requeued with attempts incremented."""
+    factory, user_id = queue_env
+    with factory() as s:
+        stale = _add_job(
+            s,
+            user_id,
+            status=JobStatus.running,
+            locked_at=datetime.now(UTC) - timedelta(minutes=11),
+            locked_by="dead-worker",
+            attempts=0,
+        )
+        count = release_stale(s, older_than_minutes=10)
+        s.commit()
+        assert count == 1
+
+        s.expire_all()
+        assert stale.status == JobStatus.queued
+        assert stale.attempts == 1
+        assert stale.locked_at is None and stale.locked_by is None
+
+
+def test_release_stale_fails_poison_job(
+    queue_env: tuple[sessionmaker[Session], uuid.UUID],
+) -> None:
+    """Job released at attempts >= MAX_ATTEMPTS - 1 fails terminally."""
+    factory, user_id = queue_env
+    from recipe_normalizer.ingestion.queue import MAX_ATTEMPTS
+
+    with factory() as s:
+        stale = _add_job(
+            s,
+            user_id,
+            status=JobStatus.running,
+            locked_at=datetime.now(UTC) - timedelta(minutes=11),
+            locked_by="dead-worker",
+            attempts=MAX_ATTEMPTS - 1,
+        )
+        count = release_stale(s, older_than_minutes=10)
+        s.commit()
+        assert count == 1
+
+        s.expire_all()
+        assert stale.status == JobStatus.failed
+        assert stale.attempts == MAX_ATTEMPTS
+        assert "worker died repeatedly" in stale.error
+        assert stale.locked_at is None and stale.locked_by is None
 
 
 # ---------------------------------------------------------------------------

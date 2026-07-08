@@ -37,6 +37,7 @@ from recipe_normalizer.extraction.jsonld import (
     jsonld_to_normalize_result,
 )
 from recipe_normalizer.llm.client import CostCapExceeded, LLMError
+from recipe_normalizer.netguard import MAX_REDIRECTS, UnsafeUrlError, assert_public_url
 
 if TYPE_CHECKING:
     from recipe_normalizer.extraction.normalize import NormalizeResult
@@ -88,23 +89,33 @@ class FetchResult:
     content_type: str
 
 
-def default_fetch(url: str, *, client: httpx.Client | None = None) -> FetchResult:
-    """Real page fetcher: browser-ish UA, redirects, 15s timeout.
-
-    Network/HTTP errors become a retryable TierFailed (the queue backs off and
-    retries). ``client`` exists so tests can inject an httpx.MockTransport.
-    """
+def _safe_get(url: str, *, client: httpx.Client | None = None) -> httpx.Response:
+    """GET with per-hop SSRF validation. Redirects are followed manually so
+    every hop (not just the first URL) is checked against netguard."""
+    own_client = client is None
+    http = client or httpx.Client(timeout=_FETCH_TIMEOUT_S)
     try:
-        if client is not None:
-            with client:
-                response = client.get(url, headers=_HEADERS, follow_redirects=True)
-        else:
-            response = httpx.get(
-                url, headers=_HEADERS, follow_redirects=True, timeout=_FETCH_TIMEOUT_S
-            )
-        response.raise_for_status()
+        for _ in range(MAX_REDIRECTS + 1):
+            assert_public_url(url)
+            response = http.get(url, headers=_HEADERS, follow_redirects=False)
+            if response.is_redirect and response.next_request is not None:
+                url = str(response.next_request.url)
+                continue
+            response.raise_for_status()
+            return response
+        raise TierFailed(f"too many redirects (>{MAX_REDIRECTS})")
+    except UnsafeUrlError as exc:
+        raise TierFailed(f"blocked unsafe URL: {exc}") from exc
     except httpx.HTTPError as exc:
         raise TierFailed(f"could not fetch page: {exc}") from exc
+    finally:
+        if own_client:
+            http.close()
+
+
+def default_fetch(url: str, *, client: httpx.Client | None = None) -> FetchResult:
+    """Real page fetcher: browser-ish UA, netguard-validated redirects, 15s timeout."""
+    response = _safe_get(url, client=client)
     return FetchResult(
         url=str(response.url),
         status=response.status_code,
@@ -115,8 +126,7 @@ def default_fetch(url: str, *, client: httpx.Client | None = None) -> FetchResul
 
 def default_fetch_bytes(url: str) -> tuple[bytes, str]:
     """Real binary fetcher for hero images; returns (data, media_type)."""
-    response = httpx.get(url, headers=_HEADERS, follow_redirects=True, timeout=_FETCH_TIMEOUT_S)
-    response.raise_for_status()
+    response = _safe_get(url)
     media_type = response.headers.get("content-type", "application/octet-stream")
     return response.content, media_type.split(";")[0].strip()
 

@@ -31,8 +31,12 @@ def format_amount(x: float) -> str:
         120.0  -> "120"
         29.57  -> "29.57"
         0.5    -> "0.5"
+        0.004  -> "0.004" (tiny nonzero amounts shown with 2 sig figs)
     """
     rounded = round(x, 2)
+    if rounded == 0 and x != 0:
+        # Don't render tiny nonzero amounts as "0" — show 2 significant figures.
+        return f"{x:.2g}"
     # Use g format to strip trailing zeros, but avoid scientific notation for
     # the range of quantities we handle (0.01 to 99999).
     formatted = f"{rounded:.2f}".rstrip("0").rstrip(".")

@@ -1,8 +1,11 @@
 from datetime import UTC, datetime
+from typing import Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
+from recipe_normalizer.config import settings
 from recipe_normalizer.errors import ApiError
 from recipe_normalizer.users.auth import (
     PasswordAuthProvider,
@@ -12,7 +15,15 @@ from recipe_normalizer.users.auth import (
 from recipe_normalizer.users.models import Session as DbSession
 from recipe_normalizer.users.models import User
 
-__all__ = ["AuthError", "User", "get_user_by_token", "login", "logout", "register"]
+__all__ = [
+    "AuthError",
+    "User",
+    "get_user_by_token",
+    "login",
+    "logout",
+    "purge_expired_sessions",
+    "register",
+]
 
 _provider = PasswordAuthProvider()
 
@@ -43,6 +54,9 @@ def register(
         raise AuthError("An account with that email already exists.")
     password_hash = _provider.hash_password(password)
     user = User(email=normalized, password_hash=password_hash, display_name=display_name)
+    admin_emails = {e.strip().lower() for e in settings.admin_emails.split(",") if e.strip()}
+    if user.email.lower() in admin_emails:
+        user.is_admin = True
     db.add(user)
     db.flush()
     return user
@@ -72,6 +86,16 @@ def logout(db: Session, token: str) -> None:
     if session is not None:
         db.delete(session)
         db.flush()
+
+
+def purge_expired_sessions(db: Session) -> int:
+    """Delete expired session rows; returns how many were removed."""
+    result = cast(
+        "CursorResult[Any]",
+        db.execute(delete(DbSession).where(DbSession.expires_at <= datetime.now(UTC))),
+    )
+    db.flush()
+    return int(result.rowcount or 0)
 
 
 def get_user_by_token(db: Session, token: str) -> User | None:

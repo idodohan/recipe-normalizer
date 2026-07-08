@@ -42,6 +42,16 @@ def test_format_amount_rounds_to_2dp() -> None:
     assert "." not in result or len(result.split(".")[1]) <= 2
 
 
+def test_format_amount_tiny_amount() -> None:
+    # Tiny nonzero amounts should not be rendered as "0"
+    assert format_amount(0.004) == "0.004"
+
+
+def test_format_amount_zero_unchanged() -> None:
+    # Zero remains "0"
+    assert format_amount(0.0) == "0"
+
+
 # ---------------------------------------------------------------------------
 # build_display
 # ---------------------------------------------------------------------------

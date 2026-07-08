@@ -7,7 +7,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from recipe_normalizer.api_deps import get_current_user
+from recipe_normalizer.api_deps import get_current_user, require_admin
 from recipe_normalizer.catalog import service
 from recipe_normalizer.catalog.models import IngredientStatus
 from recipe_normalizer.catalog.schemas import IngredientOut, IngredientPatch, MergeIn
@@ -43,7 +43,7 @@ def patch_ingredient(
     ingredient_id: uuid.UUID,
     body: IngredientPatch,
     db: Session = Depends(get_db),  # noqa: B008
-    _user: object = Depends(get_current_user),  # noqa: B008
+    _user: object = Depends(require_admin),  # noqa: B008
 ) -> IngredientOut:
     ing = service.update_ingredient(
         db,
@@ -68,7 +68,7 @@ def merge_ingredient(
     ingredient_id: uuid.UUID,
     body: MergeIn,
     db: Session = Depends(get_db),  # noqa: B008
-    _user: object = Depends(get_current_user),  # noqa: B008
+    _user: object = Depends(require_admin),  # noqa: B008
 ) -> IngredientOut:
     target = service.merge(db, source_id=ingredient_id, target_id=body.target_id)
     return IngredientOut.model_validate(target)

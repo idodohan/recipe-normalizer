@@ -2,13 +2,13 @@
 
 Transaction convention: service flushes; HTTP layer (or test) owns commit.
 Import-linter: ingestion may import its own models + cookbook.service/schemas
-+ filestore; NOT sibling models.
++ filestore + netguard (dependency-free SSRF guard); NOT sibling
+models nor the rest of extraction.
 """
 
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -25,9 +25,8 @@ from recipe_normalizer.ingestion.fingerprint import (
     fingerprint_url as _fingerprint_url,
 )
 from recipe_normalizer.ingestion.models import InputType, Job, JobStatus
-
-if TYPE_CHECKING:
-    pass
+from recipe_normalizer.ingestion.sniff import detect_media_type
+from recipe_normalizer.netguard import UnsafeUrlError, assert_public_url
 
 __all__ = [
     "accept_all_high_confidence",
@@ -121,8 +120,7 @@ def _maybe_complete(db: Session, job: Job) -> None:
     verification_map = cookbook_service.are_verified(db, job.user_id, ids_as_uuids)
     # All remaining (still-existing) recipes must be verified.
     # Deleted recipes (not in map) are treated as removed → skip.
-    remaining_in_db = {k: v for k, v in verification_map.items()}
-    if all(remaining_in_db.values()):
+    if all(verification_map.values()):
         job.status = JobStatus.done
         db.flush()
 
@@ -150,6 +148,14 @@ def submit_url(
         raise ApiError(422, "validation_error", "URL must use http or https scheme.")
     if len(url) > _MAX_URL_LEN:
         raise ApiError(422, "validation_error", f"URL must be ≤{_MAX_URL_LEN} characters.")
+    try:
+        assert_public_url(url)
+    except UnsafeUrlError as exc:
+        raise ApiError(
+            422,
+            "unsafe_url",
+            "This URL points to a private or internal address and cannot be fetched.",
+        ) from exc
 
     fingerprint = _fingerprint_url(url)
 
@@ -222,19 +228,25 @@ def submit_file(
 ) -> Job:
     """Submit an uploaded file (PDF or image) for extraction.
 
-    Validates media_type and file size.  Saves to the FileStore.
+    Validates file size, then sniffs the actual content from magic bytes —
+    the client-supplied media_type is only a hint and is never trusted for
+    validation, storage suffix, or the stored media type (a mislabeled or
+    spoofed Content-Type is caught here). Saves to the FileStore.
     Deduplicates against existing recipes and active jobs.
     Returns a new queued Job.
     """
-    if media_type not in _ALLOWED_MEDIA_TYPES:
+    if len(data) > MAX_FILE_BYTES:
+        raise ApiError(422, "file_too_large", "File must be ≤ 30 MB.")
+
+    sniffed_media_type = detect_media_type(data)
+    if sniffed_media_type is None or sniffed_media_type not in _ALLOWED_MEDIA_TYPES:
         raise ApiError(
             422,
             "unsupported_file_type",
-            f"Unsupported file type '{media_type}'. "
+            f"File content is not a supported type (detected: {sniffed_media_type or 'unknown'}). "
             f"Allowed: {', '.join(sorted(_ALLOWED_MEDIA_TYPES))}",
         )
-    if len(data) > MAX_FILE_BYTES:
-        raise ApiError(422, "file_too_large", "File must be ≤ 30 MB.")
+    media_type = sniffed_media_type  # sniffed content is authoritative, not the client header
 
     fingerprint = fingerprint_bytes(data)
 

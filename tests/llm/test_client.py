@@ -285,6 +285,12 @@ def test_cost_cap_applies_to_tool_loop_rounds() -> None:
     assert len(stub.messages.create_calls) == 1
 
 
+def test_already_spent_counts_toward_cap() -> None:
+    client = LLMClient(cost_cap_usd=1.0, already_spent_usd=1.0)
+    with pytest.raises(CostCapExceeded):
+        client._check_cost_cap()
+
+
 def test_no_cost_cap_means_unlimited() -> None:
     stub = StubAnthropicClient(create_results=[text_response('{"title": "a"}')])
     client = LLMClient(anthropic_client=stub)

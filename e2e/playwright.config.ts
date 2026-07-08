@@ -44,6 +44,9 @@ export default defineConfig({
       url: "http://localhost:8000/api/health",
       reuseExistingServer: true,
       timeout: 30_000,
+      /* Allow the extraction E2E to submit the local fixture server (port
+       * 8099) without tripping the SSRF guard — see netguard.py. */
+      env: { ...process.env, RN_NETGUARD_ALLOW_HOSTS: "localhost" },
     },
     {
       /* Frontend dev server — proxies /api to localhost:8000 */

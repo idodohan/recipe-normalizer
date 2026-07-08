@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy.orm import Session
@@ -121,6 +122,18 @@ def store(tmp_path: Path):  # type: ignore[no-untyped-def]
 
 
 class TestSubmitUrl:
+    @pytest.fixture(autouse=True)
+    def _public_dns(self) -> Iterator[None]:
+        """submit_url now resolves the host via netguard; pin every lookup in
+        this class to a public address so tests stay deterministic and don't
+        depend on real DNS for example.com."""
+
+        def fake(host: str, port: object, *args: object, **kwargs: object) -> object:
+            return [(2, 1, 6, "", ("93.184.216.34", 0))]
+
+        with patch("socket.getaddrinfo", fake):
+            yield
+
     def test_happy_path_queued(self, db: Session, user: User) -> None:
         job = svc.submit_url(db, user_id=user.id, url="https://example.com/recipe")
         assert job.status == JobStatus.queued
@@ -184,6 +197,14 @@ class TestSubmitUrl:
         with pytest.raises(ApiError) as exc:
             svc.submit_url(db, user_id=user.id, url=url_with_utm)
         assert exc.value.code == "duplicate_job"
+
+    def test_submit_url_rejects_private_address(self, db: Session, user: User) -> None:
+        def fake(host: str, port: object, *args: object, **kwargs: object) -> object:
+            return [(2, 1, 6, "", ("127.0.0.1", 0))]
+
+        with patch("socket.getaddrinfo", fake), pytest.raises(ApiError) as exc_info:
+            svc.submit_url(db, user_id=user.id, url="http://localhost:8000/admin")
+        assert exc_info.value.code == "unsafe_url"
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +273,7 @@ class TestSubmitFile:
         assert job.source_fingerprint is not None
 
     def test_image_happy_path(self, db: Session, user: User, store) -> None:  # type: ignore[no-untyped-def]
-        data = b"\x89PNG fake png"
+        data = b"\x89PNG\r\n\x1a\n fake png"
         job = svc.submit_file(
             db,
             user_id=user.id,
@@ -275,6 +296,44 @@ class TestSubmitFile:
             )
         assert exc.value.status_code == 422
         assert exc.value.code == "unsupported_file_type"
+        # Message reflects the sniff result, not the client-declared media_type.
+        assert "detected: unknown" in exc.value.message
+        assert "text/plain" not in exc.value.message
+
+    def test_sniffed_type_wins_over_client_header_unsupported(
+        self, db: Session, user: User, store
+    ) -> None:  # type: ignore[no-untyped-def]
+        """Client claims image/png but the bytes are HTML — sniffing rejects it
+        regardless of the declared Content-Type."""
+        with pytest.raises(ApiError) as exc:
+            svc.submit_file(
+                db,
+                user_id=user.id,
+                data=b"<html>not a file</html>",
+                filename="fake.png",
+                media_type="image/png",
+                store=store,
+            )
+        assert exc.value.status_code == 422
+        assert exc.value.code == "unsupported_file_type"
+
+    def test_sniffed_pdf_with_png_header_stored_as_pdf(
+        self, db: Session, user: User, store
+    ) -> None:  # type: ignore[no-untyped-def]
+        """A real PDF payload mislabeled as image/png by the client must be
+        sniffed and stored as a PDF — the sniffed type is authoritative."""
+        data = b"%PDF-1.7 actually a pdf"
+        job = svc.submit_file(
+            db,
+            user_id=user.id,
+            data=data,
+            filename="sneaky.png",
+            media_type="image/png",
+            store=store,
+        )
+        assert job.input_type == InputType.pdf
+        assert job.payload["media_type"] == "application/pdf"
+        assert job.payload["file_ref"].endswith(".pdf")
 
     def test_oversize_file_422(self, db: Session, user: User, store) -> None:  # type: ignore[no-untyped-def]
         big = b"x" * (30 * 1024 * 1024 + 1)
@@ -291,7 +350,7 @@ class TestSubmitFile:
         assert exc.value.code == "file_too_large"
 
     def test_file_saved_to_store(self, db: Session, user: User, store) -> None:  # type: ignore[no-untyped-def]
-        data = b"JPEG fake data"
+        data = b"\xff\xd8\xff\xe0 JPEG fake data"
         job = svc.submit_file(
             db,
             user_id=user.id,
@@ -305,7 +364,7 @@ class TestSubmitFile:
     def test_recipe_dup_409(self, db: Session, user: User, store) -> None:  # type: ignore[no-untyped-def]
         from recipe_normalizer.ingestion.fingerprint import fingerprint_bytes
 
-        data = b"PDF content here"
+        data = b"%PDF-1.4 PDF content here"
         fp = fingerprint_bytes(data)
         make_draft_recipe(db, user.id, fingerprint=fp)
 
@@ -320,7 +379,7 @@ class TestSubmitFile:
             )
 
     def test_active_job_dup_409(self, db: Session, user: User, store) -> None:  # type: ignore[no-untyped-def]
-        data = b"unique pdf bytes"
+        data = b"%PDF-1.4 unique pdf bytes"
         svc.submit_file(
             db,
             user_id=user.id,
@@ -423,6 +482,25 @@ class TestRetryJob:
         db.flush()
         retried = svc.retry_job(db, user_id=user.id, job_id=job.id)
         assert retried.artifacts == {"raw_text_ref": "shard/abc.txt"}
+
+    def test_retry_preserves_cost_usd_so_cap_counts_prior_spend(
+        self, db: Session, user: User
+    ) -> None:
+        """attempts resets to 0 on retry, but cost_usd must survive — the per-job
+        cost cap is seeded from job.cost_usd (worker.make_llm_for_job), so a
+        retry that wiped it would let a user re-spend the cap forever."""
+        from decimal import Decimal
+
+        job = svc.submit_url(db, user_id=user.id, url="https://example.com/retry5")
+        job.status = JobStatus.failed
+        job.attempts = 3
+        job.cost_usd = Decimal("1.50")
+        db.flush()
+
+        retried = svc.retry_job(db, user_id=user.id, job_id=job.id)
+
+        assert retried.attempts == 0
+        assert retried.cost_usd == Decimal("1.50")
 
 
 # ---------------------------------------------------------------------------
@@ -619,7 +697,7 @@ class TestJobOutSchema:
         job = svc.submit_file(
             db,
             user_id=user.id,
-            data=b"pdf",
+            data=b"%PDF-1.4",
             filename="recipe.pdf",
             media_type="application/pdf",
             store=store,
@@ -631,7 +709,7 @@ class TestJobOutSchema:
         job = svc.submit_file(
             db,
             user_id=user.id,
-            data=b"img",
+            data=b"\x89PNG\r\n\x1a\n img",
             filename="photo.png",
             media_type="image/png",
             store=store,

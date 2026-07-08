@@ -36,6 +36,27 @@ def engine(pg_url: str) -> Iterator[Engine]:
     eng.dispose()
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiters() -> Iterator[None]:
+    """Rate limiters are process-global — reset between every test.
+
+    Without this, unrelated tests that hammer /api/auth/* or /api/ingest/*
+    endpoints from the same TestClient "IP"/user would trip each other's
+    limits and flake, since the limiter instances live for the whole test
+    session (created once at router import time).
+    """
+    from recipe_normalizer.ingestion.router import _ingest_limit
+    from recipe_normalizer.users.router import _login_limit, _register_limit
+
+    _login_limit.limiter.reset()  # type: ignore[attr-defined]
+    _register_limit.limiter.reset()  # type: ignore[attr-defined]
+    _ingest_limit.limiter.reset()  # type: ignore[attr-defined]
+    yield
+    _login_limit.limiter.reset()  # type: ignore[attr-defined]
+    _register_limit.limiter.reset()  # type: ignore[attr-defined]
+    _ingest_limit.limiter.reset()  # type: ignore[attr-defined]
+
+
 @pytest.fixture()
 def db_session(engine: Engine) -> Iterator[Session]:
     connection = engine.connect()

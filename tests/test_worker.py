@@ -396,6 +396,47 @@ def test_process_job_prebuilt_result_skips_normalize(
 
 
 # ---------------------------------------------------------------------------
+# process_job — handled outcomes record the attempt DELTA, not the seeded total
+# ---------------------------------------------------------------------------
+
+
+def test_second_attempt_records_delta_not_total(
+    db_session: Session, owner: User, store: LocalFileStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A retried job's llm client is seeded with already_spent_usd=job.cost_usd,
+    so llm.spent_usd INCLUDES prior spend. The handled needs_review outcome
+    must record only this attempt's delta, not the full seeded total."""
+    job = _text_job(db_session, owner)
+    job.cost_usd = Decimal("0.42")  # recorded by a prior (failed) attempt
+    db_session.flush()
+    # Simulates make_llm_for_job seeding already_spent_usd=0.42, then this
+    # attempt spending 0.10 more: llm.spent_usd (seeded + this attempt) == 0.52.
+    _patch_llm(monkeypatch, FakeLLM(result=_flour_result(), spent=0.52))
+
+    worker.process_job(db_session, job)
+
+    assert job.status == JobStatus.needs_review
+    assert job.cost_usd == Decimal("0.52")  # 0.42 + delta(0.10), not 0.42 + 0.52 = 0.94
+
+
+def test_retry_then_success_records_true_total(
+    db_session: Session, owner: User, store: LocalFileStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same accounting bug, larger prior spend: a job that already carries
+    cost_usd from an earlier retry must end up with prior + this attempt's
+    delta, never prior + the full seeded total."""
+    job = _text_job(db_session, owner)
+    job.cost_usd = Decimal("1.50")  # preserved across a prior retry
+    db_session.flush()
+    _patch_llm(monkeypatch, FakeLLM(result=_flour_result(), spent=1.80))
+
+    worker.process_job(db_session, job)
+
+    assert job.status == JobStatus.needs_review
+    assert job.cost_usd == Decimal("1.80")  # 1.50 + delta(0.30), not 1.50 + 1.80 = 3.30
+
+
+# ---------------------------------------------------------------------------
 # make_llm_for_job / RN_LLM_STUB
 # ---------------------------------------------------------------------------
 
@@ -407,6 +448,24 @@ def test_make_llm_for_job_returns_real_client(
     job = _text_job(db_session, owner)
     llm = worker.make_llm_for_job(db_session, job)
     assert isinstance(llm, LLMClient)
+
+
+def test_make_llm_seeds_already_spent(
+    db_session: Session, owner: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cap is per-job across attempts/retries: a client seeded with prior spend
+    must already be over a cap lower than that prior spend."""
+    monkeypatch.delenv("RN_LLM_STUB", raising=False)
+    monkeypatch.setattr(settings, "job_cost_cap_usd", 1.50)
+    job = _text_job(db_session, owner)
+    job.cost_usd = Decimal("2.00")
+    db_session.flush()
+
+    llm = worker.make_llm_for_job(db_session, job)
+
+    assert llm.spent_usd == 2.0
+    with pytest.raises(CostCapExceeded):
+        llm._check_cost_cap()
 
 
 def test_make_llm_for_job_stub_env(
@@ -626,3 +685,45 @@ def test_run_worker_crash_fails_job_in_fresh_session(
         assert fresh.next_attempt_at is not None
         assert fresh.next_attempt_at > datetime.now(UTC)
         assert fresh.locked_at is None and fresh.locked_by is None
+
+
+class CrashAfterSpendLLM:
+    """Fake LLM: records spend on the extract.normalize call, then crashes."""
+
+    def __init__(self, spend: float) -> None:
+        self.spent_usd = 0.0
+        self._spend = spend
+
+    def structured(self, **kwargs: Any) -> Any:
+        self.spent_usd += self._spend
+        raise RuntimeError("kaboom after spend")
+
+
+def test_crash_attempt_cost_reaches_job_row(
+    committed_env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A worker crash mid-attempt must not lose the LLM spend that attempt made:
+    process_job wraps the propagating exception with the attempt's cost, and
+    _fail_in_fresh_session records it on the requeued job."""
+    factory, user_id = committed_env
+    with factory() as s:
+        job = Job(
+            user_id=user_id,
+            input_type=InputType.text,
+            payload={"text": "will crash after spending"},
+            source_fingerprint=f"fp-{uuid.uuid4().hex[:12]}",
+        )
+        s.add(job)
+        s.commit()
+        job_id = job.id
+
+    _patch_llm(monkeypatch, CrashAfterSpendLLM(spend=0.42))
+
+    worker.run_worker(once=True)
+
+    with factory() as s:
+        fresh = s.get(Job, job_id)
+        assert fresh is not None
+        assert fresh.status == JobStatus.queued  # retryable failure → backoff requeue
+        assert fresh.attempts == 1
+        assert fresh.cost_usd == Decimal("0.42")

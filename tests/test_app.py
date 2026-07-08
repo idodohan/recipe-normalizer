@@ -8,6 +8,8 @@ via a monkeypatched throwaway route.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -310,3 +312,132 @@ def test_scaled_target_servings_without_recipe_servings_returns_422(
     body = resp.json()
     assert body["error"]["code"] == "validation_error"
     assert "servings" in body["error"]["message"]
+
+
+# ---------------------------------------------------------------------------
+# Observability: unhandled 500s are logged, requests get an access log line
+# ---------------------------------------------------------------------------
+
+
+def test_unhandled_error_returns_500_and_logs_traceback(caplog: pytest.LogCaptureFixture) -> None:
+    """A route that raises an unhandled RuntimeError yields the 500 envelope
+
+    AND the exception (with traceback) is logged at ERROR level, so an
+    on-call engineer can find it in the logs.
+    """
+    from fastapi import FastAPI
+
+    from recipe_normalizer.errors import install_error_handlers
+
+    throwaway = FastAPI()
+    install_error_handlers(throwaway)
+
+    @throwaway.get("/boom")
+    def _boom() -> None:
+        raise RuntimeError("kaboom")
+
+    with (
+        caplog.at_level(logging.ERROR, logger="recipe_normalizer.errors"),
+        TestClient(throwaway, raise_server_exceptions=False) as tc,
+    ):
+        resp = tc.get("/boom")
+
+    assert resp.status_code == 500
+    body = resp.json()
+    assert body["error"]["code"] == "internal_error"
+
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert error_records, "expected an ERROR-level log record for the unhandled exception"
+    record = error_records[0]
+    assert record.exc_info is not None
+    assert "RuntimeError" in caplog.text
+    assert "kaboom" in caplog.text
+
+
+def test_crashing_request_still_appears_in_access_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A crashing request on the REAL app stack must still produce an access-log
+    line (with status 500), in addition to the error-log traceback record.
+
+    ServerErrorMiddleware sits outside our user middleware: it renders the 500
+    envelope and then re-raises, so `call_next` in `access_log` raises too. The
+    access log line must still be emitted -- crashing requests are exactly what
+    an access log needs to capture.
+    """
+    app = create_app()
+
+    @app.get("/boom-real")
+    def _boom_real() -> None:
+        raise RuntimeError("kaboom-real")
+
+    # A single root-level capture (rather than two nested per-logger
+    # `at_level` calls) is required: pytest's caplog backs both calls with one
+    # shared handler, so a second `at_level(..., logger=...)` call would
+    # silently overwrite the level set by the first.
+    with (
+        caplog.at_level(logging.INFO),
+        TestClient(app, raise_server_exceptions=False) as tc,
+    ):
+        resp = tc.get("/boom-real")
+
+    assert resp.status_code == 500
+    body = resp.json()
+    assert body["error"]["code"] == "internal_error"
+
+    access_records = [
+        r
+        for r in caplog.records
+        if r.name == "recipe_normalizer.access" and "/boom-real" in r.getMessage()
+    ]
+    assert access_records, "expected an access-log record for the crashing request"
+    assert "500" in access_records[0].getMessage()
+
+    error_records = [r for r in caplog.records if r.name == "recipe_normalizer.errors"]
+    assert error_records, "expected an ERROR-level log record for the unhandled exception"
+    assert error_records[0].exc_info is not None
+    assert "RuntimeError" in caplog.text
+    assert "kaboom-real" in caplog.text
+
+
+def test_access_log_middleware_logs_request(caplog: pytest.LogCaptureFixture) -> None:
+    """Every request produces an INFO access-log line with method, path, status."""
+    app = create_app()
+    with (
+        caplog.at_level(logging.INFO, logger="recipe_normalizer.access"),
+        TestClient(app, raise_server_exceptions=False) as tc,
+    ):
+        resp = tc.get("/api/health")
+
+    assert resp.status_code == 200
+    access_records = [r for r in caplog.records if r.name == "recipe_normalizer.access"]
+    assert access_records, "expected an access-log record"
+    message = access_records[0].getMessage()
+    assert "GET" in message
+    assert "/api/health" in message
+    assert "200" in message
+
+
+# ---------------------------------------------------------------------------
+# CORS configuration (Task 7)
+# ---------------------------------------------------------------------------
+
+
+def test_cors_origins_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """CORS origins should be configurable via settings.cors_origins."""
+    from recipe_normalizer.config import settings
+
+    monkeypatch.setattr(settings, "cors_origins", "https://a.example, https://b.example")
+    app = create_app()
+
+    with TestClient(app, raise_server_exceptions=False) as tc:
+        resp = tc.options(
+            "/api/health",
+            headers={
+                "Origin": "https://b.example",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+
+    assert resp.status_code == 200
+    assert resp.headers.get("access-control-allow-origin") == "https://b.example"

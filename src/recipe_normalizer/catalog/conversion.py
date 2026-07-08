@@ -54,13 +54,17 @@ def convert_to_normalized(
         grams = quantity * grams_each
         if target_mass:
             return Converted(_round2(grams), "g", is_approx=True)
-        return None if not density else Converted(_round2(grams / density), "ml", is_approx=True)
+        if not (density and density > 0):
+            return None
+        return Converted(_round2(grams / density), "ml", is_approx=True)
 
     if unit.kind is UnitKind.mass:
         grams = quantity * unit.base_factor
         if target_mass:
             return Converted(_round2(grams), "g", is_approx=unit.is_inherently_approx)
-        return None if not density else Converted(_round2(grams / density), "ml", is_approx=True)
+        if not (density and density > 0):
+            return None
+        return Converted(_round2(grams / density), "ml", is_approx=True)
 
     # volume
     ml = quantity * unit.base_factor
@@ -69,6 +73,6 @@ def convert_to_normalized(
     grams_per_unit = ingredient.gram_weights.get(unit.token)
     if grams_per_unit is not None:
         return Converted(_round2(quantity * grams_per_unit), "g", is_approx=True)
-    if density is not None:
+    if density is not None and density > 0:
         return Converted(_round2(ml * density), "g", is_approx=True)
     return None

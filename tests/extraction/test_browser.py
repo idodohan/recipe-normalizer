@@ -13,9 +13,11 @@ import base64
 import contextlib
 import json
 import os
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -181,6 +183,19 @@ def _factory_for(page: FakePage) -> Any:
 @pytest.fixture()
 def store(tmp_path: Path) -> LocalFileStore:
     return LocalFileStore(tmp_path)
+
+
+@pytest.fixture(autouse=True)
+def _public_dns() -> Iterator[None]:
+    """browse_for_recipe now netguard-checks the url before page.goto; these
+    tests exercise FakePage wiring, not real DNS, so pin every lookup to a
+    public address (reserved .test hostnames never resolve)."""
+
+    def fake(host: str, port: object, *args: object, **kwargs: object) -> object:
+        return [(2, 1, 6, "", ("93.184.216.34", 0))]
+
+    with patch("socket.getaddrinfo", fake):
+        yield
 
 
 HAPPY_SCRIPT: list[tuple[str, dict[str, Any]]] = [
@@ -432,6 +447,35 @@ def test_failure_screenshot_save_is_best_effort(store: LocalFileStore) -> None:
     exc = exc_info.value
     assert exc.screenshot_ref is None  # no screenshot, but the failure is still graceful
     assert exc.artifacts is not None and "browser_log_ref" in exc.artifacts
+
+
+# ---------------------------------------------------------------------------
+# SSRF guard
+# ---------------------------------------------------------------------------
+
+
+def test_rejects_unsafe_url_before_navigating(store: LocalFileStore) -> None:
+    """A private-address url must never reach page.goto (spec: tier-3 SSRF guard)."""
+
+    def fake(host: str, port: object, *args: object, **kwargs: object) -> object:
+        return [(2, 1, 6, "", ("127.0.0.1", 0))]
+
+    page = FakePage([RECIPE_HTML])
+    llm = ScriptedLLM(HAPPY_SCRIPT)
+
+    with (
+        patch("socket.getaddrinfo", fake),
+        pytest.raises(TierFailed, match="blocked unsafe URL") as exc_info,
+    ):
+        browse_for_recipe(
+            "http://internal.example/",
+            llm=llm,  # type: ignore[arg-type]
+            store=store,
+            page_factory=_factory_for(page),
+        )
+
+    assert exc_info.value.screenshot_ref is None
+    assert not any(call[0] == "goto" for call in page.calls)
 
 
 # ---------------------------------------------------------------------------
