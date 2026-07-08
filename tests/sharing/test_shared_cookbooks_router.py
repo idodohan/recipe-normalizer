@@ -297,3 +297,95 @@ def test_non_member_gets_404_over_http(alice_client: TestClient, bob_client: Tes
 
     resp = bob_client.get(f"/api/recipes/{recipe_id}")
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Owner-only gates: a shared-cookbook MEMBER (not the owner) must not be able
+# to mint a public link or copy-on-share a recipe they don't own, and must
+# never see the owner's personal fields on a plain GET.
+# ---------------------------------------------------------------------------
+
+
+def _share_recipe_with_bob(alice_client: TestClient) -> tuple[dict, str]:  # type: ignore[type-arg]
+    cb = _create_cookbook(alice_client)
+    alice_client.post(
+        f"/api/shared-cookbooks/{cb['id']}/members", json={"email": "bob@example.com"}
+    )
+    recipe_id = _create_recipe(alice_client)
+    alice_client.post(f"/api/shared-cookbooks/{cb['id']}/recipes", json={"recipe_id": recipe_id})
+    return cb, recipe_id
+
+
+def test_member_cannot_create_public_link_for_shared_recipe(
+    alice_client: TestClient, bob_client: TestClient
+) -> None:
+    _cb, recipe_id = _share_recipe_with_bob(alice_client)
+
+    resp = bob_client.post("/api/share/public", json={"recipe_id": recipe_id})
+    assert resp.status_code == 404
+
+    # And alice (the real owner) never sees a link she didn't create.
+    assert alice_client.get("/api/share/public").json() == []
+
+
+def test_member_cannot_share_recipe_they_dont_own(
+    alice_client: TestClient, bob_client: TestClient, db_session: Session
+) -> None:
+    _cb, recipe_id = _share_recipe_with_bob(alice_client)
+    # carol must actually exist — otherwise a 404 here would just be
+    # recipient_not_found, not the ownership gate this test targets.
+    _second_client(db_session, "carol@example.com", "Carol")
+
+    resp = bob_client.post(
+        "/api/share/recipe", json={"recipe_id": recipe_id, "to_email": "carol@example.com"}
+    )
+    assert resp.status_code == 404
+
+
+def test_member_get_recipe_scrubs_owner_personal_fields(
+    alice_client: TestClient, bob_client: TestClient, db_session: Session
+) -> None:
+    from recipe_normalizer.cookbook.models import Recipe
+
+    _cb, recipe_id = _share_recipe_with_bob(alice_client)
+
+    # Alice (the owner) sets all of her personal/owner-only fields.
+    resp = alice_client.patch(
+        f"/api/recipes/{recipe_id}/personal",
+        json={"is_favorite": True, "notes": "Family secret recipe notes"},
+    )
+    assert resp.status_code == 200
+    collection = alice_client.post("/api/collections", json={"name": "Faves"}).json()
+    resp = alice_client.put(
+        f"/api/recipes/{recipe_id}/collections", json={"collection_ids": [collection["id"]]}
+    )
+    assert resp.status_code == 200
+
+    # provenance isn't settable via a public endpoint — stamp it directly,
+    # same trick the sharing leak-audit test uses, to cover the worst case.
+    recipe_row = db_session.get(Recipe, uuid.UUID(recipe_id))
+    assert recipe_row is not None
+    recipe_row.provenance = {
+        "shared_by": "someone@example.com",
+        "shared_at": "2020-01-01T00:00:00+00:00",
+        "origin_recipe_id": str(uuid.uuid4()),
+    }
+    db_session.flush()
+
+    # Owner GET is unchanged — alice still sees all four fields.
+    owner_resp = alice_client.get(f"/api/recipes/{recipe_id}")
+    assert owner_resp.status_code == 200
+    owner_body = owner_resp.json()
+    assert owner_body["notes"] == "Family secret recipe notes"
+    assert owner_body["is_favorite"] is True
+    assert owner_body["collection_ids"] == [collection["id"]]
+    assert owner_body["provenance"] is not None
+
+    # Bob (a mere member) sees none of it.
+    resp = bob_client.get(f"/api/recipes/{recipe_id}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["notes"] is None
+    assert body["is_favorite"] is False
+    assert body["collection_ids"] == []
+    assert body["provenance"] is None

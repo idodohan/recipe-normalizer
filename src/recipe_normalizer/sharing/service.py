@@ -69,10 +69,13 @@ def share_recipe(
 ) -> ShareOut:
     """Copy-on-share: deep-copy *recipe_id* into the recipient's cookbook.
 
-    - The sharer must own *recipe_id*: this reuses
-      ``cookbook.service.get_recipe``'s owner-scoped 404, so a recipe that
-      exists but belongs to someone else is indistinguishable from one that
-      doesn't exist at all.
+    - The sharer must own *recipe_id* OUTRIGHT — checked explicitly via
+      ``cookbook_service.user_recipe_access`` requiring ``"owner"``, NOT via
+      ``cookbook.service.get_recipe`` (which was widened for shared-cookbook
+      members and would let a mere member copy-on-share a recipe they don't
+      own). A recipe that exists but isn't the sharer's own — including one
+      they can merely see as a shared-cookbook member — gets the same 404 as
+      one that doesn't exist at all.
     - The recipient is looked up by case-insensitive email; 404
       ``recipient_not_found`` if no account has that email.
     - Sharing to yourself is rejected with 422 — checked by user id (not by
@@ -83,8 +86,9 @@ def share_recipe(
 
     Flushes; caller owns commit.
     """
-    # Ownership check — raises ApiError 404 if not found / not the sharer's.
-    cookbook_service.get_recipe(db, owner_id=from_user_id, recipe_id=recipe_id)
+    # Ownership check — explicit "owner" gate, not the widened get_recipe.
+    if cookbook_service.user_recipe_access(db, from_user_id, recipe_id) != "owner":
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
 
     recipient = users_service.get_user_by_email(db, to_email)
     if recipient is None:
@@ -141,9 +145,16 @@ def _to_public_link_out(link: PublicLink, *, recipe_title: str) -> PublicLinkOut
 def create_public_link(db: Session, *, owner_id: uuid.UUID, recipe_id: uuid.UUID) -> PublicLinkOut:
     """Create a public link for *recipe_id*, owner-scoped.
 
-    - The caller must own *recipe_id*: reuses ``cookbook_service.get_recipe``'s
-      owner-scoped 404, so a recipe owned by someone else is indistinguishable
-      from one that doesn't exist.
+    - The caller must own *recipe_id* OUTRIGHT — checked explicitly via
+      ``cookbook_service.user_recipe_access`` requiring ``"owner"``, NOT via
+      ``cookbook_service.get_recipe`` (which was widened for shared-cookbook
+      members). A public link is an unauthenticated, unrevocable-by-others
+      window into a recipe; a shared-cookbook member merely having *access*
+      to view/edit the recipe must never be enough to mint one for the
+      owner's recipe — that link wouldn't even show up in the owner's own
+      ``list_public_links``/be revocable via ``revoke_public_link`` (both
+      scoped to ``created_by``). A recipe that exists but isn't the caller's
+      own gets the same 404 as one that doesn't exist at all.
     - IDEMPOTENT-ish: if this owner already has an unrevoked link for this
       recipe, that existing link is returned rather than minting a second
       token — callers can safely call this repeatedly (e.g. re-opening the
@@ -151,7 +162,9 @@ def create_public_link(db: Session, *, owner_id: uuid.UUID, recipe_id: uuid.UUID
 
     Flushes; caller owns commit.
     """
-    recipe = cookbook_service.get_recipe(db, owner_id=owner_id, recipe_id=recipe_id)
+    if cookbook_service.user_recipe_access(db, owner_id, recipe_id) != "owner":
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+    recipe = cookbook_service.get_recipe_unscoped(db, recipe_id)
 
     existing = db.scalars(
         select(PublicLink).where(

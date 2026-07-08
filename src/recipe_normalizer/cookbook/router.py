@@ -82,13 +82,34 @@ def list_recipes(
     )
 
 
+_MEMBER_SCRUBBED_FIELDS: dict[str, Any] = {
+    "notes": None,
+    "is_favorite": False,
+    "collection_ids": [],
+    "provenance": None,
+}
+
+
 @router.get("/recipes/{recipe_id}", response_model=RecipeOut)
 def get_recipe(
     recipe_id: uuid.UUID,
     db: Session = Depends(get_db),  # noqa: B008
     current_user: Any = Depends(get_current_user),  # noqa: B008
 ) -> RecipeOut:
-    return service.get_recipe(db, owner_id=current_user.id, recipe_id=recipe_id)
+    """Fetch a recipe. ``service.get_recipe`` is widened to shared-cookbook
+    members, but a member must never see the OWNER's personal
+    notes/favorites/collections or the owner-facing provenance — those are
+    scrubbed here for anyone who isn't the recipe's owner.
+
+    No extra access-check call is needed: ``service.get_recipe`` already
+    raises 404 unless the caller is the owner or a shared-cookbook member,
+    and the returned ``RecipeOut.owner_id`` tells us which of those two it
+    was — a member is exactly the case where ``owner_id != current_user.id``.
+    """
+    recipe = service.get_recipe(db, owner_id=current_user.id, recipe_id=recipe_id)
+    if recipe.owner_id != current_user.id:
+        recipe = recipe.model_copy(update=_MEMBER_SCRUBBED_FIELDS)
+    return recipe
 
 
 @router.patch("/recipes/{recipe_id}", response_model=RecipeOut)

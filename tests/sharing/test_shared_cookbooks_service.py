@@ -607,6 +607,52 @@ def test_recipe_removed_from_cookbook_loses_member_access(
     assert exc_info.value.status_code == 404
 
 
+def test_member_cannot_create_public_link_for_shared_recipe(
+    db_session: Session, alice: User, bob: User
+) -> None:
+    """A shared-cookbook member has view/edit access, but that's not ownership.
+
+    Minting a public link is owner-only — reusing the widened
+    ``get_recipe``'s 404 as the gate would let a member create an
+    unauthenticated public link to a recipe they don't own.
+    """
+    cb = sharing_service.create_shared_cookbook(db_session, creator_id=alice.id, name="Cookbook")
+    sharing_service.invite_member(db_session, user_id=alice.id, cookbook_id=cb.id, email=bob.email)
+    recipe_id = _create_recipe(db_session, alice.id)
+    sharing_service.add_recipe_to_shared_cookbook(
+        db_session, user_id=alice.id, cookbook_id=cb.id, recipe_id=recipe_id
+    )
+
+    with pytest.raises(ApiError) as exc_info:
+        sharing_service.create_public_link(db_session, owner_id=bob.id, recipe_id=recipe_id)
+    assert exc_info.value.status_code == 404
+
+    # Alice (the real owner) never sees a link she didn't create.
+    assert sharing_service.list_public_links(db_session, owner_id=alice.id) == []
+
+
+def test_member_cannot_share_recipe_they_dont_own(
+    db_session: Session, alice: User, bob: User, carol: User
+) -> None:
+    """Copy-on-share is owner-only, same root cause as create_public_link."""
+    cb = sharing_service.create_shared_cookbook(db_session, creator_id=alice.id, name="Cookbook")
+    sharing_service.invite_member(db_session, user_id=alice.id, cookbook_id=cb.id, email=bob.email)
+    recipe_id = _create_recipe(db_session, alice.id)
+    sharing_service.add_recipe_to_shared_cookbook(
+        db_session, user_id=alice.id, cookbook_id=cb.id, recipe_id=recipe_id
+    )
+
+    with pytest.raises(ApiError) as exc_info:
+        sharing_service.share_recipe(
+            db_session,
+            from_user_id=bob.id,
+            from_email=bob.email,
+            recipe_id=recipe_id,
+            to_email=carol.email,
+        )
+    assert exc_info.value.status_code == 404
+
+
 def test_recipe_in_two_cookbooks_removed_from_one_access_persists_via_other(
     db_session: Session, alice: User, bob: User
 ) -> None:
