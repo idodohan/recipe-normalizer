@@ -47,17 +47,27 @@ def create_app() -> FastAPI:
     async def access_log(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        """Log every request: method, path, status, and duration."""
+        """Log every request: method, path, status, and duration.
+
+        Logs even when the handler raises: ServerErrorMiddleware (outside this
+        middleware) renders the 500 envelope and then re-raises, so `call_next`
+        raises too. The `finally` block ensures the access log line is still
+        emitted for crashing requests.
+        """
         start = _time.perf_counter()
-        response = await call_next(request)
-        access_logger.info(
-            "%s %s -> %d (%.0f ms)",
-            request.method,
-            request.url.path,
-            response.status_code,
-            (_time.perf_counter() - start) * 1000,
-        )
-        return response
+        status = 500  # if call_next raises, the client gets a 500
+        try:
+            response = await call_next(request)
+            status = response.status_code
+            return response
+        finally:
+            access_logger.info(
+                "%s %s -> %d (%.0f ms)",
+                request.method,
+                request.url.path,
+                status,
+                (_time.perf_counter() - start) * 1000,
+            )
 
     # Install consistent error-envelope handlers
     install_error_handlers(app)

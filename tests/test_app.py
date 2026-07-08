@@ -354,6 +354,52 @@ def test_unhandled_error_returns_500_and_logs_traceback(caplog: pytest.LogCaptur
     assert "kaboom" in caplog.text
 
 
+def test_crashing_request_still_appears_in_access_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A crashing request on the REAL app stack must still produce an access-log
+    line (with status 500), in addition to the error-log traceback record.
+
+    ServerErrorMiddleware sits outside our user middleware: it renders the 500
+    envelope and then re-raises, so `call_next` in `access_log` raises too. The
+    access log line must still be emitted -- crashing requests are exactly what
+    an access log needs to capture.
+    """
+    app = create_app()
+
+    @app.get("/boom-real")
+    def _boom_real() -> None:
+        raise RuntimeError("kaboom-real")
+
+    # A single root-level capture (rather than two nested per-logger
+    # `at_level` calls) is required: pytest's caplog backs both calls with one
+    # shared handler, so a second `at_level(..., logger=...)` call would
+    # silently overwrite the level set by the first.
+    with (
+        caplog.at_level(logging.INFO),
+        TestClient(app, raise_server_exceptions=False) as tc,
+    ):
+        resp = tc.get("/boom-real")
+
+    assert resp.status_code == 500
+    body = resp.json()
+    assert body["error"]["code"] == "internal_error"
+
+    access_records = [
+        r
+        for r in caplog.records
+        if r.name == "recipe_normalizer.access" and "/boom-real" in r.getMessage()
+    ]
+    assert access_records, "expected an access-log record for the crashing request"
+    assert "500" in access_records[0].getMessage()
+
+    error_records = [r for r in caplog.records if r.name == "recipe_normalizer.errors"]
+    assert error_records, "expected an ERROR-level log record for the unhandled exception"
+    assert error_records[0].exc_info is not None
+    assert "RuntimeError" in caplog.text
+    assert "kaboom-real" in caplog.text
+
+
 def test_access_log_middleware_logs_request(caplog: pytest.LogCaptureFixture) -> None:
     """Every request produces an INFO access-log line with method, path, status."""
     app = create_app()
