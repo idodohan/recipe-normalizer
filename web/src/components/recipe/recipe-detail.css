@@ -105,6 +105,62 @@
   font-size: var(--text-small);
 }
 
+/* -- Photo banner: full-bleed, aspect-ratio reserved to avoid CLS ------ */
+
+.rd__image {
+  position: relative;
+  aspect-ratio: 21 / 9;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-raised);
+  margin-bottom: var(--space-6);
+}
+
+.rd__image-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.rd__image-scrim {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 45%;
+  background: linear-gradient(to top, rgba(28, 25, 23, 0.5), transparent);
+  pointer-events: none;
+}
+
+.rd__image-controls {
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-3);
+  display: flex;
+  gap: var(--space-2);
+}
+
+.rd__image-controls .btn--secondary {
+  background-color: var(--color-paper);
+}
+
+.rd__image-remove:hover:not(:disabled) {
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+
+.rd__image-empty {
+  margin-bottom: var(--space-6);
+}
+
+.rd__image-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 /* -- Header: kicker, headline, dek, meta strip ------------------------- */
 
 .rd__header {

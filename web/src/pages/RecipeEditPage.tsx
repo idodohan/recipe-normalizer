@@ -8,6 +8,7 @@ import { ErrorState } from "../components/ErrorState";
 import { PageHeader } from "../components/PageHeader";
 import { Skeleton } from "../components/Skeleton";
 import { RecipeFormFields } from "../components/recipe/RecipeForm";
+import { RecipeImageBanner } from "../components/recipe/RecipeImageBanner";
 import { buildRecipeIn } from "../components/recipe/draft";
 import { recipeToFormState, useRecipeForm } from "../components/recipe/recipeFormState";
 import { useVocab } from "../hooks/useVocab";
@@ -116,6 +117,8 @@ function RecipeEditForm({ recipe }: { recipe: RecipeOut }) {
             <p className="editor-banner__message">{banner}</p>
           </div>
         ) : null}
+
+        <RecipeImageBanner recipeId={recipe.id} imageUrl={recipe.image_ref ?? null} />
 
         <RecipeFormFields form={form} vocab={vocab.data} />
 

@@ -16,6 +16,7 @@ import { FavoriteButton } from "../components/recipe/FavoriteButton";
 import { IngredientList } from "../components/recipe/IngredientList";
 import type { DisplayGroup } from "../components/recipe/IngredientList";
 import { NotesSection } from "../components/recipe/NotesSection";
+import { RecipeImageBanner } from "../components/recipe/RecipeImageBanner";
 import { ScaleControl } from "../components/recipe/ScaleControl";
 import type { ScaleRequest } from "../components/recipe/ScaleControl";
 import { StepList } from "../components/recipe/StepList";
@@ -228,6 +229,8 @@ export function RecipeDetailPage() {
           {apiErrorMessage(remove.error, "Could not delete this recipe. Please try again.")}
         </p>
       ) : null}
+
+      <RecipeImageBanner recipeId={id!} imageUrl={data.image_ref ?? null} />
 
       <header className="rd__header">
         <div className="rd__heading-row">
