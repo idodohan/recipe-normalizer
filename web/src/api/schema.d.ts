@@ -465,6 +465,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/share/recipe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Share Recipe */
+        post: operations["share_recipe_api_share_recipe_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/vocab": {
         parameters: {
             query?: never;
@@ -1124,6 +1141,42 @@ export interface components {
              * @default []
              */
             collection_ids: string[];
+        };
+        /** ShareOut */
+        ShareOut: {
+            /**
+             * Copied Recipe Id
+             * Format: uuid
+             */
+            copied_recipe_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** To Email */
+            to_email: string;
+        };
+        /**
+         * ShareRecipeIn
+         * @description Body for POST /api/share/recipe.
+         */
+        ShareRecipeIn: {
+            /**
+             * Recipe Id
+             * Format: uuid
+             */
+            recipe_id: string;
+            /**
+             * To Email
+             * Format: email
+             */
+            to_email: string;
         };
         /**
          * SourceType
@@ -2218,6 +2271,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScaledRecipeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    share_recipe_api_share_recipe_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareRecipeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareOut"];
                 };
             };
             /** @description Validation Error */

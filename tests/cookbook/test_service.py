@@ -6,12 +6,13 @@ import uuid
 from typing import Any
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from recipe_normalizer.catalog import service as catalog_service
 from recipe_normalizer.catalog.seed_loader import load_seed
 from recipe_normalizer.cookbook import service as cookbook_service
-from recipe_normalizer.cookbook.models import IngredientLine, Recipe, SourceType
+from recipe_normalizer.cookbook.models import IngredientLine, Recipe, SourceType, Step
 from recipe_normalizer.cookbook.schemas import (
     IngredientGroupIn,
     IngredientLineIn,
@@ -1310,3 +1311,213 @@ def test_list_recipes_filter_by_foreign_collection_matches_nothing(
         seeded, owner_id=owner.id, collection=foreign_collection.id
     )
     assert page.items == []
+
+
+# ---------------------------------------------------------------------------
+# copy_recipe — deep-copy fidelity (the copy-on-share primitive)
+# ---------------------------------------------------------------------------
+
+
+def _rich_recipe_in() -> RecipeIn:
+    return RecipeIn(
+        title="Copyable Cake",
+        description="A cake worth sharing.",
+        language="en",
+        servings=None,
+        prep_min=10,
+        cook_min=20,
+        total_min=30,
+        cuisines=["Italian"],
+        dish_types=["main"],
+        tags=["quick"],
+        groups=[
+            IngredientGroupIn(
+                name="Dry",
+                lines=[
+                    IngredientLineIn(
+                        original_text="1 cup flour",
+                        quantity=1,
+                        unit="cup",
+                        name="all-purpose flour",
+                    ),
+                    IngredientLineIn(original_text="a pinch of salt", note="to taste"),
+                ],
+            ),
+            IngredientGroupIn(
+                name="Wet",
+                lines=[IngredientLineIn(original_text="2 eggs", is_optional=True)],
+            ),
+        ],
+        steps=[StepIn(original_text="Mix dry."), StepIn(original_text="Add wet.")],
+    )
+
+
+def test_copy_recipe_deep_copies_groups_lines_and_remaps_step_refs(
+    seeded: Session, owner: User
+) -> None:
+    recipient = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    created = cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_rich_recipe_in(),
+        source="https://example.com/cake",
+        source_type=SourceType.web,
+    )
+    cookbook_service.verify_recipe(seeded, owner.id, created.id)
+
+    # Set an image_ref directly at the ORM layer (bypasses the FileStore-backed
+    # upload endpoint, which is irrelevant here) to prove the copy shares the
+    # ref BY VALUE without re-deriving or clearing it.
+    recipe_row = seeded.get(Recipe, created.id)
+    assert recipe_row is not None
+    recipe_row.image_ref = "deadbeef1234/deadbeef1234.jpg"
+    seeded.flush()
+
+    flour_line_id = created.groups[0].lines[0].id
+
+    # ingredient_line_refs isn't settable via RecipeIn yet (see cookbook/models.py's
+    # Step docstring) — set it directly at the ORM layer to exercise the remap.
+    step_row = seeded.scalars(
+        select(Step).where(Step.recipe_id == created.id, Step.order_index == 0)
+    ).first()
+    assert step_row is not None
+    step_row.ingredient_line_refs = [str(flour_line_id)]
+    seeded.flush()
+
+    copied = cookbook_service.copy_recipe(
+        seeded,
+        created.id,
+        new_owner_id=recipient.id,
+        provenance={
+            "shared_by": owner.email,
+            "shared_at": "2026-07-08T00:00:00+00:00",
+            "origin_recipe_id": str(created.id),
+        },
+    )
+    seeded.flush()
+
+    assert copied.id != created.id
+    assert copied.owner_id == recipient.id
+
+    out = cookbook_service.get_recipe(seeded, owner_id=recipient.id, recipe_id=copied.id)
+
+    # Verbatim scalar fields
+    assert out.title == "Copyable Cake"
+    assert out.description == "A cake worth sharing."
+    assert out.language == "en"
+    assert out.source == "https://example.com/cake"
+    assert out.source_type == "web"
+    assert out.prep_min == 10
+    assert out.cook_min == 20
+    assert out.total_min == 30
+    assert out.is_verified is True  # preserved
+    # Shared BY REFERENCE — same store key, no file duplication.
+    assert out.image_ref == "/api/files/deadbeef1234/deadbeef1234.jpg"
+
+    # Vocab links
+    assert out.cuisines == ["Italian"]
+    assert out.dish_types == ["main"]
+    assert out.tags == ["quick"]
+
+    # Groups / lines: same shape, new ids, all fields carried over
+    assert len(out.groups) == 2
+    assert [g.name for g in out.groups] == ["Dry", "Wet"]
+    dry_lines = out.groups[0].lines
+    assert len(dry_lines) == 2
+
+    copied_flour_line = dry_lines[0]
+    original_flour_line = created.groups[0].lines[0]
+    assert copied_flour_line.id != original_flour_line.id  # new row, not shared
+    assert copied_flour_line.original_text == original_flour_line.original_text
+    assert copied_flour_line.canonical_ingredient_id == original_flour_line.canonical_ingredient_id
+    assert copied_flour_line.normalized_amount == original_flour_line.normalized_amount
+    assert copied_flour_line.normalized_unit == original_flour_line.normalized_unit
+    assert copied_flour_line.is_approx == original_flour_line.is_approx
+
+    salt_line = dry_lines[1]
+    assert salt_line.original_text == "a pinch of salt"
+    assert salt_line.note == "to taste"
+
+    wet_line = out.groups[1].lines[0]
+    assert wet_line.original_text == "2 eggs"
+    assert wet_line.is_optional is True
+
+    # Steps: text carried over, refs remapped to the NEW line ids (not left
+    # dangling pointed at the original recipe's lines).
+    assert len(out.steps) == 2
+    assert out.steps[0].original_text == "Mix dry."
+    assert out.steps[0].ingredient_line_refs == [str(copied_flour_line.id)]
+    assert out.steps[0].ingredient_line_refs != [str(flour_line_id)]
+    assert out.steps[1].ingredient_line_refs == []
+
+
+def test_copy_recipe_not_copied_fields(seeded: Session, owner: User) -> None:
+    recipient = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    created = cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(),
+        source_fingerprint="fp-123",
+        extraction_meta={"tier_used": 1, "confidence": 0.9},
+    )
+    collection = cookbook_service.create_collection(seeded, owner_id=owner.id, name="Mine")
+    cookbook_service.set_recipe_collections(
+        seeded, owner_id=owner.id, recipe_id=created.id, collection_ids=[collection.id]
+    )
+    cookbook_service.set_personal(
+        seeded, owner_id=owner.id, recipe_id=created.id, is_favorite=True, notes="delicious"
+    )
+
+    copied = cookbook_service.copy_recipe(
+        seeded,
+        created.id,
+        new_owner_id=recipient.id,
+        provenance={"shared_by": owner.email, "shared_at": "now", "origin_recipe_id": "x"},
+    )
+    seeded.flush()
+
+    out = cookbook_service.get_recipe(seeded, owner_id=recipient.id, recipe_id=copied.id)
+    assert out.is_favorite is False
+    assert out.notes is None
+    assert out.collection_ids == []
+    assert out.extraction_meta is None
+    assert out.derived_from is None
+    assert out.last_edited_by is None
+    assert out.last_edited_at is None
+
+    copied_row = seeded.get(Recipe, copied.id)
+    assert copied_row is not None
+    assert copied_row.source_fingerprint is None
+
+    # The original is completely untouched by the copy.
+    original = cookbook_service.get_recipe(seeded, owner_id=owner.id, recipe_id=created.id)
+    assert original.is_favorite is True
+    assert original.notes == "delicious"
+    assert original.collection_ids == [collection.id]
+
+
+def test_copy_recipe_missing_recipe_raises_404(seeded: Session, owner: User) -> None:
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.copy_recipe(
+            seeded,
+            uuid.uuid4(),
+            new_owner_id=owner.id,
+            provenance={"shared_by": "x", "shared_at": "now", "origin_recipe_id": "x"},
+        )
+    assert exc_info.value.status_code == 404
+
+
+def test_copy_recipe_provenance_stored_verbatim(seeded: Session, owner: User) -> None:
+    recipient = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_simple_recipe_in())
+    provenance = {
+        "shared_by": owner.email,
+        "shared_at": "2026-07-08T12:00:00+00:00",
+        "origin_recipe_id": str(created.id),
+    }
+    copied = cookbook_service.copy_recipe(
+        seeded, created.id, new_owner_id=recipient.id, provenance=provenance
+    )
+    seeded.flush()
+    out = cookbook_service.get_recipe(seeded, owner_id=recipient.id, recipe_id=copied.id)
+    assert out.provenance == provenance

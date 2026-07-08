@@ -1587,6 +1587,59 @@
         "title": "SetRecipeCollectionsIn",
         "type": "object"
       },
+      "ShareOut": {
+        "properties": {
+          "copied_recipe_id": {
+            "format": "uuid",
+            "title": "Copied Recipe Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "to_email": {
+            "title": "To Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "copied_recipe_id",
+          "to_email",
+          "created_at"
+        ],
+        "title": "ShareOut",
+        "type": "object"
+      },
+      "ShareRecipeIn": {
+        "description": "Body for POST /api/share/recipe.",
+        "properties": {
+          "recipe_id": {
+            "format": "uuid",
+            "title": "Recipe Id",
+            "type": "string"
+          },
+          "to_email": {
+            "format": "email",
+            "maxLength": 320,
+            "title": "To Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "recipe_id",
+          "to_email"
+        ],
+        "title": "ShareRecipeIn",
+        "type": "object"
+      },
       "SourceType": {
         "enum": [
           "web",
@@ -3355,6 +3408,47 @@
         "summary": "Scale Recipe Endpoint",
         "tags": [
           "recipes"
+        ]
+      }
+    },
+    "/api/share/recipe": {
+      "post": {
+        "operationId": "share_recipe_api_share_recipe_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareRecipeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Share Recipe",
+        "tags": [
+          "sharing"
         ]
       }
     },

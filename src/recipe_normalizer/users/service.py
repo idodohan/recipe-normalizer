@@ -18,6 +18,7 @@ from recipe_normalizer.users.models import User
 __all__ = [
     "AuthError",
     "User",
+    "get_user_by_email",
     "get_user_by_token",
     "login",
     "logout",
@@ -96,6 +97,16 @@ def purge_expired_sessions(db: Session) -> int:
     )
     db.flush()
     return int(result.rowcount or 0)
+
+
+def get_user_by_email(db: Session, email: str) -> User | None:
+    """Return the user with the given email (case-insensitive), or None.
+
+    Used by the sharing module to resolve a recipient without it ever
+    importing `users.models` directly.
+    """
+    normalized = email.strip().lower()
+    return db.scalars(select(User).where(User.email == normalized)).first()
 
 
 def get_user_by_token(db: Session, token: str) -> User | None:

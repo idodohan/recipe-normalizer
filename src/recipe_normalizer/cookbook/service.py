@@ -51,6 +51,7 @@ __all__ = [
     "SourceType",
     "are_verified",
     "clear_recipe_image",
+    "copy_recipe",
     "create_collection",
     "create_recipe",
     "delete_collection",
@@ -400,6 +401,138 @@ def get_recipe(
     if loaded is None or loaded.owner_id != owner_id:
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
     return RecipeOut.model_validate(loaded)
+
+
+def copy_recipe(
+    db: Session,
+    recipe_id: uuid.UUID,
+    *,
+    new_owner_id: uuid.UUID,
+    provenance: dict[str, Any],
+) -> Recipe:
+    """Deep-copy a recipe into a new owner's cookbook (the copy-on-share primitive).
+
+    No ownership check here — this is service-internal; the caller (the
+    sharing service) is responsible for verifying the SHARER owns
+    *recipe_id* before calling this. Raises ApiError 404 if *recipe_id*
+    doesn't exist at all.
+
+    Copied verbatim: title/description/servings/prep_min/cook_min/total_min/
+    language/source/source_type, image_ref (shared BY REFERENCE — the
+    content-addressed file itself is not duplicated, both recipes just point
+    at the same store key), ingredient groups + lines (every column,
+    including canonical_ingredient_id and the already-computed
+    normalized_amount/normalized_unit — re-running catalog matching would be
+    wasteful and could drift from what the sharer actually saw), steps (with
+    ingredient_line_refs remapped, see below), cuisines/dish_types/tags (the
+    same vocab rows are simply re-linked — vocab is a shared, deduped table,
+    not owned per-recipe), and is_verified (the copy inherits the sharer's
+    verification state).
+
+    Deliberately NOT copied — the copy is an independent snapshot, not a
+    live-linked twin:
+      - favorites/notes: left at their model defaults (False/None) —
+        personal metadata belongs to whoever owns the row, not the original.
+      - collections: left empty — collections are the new owner's own
+        organizational scheme, unrelated to the sharer's.
+      - source_fingerprint: forced to None, so the recipient can still
+        independently import the same original source (e.g. re-scrape the
+        same URL) later without tripping the (owner_id, source_fingerprint)
+        uniqueness constraint against a fingerprint that was really the
+        SHARER's, not theirs.
+      - extraction_meta: dropped — it references the sharer's ingestion job
+        (tier used, LLM cost, etc.), which is meaningless to the recipient.
+      - derived_from / last_edited_by / last_edited_at: left at defaults —
+        the copy hasn't been edited by anyone yet.
+
+    ``provenance`` is stored as-is on the new row; the sharing service builds
+    it as ``{"shared_by": ..., "shared_at": ..., "origin_recipe_id": ...}``.
+
+    Ingredient-line-ref remapping: ``Step.ingredient_line_refs`` is a loose
+    (non-FK) JSONB list of ``IngredientLine.id`` strings (see
+    cookbook/models.py's Step docstring). Every ingredient line gets a brand
+    new id in the copy, so a ref that pointed at an original line would
+    dangle (or, worse, coincidentally collide with an unrelated line) if
+    left as-is. While copying lines we build an old-line-id -> new-line-id
+    string map, then rewrite each step's refs through it; any ref that
+    doesn't resolve (refs are only ever meant to be line ids from the same
+    recipe, so this shouldn't happen, but a stale/malformed ref is possible)
+    is dropped rather than left pointing at a line in someone else's
+    cookbook.
+
+    Flushes; caller owns commit.
+    """
+    source = _load_recipe_full(db, recipe_id)
+    if source is None:
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+
+    new_recipe = Recipe(
+        owner_id=new_owner_id,
+        title=source.title,
+        description=source.description,
+        image_ref=source.image_ref,
+        source=source.source,
+        source_type=source.source_type,
+        language=source.language,
+        servings_amount=source.servings_amount,
+        servings_unit_text=source.servings_unit_text,
+        prep_min=source.prep_min,
+        cook_min=source.cook_min,
+        total_min=source.total_min,
+        is_verified=source.is_verified,
+        provenance=provenance,
+        source_fingerprint=None,
+        extraction_meta=None,
+    )
+    db.add(new_recipe)
+    db.flush()  # get new_recipe.id
+
+    line_id_map: dict[str, str] = {}
+    for group in source.ingredient_groups:
+        new_group = IngredientGroup(
+            recipe_id=new_recipe.id,
+            name=group.name,
+            order_index=group.order_index,
+        )
+        db.add(new_group)
+        db.flush()  # get new_group.id
+
+        for line in group.ingredient_lines:
+            new_line = IngredientLine(
+                group_id=new_group.id,
+                order_index=line.order_index,
+                original_text=line.original_text,
+                quantity=line.quantity,
+                unit=line.unit,
+                canonical_ingredient_id=line.canonical_ingredient_id,
+                normalized_amount=line.normalized_amount,
+                normalized_unit=line.normalized_unit,
+                is_approx=line.is_approx,
+                note=line.note,
+                is_optional=line.is_optional,
+            )
+            db.add(new_line)
+            db.flush()  # get new_line.id for the ref map
+            line_id_map[str(line.id)] = str(new_line.id)
+
+    for step in source.steps:
+        remapped_refs = [
+            line_id_map[ref] for ref in step.ingredient_line_refs if ref in line_id_map
+        ]
+        new_step = Step(
+            recipe_id=new_recipe.id,
+            order_index=step.order_index,
+            original_text=step.original_text,
+            ingredient_line_refs=remapped_refs,
+        )
+        db.add(new_step)
+
+    new_recipe.cuisines = list(source.cuisines)
+    new_recipe.dish_types = list(source.dish_types)
+    new_recipe.tags = list(source.tags)
+
+    db.flush()
+    return new_recipe
 
 
 # Trigram similarity threshold for ingredient-line matching only. Title search

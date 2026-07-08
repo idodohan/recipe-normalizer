@@ -10,6 +10,7 @@ forbidden_modules =
     recipe_normalizer.catalog.models
     recipe_normalizer.cookbook.models
     recipe_normalizer.ingestion.models
+    recipe_normalizer.sharing.models
 
 [importlinter:contract:catalog-cannot-import-sibling-models]
 name = catalog module must not import sibling models
@@ -20,6 +21,7 @@ forbidden_modules =
     recipe_normalizer.users.models
     recipe_normalizer.cookbook.models
     recipe_normalizer.ingestion.models
+    recipe_normalizer.sharing.models
 ignore_imports =
     recipe_normalizer.catalog.router -> recipe_normalizer.api_deps
 
@@ -32,9 +34,33 @@ forbidden_modules =
     recipe_normalizer.users.models
     recipe_normalizer.catalog.models
     recipe_normalizer.ingestion.models
+    recipe_normalizer.sharing.models
 ignore_imports =
     recipe_normalizer.catalog.service -> recipe_normalizer.catalog.models
     recipe_normalizer.cookbook.router -> recipe_normalizer.api_deps
+
+[importlinter:contract:cookbook-cannot-import-sharing]
+name = cookbook module must not import sharing (sharing depends on cookbook, never the reverse)
+type = forbidden
+source_modules =
+    recipe_normalizer.cookbook
+forbidden_modules =
+    recipe_normalizer.sharing
+
+[importlinter:contract:sharing-cannot-import-sibling-models]
+name = sharing module must not import sibling models (only cookbook.service/schemas and users.service)
+type = forbidden
+source_modules =
+    recipe_normalizer.sharing
+forbidden_modules =
+    recipe_normalizer.users.models
+    recipe_normalizer.catalog.models
+    recipe_normalizer.cookbook.models
+    recipe_normalizer.ingestion.models
+ignore_imports =
+    recipe_normalizer.sharing.router -> recipe_normalizer.api_deps
+    recipe_normalizer.sharing.service -> recipe_normalizer.users.service
+    recipe_normalizer.sharing.service -> recipe_normalizer.cookbook.service
 
 [importlinter:contract:extraction-boundaries]
 name = extraction must not import sibling models nor ingestion (stateless; spec section 4)
@@ -46,6 +72,7 @@ forbidden_modules =
     recipe_normalizer.catalog.models
     recipe_normalizer.cookbook.models
     recipe_normalizer.ingestion
+    recipe_normalizer.sharing.models
 ignore_imports =
     recipe_normalizer.cookbook.service -> recipe_normalizer.cookbook.models
     recipe_normalizer.catalog.service -> recipe_normalizer.catalog.models
@@ -59,6 +86,7 @@ forbidden_modules =
     recipe_normalizer.users.models
     recipe_normalizer.catalog.models
     recipe_normalizer.cookbook.models
+    recipe_normalizer.sharing.models
 ignore_imports =
     recipe_normalizer.ingestion.router -> recipe_normalizer.api_deps
     recipe_normalizer.cookbook.service -> recipe_normalizer.cookbook.models
