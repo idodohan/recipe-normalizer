@@ -6,10 +6,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#FAF7F2" />
     <title>Recipe Normalizer</title>
+    <script>
+      var t = localStorage.getItem("rn-theme");
+      if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+    </script>
     <style>
       /* Pre-hydration backdrop so the paper tone shows before CSS loads. */
       html {
         background-color: #faf7f2;
+      }
+      html[data-theme="dark"] {
+        background-color: #181410;
+      }
+      @media (prefers-color-scheme: dark) {
+        html:not([data-theme="light"]) {
+          background-color: #181410;
+        }
       }
     </style>
   </head>

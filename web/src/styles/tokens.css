@@ -79,3 +79,89 @@
   --content-max: 1100px;
   --control-height: 2.5rem; /* 40px — buttons & inputs share this */
 }
+
+/* ------------------------------------------------------------------ */
+/*  Dark theme — warm editorial dark. Desaturated tonal variants of     */
+/*  the same paper/ink/terracotta palette, NEVER a naive inversion.     */
+/*                                                                       */
+/*  Applied via two selectors: an explicit user choice (data-theme=     */
+/*  "dark", stamped by useTheme) and a system-preference fallback (used */
+/*  when no explicit choice has been made, i.e. data-theme is absent —  */
+/*  data-theme="light" opts back out). Both blocks must stay IDENTICAL. */
+/*  >>> KEEP THE TWO BLOCKS BELOW IN SYNC <<<                           */
+/*                                                                       */
+/*  Contrast ratios (WCAG 2.1 relative luminance, computed via a        */
+/*  python one-liner — see .superpowers/sdd/p1-task-9-report.md):       */
+/*    ink (#ece5da)        / paper (#181410) = 14.64:1  (need 4.5:1)   */
+/*    text-muted (#b3a89a) / paper           =  7.84:1  (need 4.5:1)   */
+/*    text-faint (#8c8174) / paper           =  4.80:1  (need 3:1;      */
+/*      used only for de-emphasized meta/micro text — verified below)  */
+/*    accent (#e0764a)     / paper           =  5.98:1  (need 4.5:1)   */
+/*    accent-deep (#e98d5f)/ paper           =  7.36:1                 */
+/*    error (#e57368)      / paper           =  6.09:1  (need 4.5:1)   */
+/*    ink / surface-raised (#201b16)         = 13.65:1                 */
+/*    accent / surface-raised                =  5.58:1                 */
+/*  All pass. --focus-ring is not redefined below: it references       */
+/*  var(--color-paper)/var(--color-accent), which resolve dynamically   */
+/*  to the dark-theme values already, so it adapts for free.           */
+/* ------------------------------------------------------------------ */
+
+:root[data-theme="dark"] {
+  --color-paper: #181410;
+  --color-ink: #ece5da;
+  --color-accent: #e0764a;
+  --color-accent-deep: #e98d5f;
+  --color-accent-wash: #31221a;
+
+  --color-neutral-900: #ece5da;
+  --color-neutral-800: #d6cbba;
+  --color-neutral-700: #c2b6a3;
+  --color-neutral-600: #b3a89a;
+  --color-neutral-500: #8c8174;
+  --color-neutral-400: #4d4436;
+  --color-neutral-300: #3a332b;
+  --color-neutral-200: #2a231c;
+  --color-neutral-100: #201b16;
+  --color-neutral-050: #181410;
+
+  --color-text: var(--color-ink);
+  --color-text-muted: var(--color-neutral-600);
+  --color-text-faint: var(--color-neutral-500);
+  --color-surface: var(--color-paper);
+  --color-surface-raised: #201b16;
+  --color-hairline: var(--color-neutral-300);
+  --color-hairline-strong: var(--color-neutral-400);
+  --color-error: #e57368;
+  --color-error-wash: #2e1b18;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-paper: #181410;
+    --color-ink: #ece5da;
+    --color-accent: #e0764a;
+    --color-accent-deep: #e98d5f;
+    --color-accent-wash: #31221a;
+
+    --color-neutral-900: #ece5da;
+    --color-neutral-800: #d6cbba;
+    --color-neutral-700: #c2b6a3;
+    --color-neutral-600: #b3a89a;
+    --color-neutral-500: #8c8174;
+    --color-neutral-400: #4d4436;
+    --color-neutral-300: #3a332b;
+    --color-neutral-200: #2a231c;
+    --color-neutral-100: #201b16;
+    --color-neutral-050: #181410;
+
+    --color-text: var(--color-ink);
+    --color-text-muted: var(--color-neutral-600);
+    --color-text-faint: var(--color-neutral-500);
+    --color-surface: var(--color-paper);
+    --color-surface-raised: #201b16;
+    --color-hairline: var(--color-neutral-300);
+    --color-hairline-strong: var(--color-neutral-400);
+    --color-error: #e57368;
+    --color-error-wash: #2e1b18;
+  }
+}

@@ -110,6 +110,26 @@
   margin-right: calc(-1 * var(--space-3));
 }
 
+.shell__theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem; /* 44px hit area */
+  height: 2.75rem;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+
+.shell__theme-toggle:hover {
+  color: var(--color-ink);
+  background-color: var(--color-neutral-100);
+}
+
 .shell__user-name {
   font-size: var(--text-small);
   color: var(--color-text-muted);
