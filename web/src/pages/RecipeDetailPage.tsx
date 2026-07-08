@@ -12,6 +12,7 @@ import { Button } from "../components/Button";
 import { ErrorState } from "../components/ErrorState";
 import { Skeleton } from "../components/Skeleton";
 import { toast } from "../hooks/useToast";
+import { CollectionsControl } from "../components/recipe/CollectionsControl";
 import { FavoriteButton } from "../components/recipe/FavoriteButton";
 import { IngredientList } from "../components/recipe/IngredientList";
 import type { DisplayGroup } from "../components/recipe/IngredientList";
@@ -214,6 +215,7 @@ export function RecipeDetailPage() {
           ← Cookbook
         </Link>
         <div className="rd__toolbar-actions">
+          <CollectionsControl recipeId={id!} collectionIds={data.collection_ids} />
           <Button variant="secondary" onClick={() => navigate(`/recipes/${id}/edit`)}>
             Edit
           </Button>

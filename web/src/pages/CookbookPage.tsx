@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { apiErrorMessage } from "../api/errors";
@@ -43,6 +43,15 @@ export function CookbookPage() {
   const { get, patch } = useSearchParamsState();
   const vocab = useVocab();
 
+  const collections = useQuery({
+    queryKey: ["collections"],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/api/collections");
+      if (error) throw error;
+      return data;
+    },
+  });
+
   const urlQuery = get("q") ?? "";
   const [queryInput, setQueryInput] = useState(urlQuery);
   const debouncedQuery = useDebouncedValue(queryInput, 300);
@@ -52,6 +61,7 @@ export function CookbookPage() {
   const tag = get("tag") ?? "";
   const dietary = parseDietary(get("dietary"));
   const favorites = get("favorites") === "true";
+  const collection = get("collection") ?? "";
 
   // Debounce still settling — don't commit the in-flight keystroke to the
   // URL (or the query key) until it settles, same pattern as the catalog.
@@ -64,6 +74,7 @@ export function CookbookPage() {
     tag: tag || undefined,
     dietary,
     favorites: favorites || undefined,
+    collection: collection || undefined,
   };
 
   const hasActiveFilters = Object.values(filters).some((value) => value !== undefined);
@@ -109,7 +120,15 @@ export function CookbookPage() {
 
   function clearAll() {
     setQueryInput("");
-    patch({ q: undefined, cuisine: undefined, dish_type: undefined, tag: undefined, dietary: undefined, favorites: undefined });
+    patch({
+      q: undefined,
+      cuisine: undefined,
+      dish_type: undefined,
+      tag: undefined,
+      dietary: undefined,
+      favorites: undefined,
+      collection: undefined,
+    });
   }
 
   // Commit the debounced search text to the URL once typing settles, so the
@@ -229,6 +248,20 @@ export function CookbookPage() {
           {(vocab.data?.tags ?? []).map((option) => (
             <option key={option} value={option}>
               {option}
+            </option>
+          ))}
+        </select>
+
+        <select
+          className="input cookbook-filters__select"
+          aria-label="Collection"
+          value={collection}
+          onChange={(event) => setFilter("collection", event.target.value)}
+        >
+          <option value="">Any collection</option>
+          {(collections.data ?? []).map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.name} ({option.recipe_count})
             </option>
           ))}
         </select>
