@@ -9,7 +9,6 @@ models nor the rest of extraction.
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -28,9 +27,6 @@ from recipe_normalizer.ingestion.fingerprint import (
 from recipe_normalizer.ingestion.models import InputType, Job, JobStatus
 from recipe_normalizer.ingestion.sniff import detect_media_type
 from recipe_normalizer.netguard import UnsafeUrlError, assert_public_url
-
-if TYPE_CHECKING:
-    pass
 
 __all__ = [
     "accept_all_high_confidence",
@@ -124,8 +120,7 @@ def _maybe_complete(db: Session, job: Job) -> None:
     verification_map = cookbook_service.are_verified(db, job.user_id, ids_as_uuids)
     # All remaining (still-existing) recipes must be verified.
     # Deleted recipes (not in map) are treated as removed → skip.
-    remaining_in_db = {k: v for k, v in verification_map.items()}
-    if all(remaining_in_db.values()):
+    if all(verification_map.values()):
         job.status = JobStatus.done
         db.flush()
 

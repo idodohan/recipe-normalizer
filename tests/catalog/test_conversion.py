@@ -116,9 +116,26 @@ def test_real_canonical_ingredient_satisfies_protocol():
 
 
 def test_zero_density_yields_none_not_division_error():
+    # Explicit density=0.0 is invalid data and must be treated as missing (no division by zero).
+    # Mass to volume conversion with 0.0 density
     assert convert_to_normalized(100, "g", ing("volume", density=0.0)) is None
+    # Count to volume with 0.0 density (even with gram_weights)
     egg = ing("volume", density=0.0, gram_weights={"unit": 50})
     assert convert_to_normalized(2, "unit", egg) is None
+
+
+def test_none_density_yields_none():
+    # density=None (missing data) yields None conversion for volume targets
+    assert convert_to_normalized(100, "g", ing("volume", density=None)) is None
+
+
+def test_positive_density_converts():
+    # Positive density converts correctly
+    out = convert_to_normalized(100, "g", ing("volume", density=1.42))
+    assert out is not None
+    assert out.unit == "ml"
+    assert out.is_approx is True
+    assert abs(out.amount - 100 / 1.42) < 0.01
 
 
 def test_non_positive_or_nan_quantity_returns_none():
