@@ -18,6 +18,12 @@ class ConversationCreateIn(BaseModel):
     title: str | None = Field(default=None, max_length=200)
 
 
+class MessageCreateIn(BaseModel):
+    """Body for POST /api/ai/conversations/{id}/messages."""
+
+    content: str = Field(min_length=1, max_length=4000)
+
+
 class MessageOut(BaseModel):
     id: uuid.UUID
     role: MessageRole

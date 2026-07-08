@@ -1,11 +1,10 @@
-"""AI API routes: conversation storage.
+"""AI API routes: conversation storage + recipe chat.
 
 All routes are authenticated (`get_current_user`) and owner-scoped — a user
 only ever sees their own conversations, never another user's, even for the
 same recipe (see ai/service.py).
 
-LLM-backed routes (chat, cookbook Q&A, transformations) land in later
-Phase 3 tasks; this router only exposes the storage CRUD.
+Cookbook Q&A and transformation routes land in later Phase 3 tasks.
 """
 
 from __future__ import annotations
@@ -21,11 +20,18 @@ from recipe_normalizer.ai.schemas import (
     ConversationCreateIn,
     ConversationDetailOut,
     ConversationOut,
+    MessageCreateIn,
+    MessageOut,
 )
-from recipe_normalizer.api_deps import get_current_user
+from recipe_normalizer.api_deps import get_current_user, limit_by_user
 from recipe_normalizer.db import get_db
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
+
+#: 60 chat turns/hour/user — see the phase plan's "Cost & abuse" global
+#: constraint (every AI endpoint is rate-limited on top of the per-request
+#: LLM cost cap).
+_chat_limit = limit_by_user("ai_chat", 60, 3600.0)
 
 
 @router.get("/conversations", response_model=list[ConversationOut])
@@ -59,3 +65,31 @@ def get_conversation(
     current_user: Any = Depends(get_current_user),  # noqa: B008
 ) -> ConversationDetailOut:
     return service.get_conversation(db, user_id=current_user.id, conversation_id=conversation_id)
+
+
+@router.post(
+    "/conversations/{conversation_id}/messages",
+    status_code=201,
+    response_model=MessageOut,
+    dependencies=[Depends(_chat_limit)],
+)
+def post_chat_message(
+    conversation_id: uuid.UUID,
+    body: MessageCreateIn,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> MessageOut:
+    """Post a user message to a recipe-chat conversation; returns the assistant's reply.
+
+    The LLM client is built per-request via `service.make_ai_llm` (a real,
+    cost-capped `LLMClient` unless `RN_LLM_STUB=1`) — never constructed ad hoc
+    here, so the stub swap point stays centralized in one place.
+    """
+    llm = service.make_ai_llm(db, user_id=current_user.id, feature="ai.recipe_chat")
+    return service.chat_turn(
+        db,
+        user_id=current_user.id,
+        conversation_id=conversation_id,
+        content=body.content,
+        llm=llm,
+    )

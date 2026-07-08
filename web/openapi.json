@@ -1053,6 +1053,22 @@
         "title": "MergeIn",
         "type": "object"
       },
+      "MessageCreateIn": {
+        "description": "Body for POST /api/ai/conversations/{id}/messages.",
+        "properties": {
+          "content": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "MessageCreateIn",
+        "type": "object"
+      },
       "MessageOut": {
         "properties": {
           "content": {
@@ -2666,6 +2682,60 @@
           }
         },
         "summary": "Get Conversation",
+        "tags": [
+          "ai"
+        ]
+      }
+    },
+    "/api/ai/conversations/{conversation_id}/messages": {
+      "post": {
+        "description": "Post a user message to a recipe-chat conversation; returns the assistant's reply.\n\nThe LLM client is built per-request via `service.make_ai_llm` (a real,\ncost-capped `LLMClient` unless `RN_LLM_STUB=1`) \u2014 never constructed ad hoc\nhere, so the stub swap point stays centralized in one place.",
+        "operationId": "post_chat_message_api_ai_conversations__conversation_id__messages_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Chat Message",
         "tags": [
           "ai"
         ]

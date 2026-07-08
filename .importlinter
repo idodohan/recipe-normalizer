@@ -92,6 +92,7 @@ forbidden_modules =
 ignore_imports =
     recipe_normalizer.ai.router -> recipe_normalizer.api_deps
     recipe_normalizer.ai.service -> recipe_normalizer.cookbook.service
+    recipe_normalizer.llm.client -> recipe_normalizer.llm.models
 
 [importlinter:contract:nothing-imports-ai]
 name = no other module may import ai (ai sits at the top of the dependency graph, like sharing but one layer further out)

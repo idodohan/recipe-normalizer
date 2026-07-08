@@ -12,7 +12,7 @@ import logging
 import uuid
 from collections.abc import Callable
 from decimal import Decimal
-from typing import Any, Protocol, TypeVar
+from typing import Any, Protocol, TypeVar, cast
 
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session
@@ -217,6 +217,48 @@ class LLMClient:
         raise LLMError(
             f"structured output failed validation after repair retry: {last_error}"
         ) from last_error
+
+    def chat(
+        self,
+        *,
+        feature: str,
+        system: str,
+        messages: list[dict[str, Any]],
+        max_tokens: int = 1024,
+        model: str | None = None,
+        fast: bool = False,
+    ) -> str:
+        """Free-form conversational call: send *messages* + *system*, return the reply text.
+
+        Unlike `structured`, no output schema is enforced — this is the seam
+        for chat/Q&A features (ai.recipe_chat, ai.cookbook_qa) where the
+        response is prose, not a validated model. A single request/response
+        turn only (the caller is responsible for building `messages` — prior
+        turns plus the new one — and for persisting the result); this method
+        does not loop or retry.
+
+        Checks the cost cap before calling (consistent with `structured` and
+        `tool_loop`), records usage after the call, and raises `LLMError` if
+        the model issues an SDK-level refusal or the response has no text
+        block. A model saying "I don't know" in ordinary prose is NOT an
+        error — that text is returned normally like any other answer.
+        """
+        resolved = self._resolve_model(model, fast)
+        self._check_cost_cap()
+        response = self._client().messages.create(
+            model=resolved,
+            max_tokens=max_tokens,
+            system=system,
+            messages=messages,
+        )
+        self._record_usage(feature, resolved, response.usage)
+
+        if response.stop_reason == "refusal":
+            raise LLMError("model refused")
+        text = next((block.text for block in response.content if block.type == "text"), None)
+        if text is None:
+            raise LLMError("no text block in chat response")
+        return cast(str, text)
 
     def classify_bool(
         self,

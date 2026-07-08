@@ -39,6 +39,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ai/conversations/{conversation_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Chat Message
+         * @description Post a user message to a recipe-chat conversation; returns the assistant's reply.
+         *
+         *     The LLM client is built per-request via `service.make_ai_llm` (a real,
+         *     cost-capped `LLMClient` unless `RN_LLM_STUB=1`) — never constructed ad hoc
+         *     here, so the stub swap point stays centralized in one place.
+         */
+        post: operations["post_chat_message_api_ai_conversations__conversation_id__messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/login": {
         parameters: {
             query?: never;
@@ -1188,6 +1212,14 @@ export interface components {
              */
             target_id: string;
         };
+        /**
+         * MessageCreateIn
+         * @description Body for POST /api/ai/conversations/{id}/messages.
+         */
+        MessageCreateIn: {
+            /** Content */
+            content: string;
+        };
         /** MessageOut */
         MessageOut: {
             /** Content */
@@ -1979,6 +2011,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConversationDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_chat_message_api_ai_conversations__conversation_id__messages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageOut"];
                 };
             };
             /** @description Validation Error */
