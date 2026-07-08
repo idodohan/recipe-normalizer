@@ -15,10 +15,13 @@ from recipe_normalizer.cookbook import service
 from recipe_normalizer.cookbook.models import Cuisine, DishType, SourceType, Tag
 from recipe_normalizer.cookbook.scaling import ScaledRecipeOut, scale_factor_for, scale_recipe
 from recipe_normalizer.cookbook.schemas import (
+    CollectionIn,
+    CollectionOut,
     RecipeIn,
     RecipeOut,
     RecipePage,
     RecipePersonalPatch,
+    SetRecipeCollectionsIn,
 )
 from recipe_normalizer.db import get_db
 from recipe_normalizer.errors import ApiError
@@ -56,6 +59,7 @@ def list_recipes(
     max_total_min: int | None = Query(default=None, ge=0),
     source_type: SourceType | None = Query(default=None),  # noqa: B008
     favorites: bool | None = Query(default=None),
+    collection: uuid.UUID | None = Query(default=None),  # noqa: B008
     limit: int = Query(default=1000, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),  # noqa: B008
@@ -72,6 +76,7 @@ def list_recipes(
         max_total_min=max_total_min,
         source_type=source_type,
         favorites=favorites,
+        collection=collection,
         limit=limit,
         offset=offset,
     )
@@ -128,6 +133,26 @@ def delete_recipe(
 ) -> Response:
     service.delete_recipe(db, owner_id=current_user.id, recipe_id=recipe_id)
     return Response(status_code=204)
+
+
+@router.put("/recipes/{recipe_id}/collections", response_model=RecipeOut)
+def set_recipe_collections(
+    recipe_id: uuid.UUID,
+    body: SetRecipeCollectionsIn,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> RecipeOut:
+    """Full-replace the set of collections this recipe belongs to.
+
+    Returns the updated RecipeOut (rather than 204) so the client can render
+    the new collection_ids without a follow-up GET.
+    """
+    return service.set_recipe_collections(
+        db,
+        owner_id=current_user.id,
+        recipe_id=recipe_id,
+        collection_ids=body.collection_ids,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +238,50 @@ def scale_recipe_endpoint(
         return scale_recipe(recipe, factor)
     except ValueError as exc:
         raise ApiError(422, "validation_error", str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Collections
+# ---------------------------------------------------------------------------
+
+
+@router.get("/collections", response_model=list[CollectionOut])
+def list_collections(
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> list[CollectionOut]:
+    return service.list_collections(db, owner_id=current_user.id)
+
+
+@router.post("/collections", status_code=201, response_model=CollectionOut)
+def create_collection(
+    body: CollectionIn,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> CollectionOut:
+    return service.create_collection(db, owner_id=current_user.id, name=body.name)
+
+
+@router.patch("/collections/{collection_id}", response_model=CollectionOut)
+def rename_collection(
+    collection_id: uuid.UUID,
+    body: CollectionIn,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> CollectionOut:
+    return service.rename_collection(
+        db, owner_id=current_user.id, collection_id=collection_id, name=body.name
+    )
+
+
+@router.delete("/collections/{collection_id}", status_code=204)
+def delete_collection(
+    collection_id: uuid.UUID,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> Response:
+    service.delete_collection(db, owner_id=current_user.id, collection_id=collection_id)
+    return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------------

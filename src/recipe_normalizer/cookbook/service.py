@@ -20,6 +20,7 @@ from recipe_normalizer.catalog.service import convert_to_normalized
 if TYPE_CHECKING:
     from recipe_normalizer.llm.client import LLMClient
 from recipe_normalizer.cookbook.models import (
+    Collection,
     Cuisine,
     DishType,
     IngredientGroup,
@@ -28,8 +29,10 @@ from recipe_normalizer.cookbook.models import (
     SourceType,
     Step,
     Tag,
+    collection_recipes,
 )
 from recipe_normalizer.cookbook.schemas import (
+    CollectionOut,
     IngredientLineIn,
     RecipeIn,
     RecipeOut,
@@ -43,18 +46,24 @@ from recipe_normalizer.sniff import detect_media_type
 __all__ = [
     "MAX_IMAGE_BYTES",
     "UNSET",
+    "DuplicateCollectionNameError",
     "DuplicateRecipeError",
     "SourceType",
     "are_verified",
     "clear_recipe_image",
+    "create_collection",
     "create_recipe",
+    "delete_collection",
     "delete_recipe",
     "find_recipe_id_by_fingerprint",
     "get_recipe",
+    "list_collections",
     "list_recipes",
     "register_hooks",
+    "rename_collection",
     "repoint_ingredient_lines",
     "set_personal",
+    "set_recipe_collections",
     "set_recipe_image",
     "update_recipe",
     "verify_recipe",
@@ -105,6 +114,17 @@ class DuplicateRecipeError(ApiError):
         self.existing_id = existing_id
 
 
+class DuplicateCollectionNameError(ApiError):
+    """Raised when a collection with the same (owner_id, name) already exists."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(
+            status_code=409,
+            code="duplicate_name",
+            message=f"A collection named {name!r} already exists.",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Hook registration (idempotent) — called at bottom of module after
 # repoint_ingredient_lines is defined.
@@ -152,6 +172,7 @@ _RECIPE_FULL_OPTIONS = [
     selectinload(Recipe.cuisines),
     selectinload(Recipe.dish_types),
     selectinload(Recipe.tags),
+    selectinload(Recipe.collections),
 ]
 
 _RECIPE_SUMMARY_OPTIONS = [
@@ -404,6 +425,7 @@ def list_recipes(
     max_total_min: int | None = None,
     source_type: SourceType | str | None = None,
     favorites: bool | None = None,
+    collection: uuid.UUID | None = None,
     limit: int = 1000,
     offset: int = 0,
 ) -> RecipePage:
@@ -441,6 +463,11 @@ def list_recipes(
     cookbook sizes, omitting both params reproduces the pre-pagination
     behavior of returning every recipe; the search/filter UI (next task)
     passes explicit page sizes.
+
+    ``collection`` filters to recipes that are a member of the given
+    collection id (correlated EXISTS against ``collection_recipes``,
+    ANDed with the rest); an id that isn't the caller's own collection
+    simply matches zero recipes rather than raising.
 
     Raises ``ApiError`` 422 for an unrecognised *dietary* value.
     """
@@ -517,6 +544,21 @@ def list_recipes(
 
     if favorites is not None:
         conditions.append(Recipe.is_favorite == favorites)
+
+    if collection is not None:
+        # Correlated EXISTS against the association table, like the vocab
+        # filters above. No separate ownership check is needed: a recipe can
+        # only ever be linked to its own owner's collections (enforced by
+        # set_recipe_collections), so an id belonging to another user's
+        # collection simply matches nothing here.
+        conditions.append(
+            exists(
+                select(1).where(
+                    collection_recipes.c.recipe_id == Recipe.id,
+                    collection_recipes.c.collection_id == collection,
+                )
+            )
+        )
 
     total = db.scalar(select(func.count()).select_from(Recipe).where(*conditions)) or 0
 
@@ -602,6 +644,159 @@ def delete_recipe(
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
     db.delete(recipe)
     db.flush()
+
+
+# ---------------------------------------------------------------------------
+# Collections
+# ---------------------------------------------------------------------------
+
+
+def _get_owned_collection(db: Session, owner_id: uuid.UUID, collection_id: uuid.UUID) -> Collection:
+    """Fetch a collection by id, owner-scoped. Raises ApiError 404 if not found or wrong owner."""
+    collection = db.scalars(
+        select(Collection).where(Collection.id == collection_id, Collection.owner_id == owner_id)
+    ).first()
+    if collection is None:
+        raise ApiError(404, "not_found", f"Collection {collection_id} not found.")
+    return collection
+
+
+def _recipe_count(db: Session, collection_id: uuid.UUID) -> int:
+    return (
+        db.scalar(
+            select(func.count())
+            .select_from(collection_recipes)
+            .where(collection_recipes.c.collection_id == collection_id)
+        )
+        or 0
+    )
+
+
+def create_collection(db: Session, *, owner_id: uuid.UUID, name: str) -> CollectionOut:
+    """Create a new (empty) collection for owner_id.
+
+    Raises DuplicateCollectionNameError (409 duplicate_name) if the owner
+    already has a collection with this exact name (stripped, case-sensitive
+    — matches the DB-level unique constraint on (owner_id, name); this is a
+    check-then-insert like DuplicateRecipeError's fingerprint check, so it
+    carries the same narrow race window under concurrent identical requests).
+    Flushes; caller owns commit.
+    """
+    stripped = name.strip()
+    existing = db.scalars(
+        select(Collection).where(Collection.owner_id == owner_id, Collection.name == stripped)
+    ).first()
+    if existing is not None:
+        raise DuplicateCollectionNameError(stripped)
+
+    collection = Collection(owner_id=owner_id, name=stripped)
+    db.add(collection)
+    db.flush()
+    return CollectionOut(id=collection.id, name=collection.name, recipe_count=0)
+
+
+def rename_collection(
+    db: Session,
+    *,
+    owner_id: uuid.UUID,
+    collection_id: uuid.UUID,
+    name: str,
+) -> CollectionOut:
+    """Rename a collection. Owner-scoped: 404 if not found or wrong owner.
+
+    Raises DuplicateCollectionNameError (409) if another of the owner's
+    collections already has the new name. Renaming to the current name (a
+    no-op) is always allowed. Flushes; caller owns commit.
+    """
+    collection = _get_owned_collection(db, owner_id, collection_id)
+    stripped = name.strip()
+    if stripped != collection.name:
+        existing = db.scalars(
+            select(Collection).where(
+                Collection.owner_id == owner_id,
+                Collection.name == stripped,
+                Collection.id != collection_id,
+            )
+        ).first()
+        if existing is not None:
+            raise DuplicateCollectionNameError(stripped)
+        collection.name = stripped
+        db.flush()
+
+    return CollectionOut(
+        id=collection.id, name=collection.name, recipe_count=_recipe_count(db, collection_id)
+    )
+
+
+def delete_collection(db: Session, *, owner_id: uuid.UUID, collection_id: uuid.UUID) -> None:
+    """Delete a collection. Owner-scoped: 404 if not found or wrong owner.
+
+    Only the `collection_recipes` association rows are removed (cascade);
+    the recipes themselves are left entirely untouched. Flushes; caller owns
+    commit.
+    """
+    collection = _get_owned_collection(db, owner_id, collection_id)
+    db.delete(collection)
+    db.flush()
+
+
+def list_collections(db: Session, *, owner_id: uuid.UUID) -> list[CollectionOut]:
+    """List owner_id's collections, alphabetically, each with its recipe count.
+
+    Single aggregate query (LEFT JOIN + COUNT + GROUP BY) — no N+1.
+    """
+    stmt = (
+        select(Collection, func.count(collection_recipes.c.recipe_id))
+        .outerjoin(collection_recipes, collection_recipes.c.collection_id == Collection.id)
+        .where(Collection.owner_id == owner_id)
+        .group_by(Collection.id)
+        .order_by(func.lower(Collection.name))
+    )
+    rows = db.execute(stmt).all()
+    return [CollectionOut(id=c.id, name=c.name, recipe_count=count) for c, count in rows]
+
+
+def set_recipe_collections(
+    db: Session,
+    *,
+    owner_id: uuid.UUID,
+    recipe_id: uuid.UUID,
+    collection_ids: list[uuid.UUID],
+) -> RecipeOut:
+    """Replace the full set of collections a recipe belongs to (full-set semantics).
+
+    - The recipe must be owner_id's own (404 otherwise).
+    - Every id in collection_ids must be one of owner_id's own collections
+      (404 on the first one that isn't — mirrors the other ownership checks
+      in this module rather than silently dropping/ignoring foreign ids).
+    - Duplicate ids in the input are deduped; the previous membership set is
+      entirely replaced (recipe.collections = [...]) rather than diffed.
+    Flushes; caller owns commit.
+    """
+    recipe = db.scalars(
+        select(Recipe).where(Recipe.id == recipe_id, Recipe.owner_id == owner_id)
+    ).first()
+    if recipe is None:
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+
+    unique_ids = list(dict.fromkeys(collection_ids))
+    collections: list[Collection] = []
+    if unique_ids:
+        owned = db.scalars(
+            select(Collection).where(Collection.owner_id == owner_id, Collection.id.in_(unique_ids))
+        ).all()
+        owned_by_id = {c.id: c for c in owned}
+        missing = [cid for cid in unique_ids if cid not in owned_by_id]
+        if missing:
+            raise ApiError(404, "not_found", f"Collection {missing[0]} not found.")
+        collections = [owned_by_id[cid] for cid in unique_ids]
+
+    recipe.collections = collections
+    db.flush()
+
+    loaded = _load_recipe_full(db, recipe_id)
+    assert loaded is not None
+    return RecipeOut.model_validate(loaded)
 
 
 # ---------------------------------------------------------------------------

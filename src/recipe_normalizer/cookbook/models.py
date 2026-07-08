@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -191,6 +192,12 @@ class Recipe(TimestampMixin, Base):
         secondary=recipe_dish_types, back_populates="recipes"
     )
     tags: Mapped[list[Tag]] = relationship(secondary=recipe_tags, back_populates="recipes")
+    # `collection_recipes` (defined below, after Collection) is referenced by
+    # table name here — SQLAlchemy resolves `secondary` strings lazily at
+    # mapper-configuration time, so definition order doesn't matter.
+    collections: Mapped[list["Collection"]] = relationship(
+        secondary="collection_recipes", back_populates="recipes"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -263,3 +270,48 @@ class Step(Base):
     )
 
     recipe: Mapped[Recipe] = relationship(back_populates="steps")
+
+
+# ---------------------------------------------------------------------------
+# Collections — owner-scoped named groups of recipes (many-to-many)
+# ---------------------------------------------------------------------------
+
+collection_recipes = Table(
+    "collection_recipes",
+    Base.metadata,
+    Column(
+        "collection_id",
+        ForeignKey("collections.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "recipe_id",
+        ForeignKey("recipes.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
+
+
+class Collection(TimestampMixin, Base):
+    """A user-defined named group of recipes.
+
+    Owner-scoped; (owner_id, name) is unique so a user can't create two
+    collections with the same name (an exact, case-sensitive comparison
+    after stripping whitespace — collections are not deduped case-
+    insensitively the way vocab tables are). Deleting a collection only
+    removes the `collection_recipes` association rows (cascade); the
+    recipes themselves are untouched.
+    """
+
+    __tablename__ = "collections"
+    __table_args__ = (UniqueConstraint("owner_id", "name", name="uq_collections_owner_id_name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+
+    recipes: Mapped[list[Recipe]] = relationship(
+        secondary=collection_recipes, back_populates="collections"
+    )

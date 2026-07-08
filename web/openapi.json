@@ -47,6 +47,47 @@
         "title": "Body_upload_recipe_image_api_recipes__recipe_id__image_put",
         "type": "object"
       },
+      "CollectionIn": {
+        "description": "Body for POST/PATCH /api/collections.",
+        "properties": {
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CollectionIn",
+        "type": "object"
+      },
+      "CollectionOut": {
+        "description": "Response shape for the collections endpoints \u2014 includes a recipe count.\n\nNot built via ``from_attributes`` off the ORM ``Collection`` directly\n(the count comes from a separate aggregate in the service layer), but\n``from_attributes`` is still enabled so ``Collection.id``/``.name`` can\nbe read off the ORM row when constructing this.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "recipe_count": {
+            "title": "Recipe Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "recipe_count"
+        ],
+        "title": "CollectionOut",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -901,6 +942,15 @@
       },
       "RecipeOut": {
         "properties": {
+          "collection_ids": {
+            "default": [],
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Collection Ids",
+            "type": "array"
+          },
           "cook_min": {
             "anyOf": [
               {
@@ -1521,6 +1571,22 @@
         "title": "ServingsOut",
         "type": "object"
       },
+      "SetRecipeCollectionsIn": {
+        "description": "Body for PUT /api/recipes/{recipe_id}/collections \u2014 full-replace semantics.",
+        "properties": {
+          "collection_ids": {
+            "default": [],
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Collection Ids",
+            "type": "array"
+          }
+        },
+        "title": "SetRecipeCollectionsIn",
+        "type": "object"
+      },
       "SourceType": {
         "enum": [
           "web",
@@ -2012,6 +2078,157 @@
         "summary": "Merge Ingredient",
         "tags": [
           "catalog"
+        ]
+      }
+    },
+    "/api/collections": {
+      "get": {
+        "operationId": "list_collections_api_collections_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CollectionOut"
+                  },
+                  "title": "Response List Collections Api Collections Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Collections",
+        "tags": [
+          "recipes"
+        ]
+      },
+      "post": {
+        "operationId": "create_collection_api_collections_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Collection",
+        "tags": [
+          "recipes"
+        ]
+      }
+    },
+    "/api/collections/{collection_id}": {
+      "delete": {
+        "operationId": "delete_collection_api_collections__collection_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Collection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Collection",
+        "tags": [
+          "recipes"
+        ]
+      },
+      "patch": {
+        "operationId": "rename_collection_api_collections__collection_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Collection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Collection",
+        "tags": [
+          "recipes"
         ]
       }
     },
@@ -2628,6 +2845,23 @@
           },
           {
             "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Collection"
+            }
+          },
+          {
+            "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
@@ -2840,6 +3074,60 @@
           }
         },
         "summary": "Update Recipe",
+        "tags": [
+          "recipes"
+        ]
+      }
+    },
+    "/api/recipes/{recipe_id}/collections": {
+      "put": {
+        "description": "Full-replace the set of collections this recipe belongs to.\n\nReturns the updated RecipeOut (rather than 204) so the client can render\nthe new collection_ids without a follow-up GET.",
+        "operationId": "set_recipe_collections_api_recipes__recipe_id__collections_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "recipe_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Recipe Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRecipeCollectionsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecipeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Recipe Collections",
         "tags": [
           "recipes"
         ]

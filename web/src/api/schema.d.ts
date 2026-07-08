@@ -124,6 +124,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/collections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Collections */
+        get: operations["list_collections_api_collections_get"];
+        put?: never;
+        /** Create Collection */
+        post: operations["create_collection_api_collections_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/collections/{collection_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Collection */
+        delete: operations["delete_collection_api_collections__collection_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename Collection */
+        patch: operations["rename_collection_api_collections__collection_id__patch"];
+        trace?: never;
+    };
     "/api/files/{ref}": {
         parameters: {
             query?: never;
@@ -354,6 +390,29 @@ export interface paths {
         patch: operations["update_recipe_api_recipes__recipe_id__patch"];
         trace?: never;
     };
+    "/api/recipes/{recipe_id}/collections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Recipe Collections
+         * @description Full-replace the set of collections this recipe belongs to.
+         *
+         *     Returns the updated RecipeOut (rather than 204) so the client can render
+         *     the new collection_ids without a follow-up GET.
+         */
+        put: operations["set_recipe_collections_api_recipes__recipe_id__collections_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recipes/{recipe_id}/image": {
         parameters: {
             query?: never;
@@ -443,6 +502,34 @@ export interface components {
         Body_upload_recipe_image_api_recipes__recipe_id__image_put: {
             /** File */
             file: string;
+        };
+        /**
+         * CollectionIn
+         * @description Body for POST/PATCH /api/collections.
+         */
+        CollectionIn: {
+            /** Name */
+            name: string;
+        };
+        /**
+         * CollectionOut
+         * @description Response shape for the collections endpoints — includes a recipe count.
+         *
+         *     Not built via ``from_attributes`` off the ORM ``Collection`` directly
+         *     (the count comes from a separate aggregate in the service layer), but
+         *     ``from_attributes`` is still enabled so ``Collection.id``/``.name`` can
+         *     be read off the ORM row when constructing this.
+         */
+        CollectionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Recipe Count */
+            recipe_count: number;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -763,6 +850,11 @@ export interface components {
         };
         /** RecipeOut */
         RecipeOut: {
+            /**
+             * Collection Ids
+             * @default []
+             */
+            collection_ids: string[];
             /** Cook Min */
             cook_min?: number | null;
             /**
@@ -1021,6 +1113,17 @@ export interface components {
             amount?: number | null;
             /** Unit Text */
             unit_text?: string | null;
+        };
+        /**
+         * SetRecipeCollectionsIn
+         * @description Body for PUT /api/recipes/{recipe_id}/collections — full-replace semantics.
+         */
+        SetRecipeCollectionsIn: {
+            /**
+             * Collection Ids
+             * @default []
+             */
+            collection_ids: string[];
         };
         /**
          * SourceType
@@ -1321,6 +1424,123 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IngredientOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_collections_api_collections_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionOut"][];
+                };
+            };
+        };
+    };
+    create_collection_api_collections_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_collection_api_collections__collection_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_collection_api_collections__collection_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionOut"];
                 };
             };
             /** @description Validation Error */
@@ -1683,6 +1903,7 @@ export interface operations {
                 max_total_min?: number | null;
                 source_type?: components["schemas"]["SourceType"] | null;
                 favorites?: boolean | null;
+                collection?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -1817,6 +2038,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RecipeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecipeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_recipe_collections_api_recipes__recipe_id__collections_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recipe_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetRecipeCollectionsIn"];
             };
         };
         responses: {
