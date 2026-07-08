@@ -2,8 +2,8 @@
 /*  Shared ai chat components — hairline-framed message cards on paper, */
 /*  NOT chat-app gradient bubbles. The assistant is distinguished by a  */
 /*  small terracotta overline label, not a color-filled bubble.        */
-/*  Reused by the recipe-chat panel (Task 3) and, later, cookbook Q&A   */
-/*  (Task 5) — keep this file feature-agnostic.                        */
+/*  Reused by the recipe-chat panel (Task 3) and cookbook Q&A (Task 5) — */
+/*  keep this file feature-agnostic.                                    */
 /* ------------------------------------------------------------------ */
 
 .ai-panel {
@@ -146,6 +146,50 @@
     opacity: 1;
     transform: translateY(-3px);
   }
+}
+
+/* -- Referenced-recipe sources (cookbook Q&A, Task 5) -------------------- */
+
+.ai-panel__sources {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ai-panel__sources-label {
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+
+.ai-panel__sources-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* An anchor riding on .chip's shape — same hairline outline, but a pointer
+   cursor and a filled hover/focus state since it navigates rather than
+   toggling a filter. */
+.chip--link {
+  padding: 0 var(--space-3);
+  color: var(--color-accent-deep);
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.chip--link:hover,
+.chip--link:focus-visible {
+  border-color: var(--color-accent);
+  background-color: var(--color-accent-wash);
 }
 
 /* -- Input --------------------------------------------------------------- */

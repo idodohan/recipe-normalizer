@@ -1,0 +1,48 @@
+/* ------------------------------------------------------------------ */
+/*  Ask your cookbook — disclosure + chat panel, sitting above the      */
+/*  cookbook grid. Same shape as RecipeDetailPage's "Ask about this    */
+/*  recipe" (.rd__chat) but framed with a bottom hairline instead of a */
+/*  top one, since this section opens the page rather than closing it. */
+/* ------------------------------------------------------------------ */
+
+.cookbook-qa {
+  border-bottom: var(--hairline);
+  margin-bottom: var(--space-6);
+  padding-bottom: var(--space-5);
+}
+
+.cookbook-qa__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 2.75rem;
+  padding: 0 var(--space-4);
+  background-color: transparent;
+  border: var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-display);
+  font-size: var(--text-heading);
+  font-style: italic;
+  font-weight: 560;
+  color: var(--color-ink);
+  transition:
+    border-color 120ms ease,
+    color 120ms ease,
+    background-color 120ms ease;
+}
+
+.cookbook-qa__toggle:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent-deep);
+}
+
+.cookbook-qa__toggle[aria-expanded="true"] {
+  border-color: var(--color-accent);
+  background-color: var(--color-accent-wash);
+  color: var(--color-accent-deep);
+}
+
+.cookbook-qa__panel {
+  max-width: 42rem;
+  margin-top: var(--space-5);
+}

@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { apiErrorMessage } from "../api/errors";
 import { Button } from "../components/Button";
+import { CookbookQaPanel } from "../components/cookbook/CookbookQaPanel";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorState } from "../components/ErrorState";
 import { PageHeader } from "../components/PageHeader";
@@ -172,6 +173,8 @@ export function CookbookPage() {
           </Button>
         }
       />
+
+      <CookbookQaPanel />
 
       <div className="cookbook-search">
         <input
