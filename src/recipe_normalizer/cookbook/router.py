@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query, UploadFile
 from fastapi.responses import Response
@@ -15,10 +15,13 @@ from recipe_normalizer.cookbook import service
 from recipe_normalizer.cookbook.models import Cuisine, DishType, SourceType, Tag
 from recipe_normalizer.cookbook.scaling import ScaledRecipeOut, scale_factor_for, scale_recipe
 from recipe_normalizer.cookbook.schemas import (
+    CollectionIn,
+    CollectionOut,
     RecipeIn,
     RecipeOut,
+    RecipePage,
     RecipePersonalPatch,
-    RecipeSummary,
+    SetRecipeCollectionsIn,
 )
 from recipe_normalizer.db import get_db
 from recipe_normalizer.errors import ApiError
@@ -46,12 +49,61 @@ def create_recipe(
     )
 
 
-@router.get("/recipes", response_model=list[RecipeSummary])
+@router.get("/recipes", response_model=RecipePage)
 def list_recipes(
+    q: str | None = Query(default=None, max_length=200),
+    cuisine: str | None = Query(default=None, max_length=100),
+    dish_type: str | None = Query(default=None, max_length=100),
+    tag: str | None = Query(default=None, max_length=100),
+    dietary: Literal["vegan", "vegetarian", "gluten_free"] | None = Query(default=None),
+    max_total_min: int | None = Query(default=None, ge=0),
+    source_type: SourceType | None = Query(default=None),  # noqa: B008
+    favorites: bool | None = Query(default=None),
+    collection: uuid.UUID | None = Query(default=None),  # noqa: B008
+    limit: int = Query(default=1000, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),  # noqa: B008
     current_user: Any = Depends(get_current_user),  # noqa: B008
-) -> list[RecipeSummary]:
-    return service.list_recipes(db, owner_id=current_user.id)
+) -> RecipePage:
+    return service.list_recipes(
+        db,
+        owner_id=current_user.id,
+        q=q,
+        cuisine=cuisine,
+        dish_type=dish_type,
+        tag=tag,
+        dietary=dietary,
+        max_total_min=max_total_min,
+        source_type=source_type,
+        favorites=favorites,
+        collection=collection,
+        limit=limit,
+        offset=offset,
+    )
+
+
+_MEMBER_SCRUBBED_FIELDS: dict[str, Any] = {
+    "notes": None,
+    "is_favorite": False,
+    "collection_ids": [],
+    "provenance": None,
+    "extraction_meta": None,
+}
+
+
+def _scrub_for_member(recipe: RecipeOut, current_user_id: uuid.UUID) -> RecipeOut:
+    """Scrub owner-only personal fields from a recipe response if the caller
+    is a shared-cookbook member (not the owner).
+
+    A member must never see the OWNER's notes/is_favorite/collection_ids/provenance/
+    extraction_meta in any response, whether from GET or PATCH. This mirrors the
+    anonymous PublicRecipeOut, which already drops extraction_meta so outsiders
+    can't see the owner's ingestion internals (tier_used, confidence, etc.).
+    This helper is applied to both response paths to ensure consistent redaction.
+    """
+    if recipe.owner_id != current_user_id:
+        recipe = recipe.model_copy(update=_MEMBER_SCRUBBED_FIELDS)
+    return recipe
 
 
 @router.get("/recipes/{recipe_id}", response_model=RecipeOut)
@@ -60,7 +112,18 @@ def get_recipe(
     db: Session = Depends(get_db),  # noqa: B008
     current_user: Any = Depends(get_current_user),  # noqa: B008
 ) -> RecipeOut:
-    return service.get_recipe(db, owner_id=current_user.id, recipe_id=recipe_id)
+    """Fetch a recipe. ``service.get_recipe`` is widened to shared-cookbook
+    members, but a member must never see the OWNER's personal
+    notes/favorites/collections or the owner-facing provenance — those are
+    scrubbed here for anyone who isn't the recipe's owner.
+
+    No extra access-check call is needed: ``service.get_recipe`` already
+    raises 404 unless the caller is the owner or a shared-cookbook member,
+    and the returned ``RecipeOut.owner_id`` tells us which of those two it
+    was — a member is exactly the case where ``owner_id != current_user.id``.
+    """
+    recipe = service.get_recipe(db, owner_id=current_user.id, recipe_id=recipe_id)
+    return _scrub_for_member(recipe, current_user.id)
 
 
 @router.patch("/recipes/{recipe_id}", response_model=RecipeOut)
@@ -70,13 +133,14 @@ def update_recipe(
     db: Session = Depends(get_db),  # noqa: B008
     current_user: Any = Depends(get_current_user),  # noqa: B008
 ) -> RecipeOut:
-    return service.update_recipe(
+    recipe = service.update_recipe(
         db,
         owner_id=current_user.id,
         recipe_id=recipe_id,
         data=body,
         editor_id=current_user.id,
     )
+    return _scrub_for_member(recipe, current_user.id)
 
 
 @router.patch("/recipes/{recipe_id}/personal", response_model=RecipeOut)
@@ -105,6 +169,26 @@ def delete_recipe(
 ) -> Response:
     service.delete_recipe(db, owner_id=current_user.id, recipe_id=recipe_id)
     return Response(status_code=204)
+
+
+@router.put("/recipes/{recipe_id}/collections", response_model=RecipeOut)
+def set_recipe_collections(
+    recipe_id: uuid.UUID,
+    body: SetRecipeCollectionsIn,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> RecipeOut:
+    """Full-replace the set of collections this recipe belongs to.
+
+    Returns the updated RecipeOut (rather than 204) so the client can render
+    the new collection_ids without a follow-up GET.
+    """
+    return service.set_recipe_collections(
+        db,
+        owner_id=current_user.id,
+        recipe_id=recipe_id,
+        collection_ids=body.collection_ids,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +274,50 @@ def scale_recipe_endpoint(
         return scale_recipe(recipe, factor)
     except ValueError as exc:
         raise ApiError(422, "validation_error", str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Collections
+# ---------------------------------------------------------------------------
+
+
+@router.get("/collections", response_model=list[CollectionOut])
+def list_collections(
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> list[CollectionOut]:
+    return service.list_collections(db, owner_id=current_user.id)
+
+
+@router.post("/collections", status_code=201, response_model=CollectionOut)
+def create_collection(
+    body: CollectionIn,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> CollectionOut:
+    return service.create_collection(db, owner_id=current_user.id, name=body.name)
+
+
+@router.patch("/collections/{collection_id}", response_model=CollectionOut)
+def rename_collection(
+    collection_id: uuid.UUID,
+    body: CollectionIn,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> CollectionOut:
+    return service.rename_collection(
+        db, owner_id=current_user.id, collection_id=collection_id, name=body.name
+    )
+
+
+@router.delete("/collections/{collection_id}", status_code=204)
+def delete_collection(
+    collection_id: uuid.UUID,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> Response:
+    service.delete_collection(db, owner_id=current_user.id, collection_id=collection_id)
+    return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------------

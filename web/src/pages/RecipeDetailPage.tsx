@@ -12,6 +12,8 @@ import { Button } from "../components/Button";
 import { ErrorState } from "../components/ErrorState";
 import { Skeleton } from "../components/Skeleton";
 import { toast } from "../hooks/useToast";
+import { useUser } from "../hooks/useUser";
+import { CollectionsControl } from "../components/recipe/CollectionsControl";
 import { FavoriteButton } from "../components/recipe/FavoriteButton";
 import { IngredientList } from "../components/recipe/IngredientList";
 import type { DisplayGroup } from "../components/recipe/IngredientList";
@@ -19,8 +21,31 @@ import { NotesSection } from "../components/recipe/NotesSection";
 import { RecipeImageBanner } from "../components/recipe/RecipeImageBanner";
 import { ScaleControl } from "../components/recipe/ScaleControl";
 import type { ScaleRequest } from "../components/recipe/ScaleControl";
+import { ShareDialog } from "../components/recipe/ShareDialog";
 import { StepList } from "../components/recipe/StepList";
 import "../components/recipe/recipe-detail.css";
+
+/** "Shared by Ana on Jul 8, 2026" — provenance renders only what's present. */
+function formatProvenance(
+  provenance: { [key: string]: unknown } | null | undefined,
+): { sharedBy: string; sharedAt: string | null } | null {
+  if (!provenance) return null;
+  const sharedBy = provenance["shared_by"];
+  if (typeof sharedBy !== "string" || sharedBy.length === 0) return null;
+  const sharedAtRaw = provenance["shared_at"];
+  let sharedAt: string | null = null;
+  if (typeof sharedAtRaw === "string") {
+    const parsed = new Date(sharedAtRaw);
+    if (!Number.isNaN(parsed.getTime())) {
+      sharedAt = parsed.toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    }
+  }
+  return { sharedBy, sharedAt };
+}
 
 /** "3 min", "45 min", "1 hr 30 min" — cookbook shorthand. */
 function formatMinutes(min: number | null | undefined): string | null {
@@ -84,7 +109,9 @@ export function RecipeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useUser();
   const [scale, setScale] = useState<ScaleRequest | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const recipe = useQuery({
     queryKey: ["recipe", id],
@@ -198,6 +225,9 @@ export function RecipeDetailPage() {
   const total = formatMinutes(data.total_min);
   const quietTags = [...data.cuisines, ...data.tags];
 
+  const isOwner = Boolean(user && user.id === data.owner_id);
+  const provenance = formatProvenance(data.provenance);
+
   const scaledNote =
     scale && scaled.isFetching
       ? "Rescaling…"
@@ -214,6 +244,12 @@ export function RecipeDetailPage() {
           ← Cookbook
         </Link>
         <div className="rd__toolbar-actions">
+          <CollectionsControl recipeId={id!} collectionIds={data.collection_ids} />
+          {isOwner ? (
+            <Button variant="secondary" onClick={() => setShareOpen(true)}>
+              Share
+            </Button>
+          ) : null}
           <Button variant="secondary" onClick={() => navigate(`/recipes/${id}/edit`)}>
             Edit
           </Button>
@@ -223,6 +259,10 @@ export function RecipeDetailPage() {
           />
         </div>
       </div>
+
+      {isOwner ? (
+        <ShareDialog open={shareOpen} onClose={() => setShareOpen(false)} recipeId={id!} />
+      ) : null}
 
       {remove.isError ? (
         <p className="rd__error" role="alert">
@@ -247,6 +287,12 @@ export function RecipeDetailPage() {
           />
         </div>
         {data.description ? <p className="rd__desc">{data.description}</p> : null}
+        {provenance ? (
+          <p className="rd__provenance">
+            Shared by {provenance.sharedBy}
+            {provenance.sharedAt ? ` on ${provenance.sharedAt}` : ""}
+          </p>
+        ) : null}
       </header>
 
       <p className="rd__meta">

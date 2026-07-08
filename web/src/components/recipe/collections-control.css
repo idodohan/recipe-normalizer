@@ -1,0 +1,253 @@
+/* ------------------------------------------------------------------ */
+/*  Collections control — a small disclosure anchored under its        */
+/*  trigger button. Not a modal: outside-click / Escape dismiss it,    */
+/*  no focus trap, matching the app's other lightweight menus (see     */
+/*  VocabMultiSelect's `.vms__menu`).                                  */
+/* ------------------------------------------------------------------ */
+
+.coll {
+  position: relative;
+  display: inline-block;
+}
+
+.coll__trigger {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 var(--space-4);
+  background-color: transparent;
+  border: var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-small);
+  font-weight: 500;
+  color: var(--color-ink);
+  transition:
+    border-color 120ms ease,
+    color 120ms ease,
+    background-color 120ms ease;
+}
+
+.coll__trigger:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent-deep);
+}
+
+.coll__trigger[aria-expanded="true"] {
+  border-color: var(--color-accent);
+  background-color: var(--color-accent-wash);
+  color: var(--color-accent-deep);
+}
+
+.coll__panel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + var(--space-2));
+  left: 0;
+  width: 20rem;
+  max-width: 90vw;
+  background-color: var(--color-surface-raised);
+  border: var(--hairline-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(28, 25, 23, 0.14);
+  padding: var(--space-4);
+}
+
+.coll__panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.coll__panel-title {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.0625rem;
+  font-weight: 520;
+  color: var(--color-ink);
+}
+
+.coll__manage-toggle {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: var(--text-small);
+  font-weight: 500;
+  color: var(--color-text-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.coll__manage-toggle:hover {
+  color: var(--color-accent-deep);
+}
+
+.coll__status {
+  font-size: var(--text-small);
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-3);
+  max-width: none;
+}
+
+.coll__status--error {
+  color: var(--color-error);
+}
+
+.coll__list {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.coll__item {
+  border-bottom: var(--hairline);
+}
+
+.coll__item:last-child {
+  border-bottom: none;
+}
+
+.coll__checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 2.75rem;
+  cursor: pointer;
+  font-size: var(--text-small);
+  color: var(--color-ink);
+}
+
+.coll__checkbox-row input[type="checkbox"] {
+  width: 1.125rem;
+  height: 1.125rem;
+  accent-color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.coll__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.coll__count {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-faint);
+  font-size: var(--text-micro);
+}
+
+/* -- Manage mode: name + rename/delete text buttons -------------------- */
+
+.coll__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 2.75rem;
+}
+
+.coll__manage-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+.coll__text-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  min-height: 2.75rem;
+  font-size: var(--text-small);
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.coll__text-btn:hover:not(:disabled) {
+  color: var(--color-accent-deep);
+}
+
+.coll__text-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.coll__text-btn--danger {
+  color: var(--color-text-faint);
+}
+
+.coll__text-btn--danger:hover:not(:disabled) {
+  color: var(--color-error);
+}
+
+.coll__text-btn--primary {
+  color: var(--color-accent-deep);
+  font-weight: 600;
+}
+
+/* -- Rename inline form -------------------------------------------------- */
+
+.coll__rename-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 2.75rem;
+}
+
+.coll__rename-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 2.25rem;
+  font-size: var(--text-small);
+}
+
+/* -- Delete confirm ------------------------------------------------------ */
+
+.coll__confirm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 2.75rem;
+  width: 100%;
+}
+
+.coll__confirm-q {
+  flex: 1 1 auto;
+  font-size: var(--text-small);
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+
+/* -- New collection form -------------------------------------------------- */
+
+.coll__create-form {
+  border-top: var(--hairline);
+  padding-top: var(--space-3);
+}
+
+.coll__create-label {
+  display: block;
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+  margin-bottom: var(--space-2);
+}
+
+.coll__create-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.coll__create-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 2.25rem;
+  font-size: var(--text-small);
+}

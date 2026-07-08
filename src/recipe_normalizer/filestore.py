@@ -17,10 +17,14 @@ from __future__ import annotations
 
 import functools
 import hashlib
+import mimetypes
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
+from fastapi.responses import Response
+
 from recipe_normalizer.config import settings
+from recipe_normalizer.errors import ApiError
 
 # ---------------------------------------------------------------------------
 # Protocol (structural interface — swap for S3FileStore, GCSFileStore, etc.)
@@ -177,3 +181,29 @@ def get_file_store() -> FileStore:
         app.dependency_overrides[get_file_store] = lambda: LocalFileStore(tmp_path)
     """
     return _make_store()
+
+
+# ---------------------------------------------------------------------------
+# Shared HTTP-serving helper — used by both the authenticated /api/files/{ref}
+# route (main.py) and the token-scoped /api/public/{token}/image route
+# (sharing/router.py). Lives here (not in main.py) so sharing — which must
+# never import main.py — can reuse it without a new import-linter contract.
+# ---------------------------------------------------------------------------
+
+
+def serve_stored_file(store: FileStore, ref: str) -> Response:
+    """Return a Response streaming *ref*'s bytes, with a guessed media type.
+
+    Invalid or missing refs raise an ApiError 404 (no detail leaked about
+    which — traversal attempt vs. genuinely absent look identical to callers).
+    """
+    try:
+        data = store.open(ref)
+    except (ValueError, FileNotFoundError) as exc:
+        raise ApiError(404, "not_found", "File not found.") from exc
+
+    media_type, _ = mimetypes.guess_type(ref)
+    if not media_type:
+        media_type = "application/octet-stream"
+
+    return Response(content=data, media_type=media_type)

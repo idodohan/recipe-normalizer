@@ -1,22 +1,35 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { InfiniteData } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { apiErrorMessage } from "../api/errors";
 import type { components } from "../api/schema";
 import { toast } from "./useToast";
 
-type RecipeSummary = components["schemas"]["RecipeSummary"];
+type RecipePage = components["schemas"]["RecipePage"];
 type RecipeOut = components["schemas"]["RecipeOut"];
+type RecipeListData = InfiniteData<RecipePage>;
 
 type FavoriteContext = {
-  previousList?: RecipeSummary[];
+  previousLists: Array<[readonly unknown[], RecipeListData | undefined]>;
   previousDetail?: RecipeOut;
 };
 
+function withFavoritePatched(recipeId: string, isFavorite: boolean) {
+  return (page: RecipePage): RecipePage => ({
+    ...page,
+    items: page.items.map((recipe) =>
+      recipe.id === recipeId ? { ...recipe, is_favorite: isFavorite } : recipe,
+    ),
+  });
+}
+
 /**
  * Optimistic favorite toggle shared by the cookbook grid (RecipeCard) and
- * the detail page header. Patches the `["recipes"]` list cache and the
- * `["recipe", id]` detail cache immediately, then rolls both back with an
- * error toast if the PATCH fails.
+ * the detail page header. The cookbook list is cached per filter/search
+ * combination (`["recipes", filters]`, paginated via `useInfiniteQuery`), so
+ * this patches every cached `["recipes", ...]` query — not just the one
+ * currently mounted — plus the `["recipe", id]` detail cache, then rolls
+ * both back with an error toast if the PATCH fails.
  */
 export function useFavoriteMutation(recipeId: string) {
   const queryClient = useQueryClient();
@@ -36,17 +49,17 @@ export function useFavoriteMutation(recipeId: string) {
         queryClient.cancelQueries({ queryKey: ["recipe", recipeId] }),
       ]);
 
-      const previousList = queryClient.getQueryData<RecipeSummary[]>(["recipes"]);
+      const previousLists = queryClient.getQueriesData<RecipeListData>({
+        queryKey: ["recipes"],
+      });
       const previousDetail = queryClient.getQueryData<RecipeOut>(["recipe", recipeId]);
 
-      if (previousList) {
-        queryClient.setQueryData<RecipeSummary[]>(
-          ["recipes"],
-          previousList.map((recipe) =>
-            recipe.id === recipeId ? { ...recipe, is_favorite: isFavorite } : recipe,
-          ),
-        );
-      }
+      const patchPage = withFavoritePatched(recipeId, isFavorite);
+      queryClient.setQueriesData<RecipeListData>({ queryKey: ["recipes"] }, (current) => {
+        // Guard against unexpected cache shape; InfiniteData always has pages array
+        if (!current || !Array.isArray((current as {pages?: unknown}).pages)) return current;
+        return { ...current, pages: current.pages.map(patchPage) };
+      });
 
       if (previousDetail) {
         queryClient.setQueryData<RecipeOut>(["recipe", recipeId], {
@@ -55,12 +68,12 @@ export function useFavoriteMutation(recipeId: string) {
         });
       }
 
-      return { previousList, previousDetail };
+      return { previousLists, previousDetail };
     },
     onError: (error, _isFavorite, context) => {
-      if (context?.previousList) {
-        queryClient.setQueryData(["recipes"], context.previousList);
-      }
+      context?.previousLists.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data);
+      });
       if (context?.previousDetail) {
         queryClient.setQueryData(["recipe", recipeId], context.previousDetail);
       }

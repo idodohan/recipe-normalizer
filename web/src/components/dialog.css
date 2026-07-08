@@ -1,0 +1,77 @@
+/* ------------------------------------------------------------------ */
+/*  Dialog — accessible modal on the native <dialog> element.          */
+/*  A paper card with a hairline frame and a 2px ink top rule, the      */
+/*  same signature the recipe cards use. The browser handles focus      */
+/*  trapping, top-layer stacking, and Escape; this file only resets      */
+/*  the element's default chrome and styles the backdrop + panel.       */
+/* ------------------------------------------------------------------ */
+
+.dialog {
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink);
+  max-width: min(30rem, calc(100vw - var(--space-6)));
+  width: 100%;
+  max-height: calc(100vh - var(--space-7));
+}
+
+.dialog::backdrop {
+  background-color: color-mix(in srgb, var(--color-ink) 55%, transparent);
+}
+
+.dialog__panel {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-surface-raised);
+  border: var(--hairline-strong);
+  border-top: var(--rule-ink);
+  border-radius: var(--radius-md);
+  max-height: calc(100vh - var(--space-7));
+  overflow: hidden;
+}
+
+.dialog__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-5) var(--space-4);
+  border-bottom: var(--hairline);
+}
+
+.dialog__title {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: var(--text-title);
+  font-weight: 480;
+  color: var(--color-ink);
+}
+
+.dialog__close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  margin-top: -0.25rem;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
+}
+
+.dialog__close:hover {
+  color: var(--color-accent-deep);
+  background-color: var(--color-accent-wash);
+}
+
+.dialog__body {
+  padding: var(--space-5);
+  overflow-y: auto;
+}

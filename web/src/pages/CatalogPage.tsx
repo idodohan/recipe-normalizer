@@ -8,6 +8,7 @@ import { EmptyState } from "../components/EmptyState";
 import { ErrorState } from "../components/ErrorState";
 import { PageHeader } from "../components/PageHeader";
 import { Skeleton } from "../components/Skeleton";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { toast } from "../hooks/useToast";
 import { useUser } from "../hooks/useUser";
 import type { components } from "../api/schema";
@@ -23,16 +24,6 @@ const STATUS_LABEL: Record<IngredientStatus, string> = {
   unreviewed: "Unreviewed",
   reviewed: "Reviewed",
 };
-
-/** Debounces a fast-changing value — used to throttle the catalog search query. */
-function useDebouncedValue<T>(value: T, delayMs: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), delayMs);
-    return () => clearTimeout(timer);
-  }, [value, delayMs]);
-  return debounced;
-}
 
 export function CatalogPage() {
   const { user } = useUser();

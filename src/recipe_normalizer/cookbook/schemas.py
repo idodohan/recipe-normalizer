@@ -138,6 +138,18 @@ class RecipeIn(BaseModel):
     steps: list[StepIn] = []
 
 
+class CollectionIn(BaseModel):
+    """Body for POST/PATCH /api/collections."""
+
+    name: str = Field(min_length=1, max_length=120)
+
+
+class SetRecipeCollectionsIn(BaseModel):
+    """Body for PUT /api/recipes/{recipe_id}/collections — full-replace semantics."""
+
+    collection_ids: list[uuid.UUID] = []
+
+
 class RecipePersonalPatch(BaseModel):
     """Lightweight patch for personal metadata (favorites/notes).
 
@@ -250,8 +262,20 @@ class RecipeOut(BaseModel):
     is_favorite: bool = False
     notes: str | None = None
     created_at: datetime
+    # ORM relationship attribute is `collections` (list of Collection objects);
+    # API field exposes just the ids. Detail-only (RecipeSummary does NOT get
+    # this) — see cookbook.service._RECIPE_FULL_OPTIONS for the selectinload
+    # that keeps this off the N+1 path for list_recipes.
+    collection_ids: list[uuid.UUID] = Field(default=[], validation_alias="collections")
 
     model_config = {"from_attributes": True}
+
+    @field_validator("collection_ids", mode="before")
+    @classmethod
+    def collections_to_ids(cls, v: Any) -> list[uuid.UUID]:
+        if not v:
+            return []
+        return [item.id if hasattr(item, "id") else item for item in v]
 
     @field_validator("image_ref", mode="after")
     @classmethod
@@ -286,6 +310,11 @@ class RecipeSummary(BaseModel):
     is_verified: bool = False
     is_favorite: bool = False
     created_at: datetime
+    # Already public on the detail view (RecipeOut); exposing it here too is
+    # not a new leak class — it's what lets sharing.service build shared-
+    # cookbook recipe rows ("last edited by X") off this same summary shape
+    # instead of a bespoke query. See cookbook.service.recipe_summaries_for_ids.
+    last_edited_by: uuid.UUID | None = None
 
     model_config = {"from_attributes": True}
 
@@ -298,3 +327,28 @@ class RecipeSummary(BaseModel):
     @classmethod
     def vocab_to_names(cls, v: Any) -> list[str]:
         return extract_vocab_names(v)
+
+
+class RecipePage(BaseModel):
+    """Paginated result of ``GET /api/recipes``."""
+
+    items: list[RecipeSummary]
+    total: int
+    limit: int
+    offset: int
+
+
+class CollectionOut(BaseModel):
+    """Response shape for the collections endpoints — includes a recipe count.
+
+    Not built via ``from_attributes`` off the ORM ``Collection`` directly
+    (the count comes from a separate aggregate in the service layer), but
+    ``from_attributes`` is still enabled so ``Collection.id``/``.name`` can
+    be read off the ORM row when constructing this.
+    """
+
+    id: uuid.UUID
+    name: str
+    recipe_count: int
+
+    model_config = {"from_attributes": True}

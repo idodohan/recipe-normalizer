@@ -1,0 +1,73 @@
+/* ------------------------------------------------------------------ */
+/*  Public recipe page (/p/:token) — the unauthenticated share view.   */
+/*  Minimal chrome: a wordmark strip standing in for the app shell's   */
+/*  topbar, and a quiet footer link back home. The recipe itself       */
+/*  reuses recipe-detail.css's `rd__*` classes verbatim so a shared    */
+/*  link reads as the same cookbook plate, just without the toolbar,  */
+/*  favorite/notes/collections affordances, or nav.                    */
+/* ------------------------------------------------------------------ */
+
+.prp {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.prp__topbar {
+  border-bottom: var(--hairline);
+  background-color: var(--color-paper);
+}
+
+.prp__wordmark {
+  display: block;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-6);
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 540;
+  font-size: 1.3125rem;
+  letter-spacing: -0.01em;
+  color: var(--color-ink);
+}
+
+.prp__wordmark:hover {
+  text-decoration: none;
+  color: var(--color-accent-deep);
+}
+
+.prp__main {
+  flex: 1;
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--space-7) var(--space-6) var(--space-9);
+}
+
+.prp__footer {
+  border-top: var(--hairline);
+  padding: var(--space-6);
+  text-align: center;
+  font-size: var(--text-small);
+  color: var(--color-text-faint);
+}
+
+.prp__footer a {
+  color: var(--color-text-faint);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.prp__footer a:hover {
+  color: var(--color-accent-deep);
+}
+
+@media (max-width: 720px) {
+  .prp__wordmark {
+    padding: var(--space-3) var(--space-5);
+  }
+
+  .prp__main {
+    padding: var(--space-6) var(--space-5) var(--space-8);
+  }
+}

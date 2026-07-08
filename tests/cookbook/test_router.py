@@ -59,6 +59,49 @@ def _create_recipe(client: TestClient) -> str:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/recipes — RecipePage shape + query params
+# ---------------------------------------------------------------------------
+
+
+def test_list_recipes_returns_recipe_page_shape(auth_client: TestClient) -> None:
+    _create_recipe(auth_client)
+    resp = auth_client.get("/api/recipes")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert set(body.keys()) == {"items", "total", "limit", "offset"}
+    assert body["total"] == 1
+    assert len(body["items"]) == 1
+    assert body["items"][0]["title"] == "Test Cake"
+
+
+def test_list_recipes_q_param_filters(auth_client: TestClient) -> None:
+    _create_recipe(auth_client)
+    resp = auth_client.get("/api/recipes", params={"q": "nonexistent term xyz"})
+    assert resp.status_code == 200
+    assert resp.json()["items"] == []
+    assert resp.json()["total"] == 0
+
+
+def test_list_recipes_limit_offset_params(auth_client: TestClient) -> None:
+    _create_recipe(auth_client)
+    resp = auth_client.get("/api/recipes", params={"limit": 1, "offset": 0})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["limit"] == 1
+    assert body["offset"] == 0
+
+
+def test_list_recipes_invalid_dietary_returns_422(auth_client: TestClient) -> None:
+    resp = auth_client.get("/api/recipes", params={"dietary": "carnivore"})
+    assert resp.status_code == 422
+
+
+def test_list_recipes_unauthenticated_returns_401(client: TestClient) -> None:
+    resp = client.get("/api/recipes")
+    assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
 # Unauthenticated → 401 envelope
 # ---------------------------------------------------------------------------
 
@@ -265,3 +308,150 @@ def test_upload_image_replace_overwrites(auth_client: TestClient) -> None:
 
     get_resp = auth_client.get(f"/api/recipes/{recipe_id}")
     assert get_resp.json()["image_ref"] == second_ref
+
+
+# ---------------------------------------------------------------------------
+# Collections
+# ---------------------------------------------------------------------------
+
+
+def test_collections_unauthenticated_returns_401(client: TestClient) -> None:
+    resp = client.get("/api/collections")
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "unauthorized"
+
+
+def test_create_collection_returns_shape(auth_client: TestClient) -> None:
+    resp = auth_client.post("/api/collections", json={"name": "Weeknight Dinners"})
+    assert resp.status_code == 201
+    body = resp.json()
+    assert set(body.keys()) == {"id", "name", "recipe_count"}
+    assert body["name"] == "Weeknight Dinners"
+    assert body["recipe_count"] == 0
+
+
+def test_create_collection_duplicate_name_returns_409(auth_client: TestClient) -> None:
+    auth_client.post("/api/collections", json={"name": "Desserts"})
+    resp = auth_client.post("/api/collections", json={"name": "Desserts"})
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "duplicate_name"
+
+
+def test_list_collections_returns_created(auth_client: TestClient) -> None:
+    auth_client.post("/api/collections", json={"name": "A"})
+    auth_client.post("/api/collections", json={"name": "B"})
+    resp = auth_client.get("/api/collections")
+    assert resp.status_code == 200
+    names = {c["name"] for c in resp.json()}
+    assert names == {"A", "B"}
+
+
+def test_rename_collection(auth_client: TestClient) -> None:
+    created = auth_client.post("/api/collections", json={"name": "Old"}).json()
+    resp = auth_client.patch(f"/api/collections/{created['id']}", json={"name": "New"})
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "New"
+
+
+def test_rename_collection_other_owner_returns_404(client: TestClient) -> None:
+    _register_and_login(client, "owner@example.com")
+    created = client.post("/api/collections", json={"name": "Mine"}).json()
+
+    _register_and_login(client, "other@example.com")
+    resp = client.patch(f"/api/collections/{created['id']}", json={"name": "Stolen"})
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "not_found"
+
+
+def test_delete_collection_returns_204_and_leaves_recipe(auth_client: TestClient) -> None:
+    recipe_id = _create_recipe(auth_client)
+    collection_id = auth_client.post("/api/collections", json={"name": "Temp"}).json()["id"]
+    auth_client.put(
+        f"/api/recipes/{recipe_id}/collections", json={"collection_ids": [collection_id]}
+    )
+
+    resp = auth_client.delete(f"/api/collections/{collection_id}")
+    assert resp.status_code == 204
+
+    recipe_resp = auth_client.get(f"/api/recipes/{recipe_id}")
+    assert recipe_resp.status_code == 200
+    assert recipe_resp.json()["collection_ids"] == []
+
+    list_resp = auth_client.get("/api/collections")
+    assert list_resp.json() == []
+
+
+def test_delete_collection_other_owner_returns_404(client: TestClient) -> None:
+    _register_and_login(client, "owner@example.com")
+    created = client.post("/api/collections", json={"name": "Mine"}).json()
+
+    _register_and_login(client, "other@example.com")
+    resp = client.delete(f"/api/collections/{created['id']}")
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "not_found"
+
+
+def test_set_recipe_collections_returns_recipe_out_with_ids(auth_client: TestClient) -> None:
+    recipe_id = _create_recipe(auth_client)
+    c1 = auth_client.post("/api/collections", json={"name": "C1"}).json()["id"]
+    c2 = auth_client.post("/api/collections", json={"name": "C2"}).json()["id"]
+
+    resp = auth_client.put(
+        f"/api/recipes/{recipe_id}/collections", json={"collection_ids": [c1, c2]}
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["id"] == recipe_id
+    assert set(body["collection_ids"]) == {c1, c2}
+
+
+def test_set_recipe_collections_full_replace(auth_client: TestClient) -> None:
+    recipe_id = _create_recipe(auth_client)
+    c1 = auth_client.post("/api/collections", json={"name": "C1"}).json()["id"]
+    c2 = auth_client.post("/api/collections", json={"name": "C2"}).json()["id"]
+    auth_client.put(f"/api/recipes/{recipe_id}/collections", json={"collection_ids": [c1, c2]})
+
+    resp = auth_client.put(f"/api/recipes/{recipe_id}/collections", json={"collection_ids": [c2]})
+    assert resp.json()["collection_ids"] == [c2]
+
+
+def test_set_recipe_collections_foreign_collection_returns_404(client: TestClient) -> None:
+    _register_and_login(client, "owner@example.com")
+    recipe_id = _create_recipe(client)
+
+    _register_and_login(client, "other@example.com")
+    foreign_collection_id = client.post("/api/collections", json={"name": "Not Yours"}).json()["id"]
+
+    _register_and_login(client, "owner@example.com")
+    resp = client.put(
+        f"/api/recipes/{recipe_id}/collections",
+        json={"collection_ids": [foreign_collection_id]},
+    )
+    assert resp.status_code == 404
+
+
+def test_set_recipe_collections_other_owner_recipe_returns_404(client: TestClient) -> None:
+    _register_and_login(client, "owner@example.com")
+    recipe_id = _create_recipe(client)
+
+    _register_and_login(client, "other@example.com")
+    resp = client.put(f"/api/recipes/{recipe_id}/collections", json={"collection_ids": []})
+    assert resp.status_code == 404
+
+
+def test_list_recipes_collection_filter(auth_client: TestClient) -> None:
+    recipe_id = _create_recipe(auth_client)
+    collection_id = auth_client.post("/api/collections", json={"name": "Picks"}).json()["id"]
+    auth_client.put(
+        f"/api/recipes/{recipe_id}/collections", json={"collection_ids": [collection_id]}
+    )
+
+    resp = auth_client.get("/api/recipes", params={"collection": collection_id})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 1
+    assert body["items"][0]["id"] == recipe_id
+
+    other_collection_id = auth_client.post("/api/collections", json={"name": "Other"}).json()["id"]
+    resp2 = auth_client.get("/api/recipes", params={"collection": other_collection_id})
+    assert resp2.json()["items"] == []

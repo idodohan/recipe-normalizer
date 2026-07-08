@@ -8,6 +8,7 @@ import recipe_normalizer.catalog.models  # noqa: F401, E402
 import recipe_normalizer.cookbook.models  # noqa: F401, E402
 import recipe_normalizer.ingestion.models  # noqa: F401, E402
 import recipe_normalizer.llm.models  # noqa: F401, E402
+import recipe_normalizer.sharing.models  # noqa: F401, E402
 import recipe_normalizer.users.models  # noqa: F401, E402
 from recipe_normalizer.config import settings
 from recipe_normalizer.db import Base

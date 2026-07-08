@@ -14,8 +14,10 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 from rapidfuzz import fuzz, process
-from sqlalchemy import func, or_, select
+from sqlalchemy import Boolean, and_, func, not_, or_, select
+from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import ColumnElement, Select
 
 from recipe_normalizer.catalog.conversion import Converted, convert_to_normalized
 from recipe_normalizer.catalog.models import (
@@ -39,6 +41,7 @@ __all__ = [
     "_MatchChoice",
     "convert_to_normalized",
     "create_unreviewed",
+    "dietary_incompatible_ingredient_ids",
     "get_ingredient",
     "match",
     "match_or_create",
@@ -47,6 +50,37 @@ __all__ = [
     "search",
     "update_ingredient",
 ]
+
+# ---------------------------------------------------------------------------
+# Dietary flags
+# ---------------------------------------------------------------------------
+#
+# ``CanonicalIngredient.dietary_flags`` (see catalog/models.py) is a JSONB
+# list of raw *allergen/composition* tags drawn from
+# ``seed_loader.ALLOWED_DIETARY_FLAGS``:
+#   "contains-gluten", "dairy", "egg", "animal-product", "fish", "shellfish",
+#   "nut", "peanut", "soy", "sesame", "alcohol".
+# These are NOT the same strings as the user-facing diet filters
+# ("vegan" / "vegetarian" / "gluten_free") — the mapping below derives one
+# from the other. Every meat/poultry/fish/dairy/egg/honey entry in the seed
+# data carries "animal-product" (dairy rows additionally carry "dairy", egg
+# rows additionally carry "egg"); meat, poultry, and honey carry
+# "animal-product" alone.
+#
+#   - gluten_free: disqualified by "contains-gluten".
+#   - vegan:       disqualified by "animal-product" (which already covers
+#                  dairy/egg/fish/shellfish/honey/meat) — dairy/egg/fish/
+#                  shellfish are listed too for robustness against future
+#                  seed data that might carry one without "animal-product".
+#   - vegetarian:  disqualified by "fish" or "shellfish", OR by
+#                  "animal-product" *without* "dairy"/"egg" alongside it
+#                  (i.e. meat/poultry/honey — dairy and eggs remain allowed).
+#                  Note: this is a conservative approximation — honey has no
+#                  distinct tag from meat/poultry in the seed data, so it is
+#                  (incorrectly, strictly speaking) treated as non-vegetarian
+#                  rather than risk treating meat as vegetarian.
+_VEGAN_DISQUALIFYING_FLAGS = frozenset({"animal-product", "dairy", "egg", "fish", "shellfish"})
+_GLUTEN_FREE_DISQUALIFYING_FLAGS = frozenset({"contains-gluten"})
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +137,37 @@ def names_for_ids(db: Session, ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
         return {}
     rows = db.scalars(select(CanonicalIngredient).where(CanonicalIngredient.id.in_(ids))).all()
     return {row.id: row.name for row in rows}
+
+
+def dietary_incompatible_ingredient_ids(diet: str) -> Select[tuple[uuid.UUID]]:
+    """Return a ``Select`` of ``CanonicalIngredient.id`` incompatible with *diet*.
+
+    *diet* is one of ``"vegan"``, ``"vegetarian"``, ``"gluten_free"``.  See the
+    module-level comment above for the raw-flag → diet mapping. Callers (e.g.
+    ``cookbook.service.list_recipes``) embed this as a subquery — e.g. via
+    ``IngredientLine.canonical_ingredient_id.in_(...)`` — so they never need to
+    import ``CanonicalIngredient`` directly (import-linter boundary).
+
+    Raises ``ValueError`` for an unrecognised *diet*.
+    """
+    has_any = CanonicalIngredient.dietary_flags.op("?|", return_type=Boolean)
+    has_one = CanonicalIngredient.dietary_flags.op("?", return_type=Boolean)
+
+    condition: ColumnElement[bool]
+    if diet == "gluten_free":
+        condition = has_any(pg_array(sorted(_GLUTEN_FREE_DISQUALIFYING_FLAGS)))
+    elif diet == "vegan":
+        condition = has_any(pg_array(sorted(_VEGAN_DISQUALIFYING_FLAGS)))
+    elif diet == "vegetarian":
+        fish_or_shellfish = has_any(pg_array(["fish", "shellfish"]))
+        meat_or_honey = and_(
+            has_one("animal-product"),
+            not_(has_any(pg_array(["dairy", "egg"]))),
+        )
+        condition = or_(fish_or_shellfish, meat_or_honey)
+    else:
+        raise ValueError(f"Unknown dietary filter: {diet!r}")
+    return select(CanonicalIngredient.id).where(condition)
 
 
 def match(db: Session, text: str) -> CanonicalIngredient | None:

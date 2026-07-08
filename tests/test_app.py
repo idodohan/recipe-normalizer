@@ -147,14 +147,18 @@ def test_create_recipe_201(app_client: TestClient) -> None:
 def test_list_recipes_contains_summary(app_client: TestClient) -> None:
     resp = app_client.get("/api/recipes")
     assert resp.status_code == 200
-    titles = [r["title"] for r in resp.json()]
+    body = resp.json()
+    assert set(body.keys()) == {"items", "total", "limit", "offset"}
+    titles = [r["title"] for r in body["items"]]
     assert "Test Cocktail Bread" in titles
 
 
 def test_get_recipe_detail(app_client: TestClient) -> None:
     # First get the recipe id from the list
     list_resp = app_client.get("/api/recipes")
-    recipe_id = next(r["id"] for r in list_resp.json() if r["title"] == "Test Cocktail Bread")
+    recipe_id = next(
+        r["id"] for r in list_resp.json()["items"] if r["title"] == "Test Cocktail Bread"
+    )
 
     resp = app_client.get(f"/api/recipes/{recipe_id}")
     assert resp.status_code == 200
@@ -165,7 +169,9 @@ def test_get_recipe_detail(app_client: TestClient) -> None:
 
 def test_scaled_by_factor(app_client: TestClient) -> None:
     list_resp = app_client.get("/api/recipes")
-    recipe_id = next(r["id"] for r in list_resp.json() if r["title"] == "Test Cocktail Bread")
+    recipe_id = next(
+        r["id"] for r in list_resp.json()["items"] if r["title"] == "Test Cocktail Bread"
+    )
 
     resp = app_client.get(f"/api/recipes/{recipe_id}/scaled", params={"factor": 2})
     assert resp.status_code == 200
@@ -182,7 +188,9 @@ def test_scaled_by_factor(app_client: TestClient) -> None:
 
 def test_scaled_by_target_servings(app_client: TestClient) -> None:
     list_resp = app_client.get("/api/recipes")
-    recipe_id = next(r["id"] for r in list_resp.json() if r["title"] == "Test Cocktail Bread")
+    recipe_id = next(
+        r["id"] for r in list_resp.json()["items"] if r["title"] == "Test Cocktail Bread"
+    )
 
     resp = app_client.get(f"/api/recipes/{recipe_id}/scaled", params={"target_servings": 8})
     assert resp.status_code == 200
@@ -193,7 +201,9 @@ def test_scaled_by_target_servings(app_client: TestClient) -> None:
 
 def test_scaled_both_params_422(app_client: TestClient) -> None:
     list_resp = app_client.get("/api/recipes")
-    recipe_id = next(r["id"] for r in list_resp.json() if r["title"] == "Test Cocktail Bread")
+    recipe_id = next(
+        r["id"] for r in list_resp.json()["items"] if r["title"] == "Test Cocktail Bread"
+    )
 
     resp = app_client.get(
         f"/api/recipes/{recipe_id}/scaled",
@@ -206,7 +216,9 @@ def test_scaled_both_params_422(app_client: TestClient) -> None:
 
 def test_scaled_no_params_422(app_client: TestClient) -> None:
     list_resp = app_client.get("/api/recipes")
-    recipe_id = next(r["id"] for r in list_resp.json() if r["title"] == "Test Cocktail Bread")
+    recipe_id = next(
+        r["id"] for r in list_resp.json()["items"] if r["title"] == "Test Cocktail Bread"
+    )
 
     resp = app_client.get(f"/api/recipes/{recipe_id}/scaled")
     assert resp.status_code == 422
@@ -216,7 +228,9 @@ def test_scaled_no_params_422(app_client: TestClient) -> None:
 
 def test_delete_recipe_then_404(app_client: TestClient) -> None:
     list_resp = app_client.get("/api/recipes")
-    recipe_id = next(r["id"] for r in list_resp.json() if r["title"] == "Test Cocktail Bread")
+    recipe_id = next(
+        r["id"] for r in list_resp.json()["items"] if r["title"] == "Test Cocktail Bread"
+    )
 
     del_resp = app_client.delete(f"/api/recipes/{recipe_id}")
     assert del_resp.status_code == 204
@@ -418,6 +432,54 @@ def test_access_log_middleware_logs_request(caplog: pytest.LogCaptureFixture) ->
     assert "200" in message
 
 
+def test_access_log_redacts_public_link_tokens(caplog: pytest.LogCaptureFixture) -> None:
+    """Requests to /api/public/{token} routes log <token> instead of the actual token."""
+    app = create_app()
+    token = "sometoken123"
+    with (
+        caplog.at_level(logging.INFO, logger="recipe_normalizer.access"),
+        TestClient(app, raise_server_exceptions=False) as tc,
+    ):
+        # Will 404, but the access log still fires before the 404
+        resp = tc.get(f"/api/public/{token}")
+
+    # Verify it was a 404 (route doesn't exist yet or isn't authenticated)
+    assert resp.status_code == 404
+
+    access_records = [r for r in caplog.records if r.name == "recipe_normalizer.access"]
+    assert access_records, "expected an access-log record"
+    message = access_records[0].getMessage()
+
+    # Log must contain the redacted form
+    assert "/api/public/<token>" in message
+    # Log must NOT contain the actual token
+    assert token not in message
+
+
+def test_access_log_redacts_public_link_tokens_scaled(caplog: pytest.LogCaptureFixture) -> None:
+    """Requests to /api/public/{token}/scaled routes log <token> instead of the actual token."""
+    app = create_app()
+    token = "abc123def456"
+    with (
+        caplog.at_level(logging.INFO, logger="recipe_normalizer.access"),
+        TestClient(app, raise_server_exceptions=False) as tc,
+    ):
+        # Will likely be 404 or 422 (e.g., missing query params), but the access log still fires
+        resp = tc.get(f"/api/public/{token}/scaled")
+
+    # Accept any non-2xx response; the key is the redaction in logs
+    assert resp.status_code >= 400
+
+    access_records = [r for r in caplog.records if r.name == "recipe_normalizer.access"]
+    assert access_records, "expected an access-log record"
+    message = access_records[0].getMessage()
+
+    # Log must contain the redacted form
+    assert "/api/public/<token>/scaled" in message
+    # Log must NOT contain the actual token
+    assert token not in message
+
+
 # ---------------------------------------------------------------------------
 # CORS configuration (Task 7)
 # ---------------------------------------------------------------------------
@@ -441,3 +503,36 @@ def test_cors_origins_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert resp.status_code == 200
     assert resp.headers.get("access-control-allow-origin") == "https://b.example"
+
+
+# ---------------------------------------------------------------------------
+# Path redaction for public-link token security
+# ---------------------------------------------------------------------------
+
+
+def test_redact_path_public_link_basic() -> None:
+    """_redact_path redacts /api/public/{token} to /api/public/<token>."""
+    from recipe_normalizer.main import _redact_path
+
+    assert _redact_path("/api/public/abc") == "/api/public/<token>"
+
+
+def test_redact_path_public_link_scaled() -> None:
+    """_redact_path redacts /api/public/{token}/scaled to /api/public/<token>/scaled."""
+    from recipe_normalizer.main import _redact_path
+
+    assert _redact_path("/api/public/abc/scaled") == "/api/public/<token>/scaled"
+
+
+def test_redact_path_no_match_if_not_public_api() -> None:
+    """_redact_path leaves paths that don't start with /api/public/ unchanged."""
+    from recipe_normalizer.main import _redact_path
+
+    assert _redact_path("/api/publicnot/abc") == "/api/publicnot/abc"
+
+
+def test_redact_path_no_token_segment() -> None:
+    """_redact_path leaves /api/public/ (no token) unchanged."""
+    from recipe_normalizer.main import _redact_path
+
+    assert _redact_path("/api/public/") == "/api/public/"

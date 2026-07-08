@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import mimetypes
 import time as _time
 from collections.abc import Awaitable, Callable
 from importlib.metadata import version
@@ -17,13 +16,50 @@ from recipe_normalizer.catalog.router import router as catalog_router
 from recipe_normalizer.config import settings
 from recipe_normalizer.cookbook import service as cookbook_service
 from recipe_normalizer.cookbook.router import router as cookbook_router
-from recipe_normalizer.errors import ApiError, install_error_handlers
-from recipe_normalizer.filestore import FileStore, get_file_store
+from recipe_normalizer.errors import install_error_handlers
+from recipe_normalizer.filestore import FileStore, get_file_store, serve_stored_file
 from recipe_normalizer.ingestion.router import router as ingestion_router
+from recipe_normalizer.sharing import service as sharing_service
+from recipe_normalizer.sharing.router import public_router as sharing_public_router
+from recipe_normalizer.sharing.router import router as sharing_router
+from recipe_normalizer.sharing.router import shared_cookbooks_router
 from recipe_normalizer.users.models import User
 from recipe_normalizer.users.router import router as users_router
 
 access_logger = logging.getLogger("recipe_normalizer.access")
+
+
+def _redact_path(path: str) -> str:
+    """Redact public-link tokens from paths for safe logging.
+
+    Converts /api/public/{token} to /api/public/<token> to prevent
+    bearer tokens from appearing in access logs.
+
+    Examples:
+        /api/public/abc -> /api/public/<token>
+        /api/public/abc/scaled -> /api/public/<token>/scaled
+        /api/health -> /api/health (unchanged)
+        /api/public/ -> /api/public/ (unchanged, no token)
+    """
+    if not path.startswith("/api/public/"):
+        return path
+
+    # Remove the /api/public/ prefix
+    rest = path[len("/api/public/") :]
+
+    # If rest is empty, no token to redact
+    if not rest:
+        return path
+
+    # Find the next "/" after the token (if it exists)
+    next_slash = rest.find("/")
+
+    if next_slash == -1:
+        # No "/" after token: /api/public/{token}
+        return "/api/public/<token>"
+    else:
+        # "/" exists after token: /api/public/{token}/...
+        return "/api/public/<token>" + rest[next_slash:]
 
 
 def create_app() -> FastAPI:
@@ -65,7 +101,7 @@ def create_app() -> FastAPI:
             access_logger.info(
                 "%s %s -> %d (%.0f ms)",
                 request.method,
-                request.url.path,
+                _redact_path(request.url.path),
                 status,
                 (_time.perf_counter() - start) * 1000,
             )
@@ -75,12 +111,18 @@ def create_app() -> FastAPI:
 
     # Register cookbook merge hooks (idempotent)
     cookbook_service.register_hooks()
+    # Register sharing's shared-cookbook membership checker into cookbook
+    # (idempotent) — the access-widening hook, mirroring the line above.
+    sharing_service.register_hooks()
 
     # Include routers
     app.include_router(users_router)
     app.include_router(catalog_router)
     app.include_router(cookbook_router)
     app.include_router(ingestion_router)
+    app.include_router(sharing_router)
+    app.include_router(shared_cookbooks_router)
+    app.include_router(sharing_public_router)
 
     @app.get("/api/health", tags=["health"])
     def health() -> dict[str, str]:
@@ -97,18 +139,7 @@ def create_app() -> FastAPI:
         Returns the raw bytes with a guessed media type.
         Invalid or missing refs produce a 404 envelope (no detail leaked).
         """
-        try:
-            data = store.open(ref)
-        except ValueError as exc:
-            raise ApiError(404, "not_found", "File not found.") from exc
-        except FileNotFoundError as exc:
-            raise ApiError(404, "not_found", "File not found.") from exc
-
-        media_type, _ = mimetypes.guess_type(ref)
-        if not media_type:
-            media_type = "application/octet-stream"
-
-        return Response(content=data, media_type=media_type)
+        return serve_stored_file(store, ref)
 
     return app
 

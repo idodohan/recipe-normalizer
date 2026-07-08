@@ -20,11 +20,14 @@ import { CatalogPage } from "./pages/CatalogPage";
 import { CookbookPage } from "./pages/CookbookPage";
 import { InboxPage } from "./pages/InboxPage";
 import { LoginPage } from "./pages/LoginPage";
+import { PublicRecipePage } from "./pages/PublicRecipePage";
 import { RecipeDetailPage } from "./pages/RecipeDetailPage";
 import { RecipeEditPage } from "./pages/RecipeEditPage";
 import { RecipeEditorPage } from "./pages/RecipeEditorPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { ReviewPage } from "./pages/ReviewPage";
+import { SharedCookbookPage } from "./pages/SharedCookbookPage";
+import { SharesPage } from "./pages/SharesPage";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
@@ -33,6 +36,9 @@ const queryClient = new QueryClient({
 const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
   { path: "/register", element: <RegisterPage /> },
+  // Unauthenticated public-link view — a sibling of /login, NOT nested under
+  // AuthenticatedApp: no session is required (or checked) to view it.
+  { path: "/p/:token", element: <PublicRecipePage /> },
   {
     path: "/",
     element: <AuthenticatedApp />,
@@ -44,6 +50,8 @@ const router = createBrowserRouter([
       { path: "recipes/:id/edit", element: <RecipeEditPage /> },
       { path: "recipes/:id", element: <RecipeDetailPage /> },
       { path: "catalog", element: <CatalogPage /> },
+      { path: "shares", element: <SharesPage /> },
+      { path: "shares/:id", element: <SharedCookbookPage /> },
     ],
   },
   { path: "*", element: <Navigate to="/" replace /> },
