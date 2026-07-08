@@ -353,6 +353,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/public/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Public Recipe */
+        get: operations["get_public_recipe_api_public__token__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/{token}/scaled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Public Recipe Scaled */
+        get: operations["get_public_recipe_scaled_api_public__token__scaled_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recipes": {
         parameters: {
             query?: never;
@@ -465,6 +499,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/share/public": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Public Links */
+        get: operations["list_public_links_api_share_public_get"];
+        put?: never;
+        /** Create Public Link */
+        post: operations["create_public_link_api_share_public_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/share/public/{link_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Public Link */
+        delete: operations["revoke_public_link_api_share_public__link_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/share/recipe": {
         parameters: {
             query?: never;
@@ -547,6 +616,17 @@ export interface components {
             name: string;
             /** Recipe Count */
             recipe_count: number;
+        };
+        /**
+         * CreatePublicLinkIn
+         * @description Body for POST /api/share/public.
+         */
+        CreatePublicLinkIn: {
+            /**
+             * Recipe Id
+             * Format: uuid
+             */
+            recipe_id: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -824,6 +904,136 @@ export interface components {
          * @enum {string}
          */
         PreferredMeasure: "mass" | "volume";
+        /**
+         * PublicLinkOut
+         * @description One of the current user's public links (authenticated management view).
+         */
+        PublicLinkOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Recipe Id
+             * Format: uuid
+             */
+            recipe_id: string;
+            /** Recipe Title */
+            recipe_title: string;
+            /** Revoked At */
+            revoked_at?: string | null;
+            /** Token */
+            token: string;
+        };
+        /**
+         * PublicRecipeOut
+         * @description Recipe payload served at the unauthenticated ``GET /api/public/{token}``.
+         *
+         *     Deliberately an ALLOWLIST (not a blocklist on top of ``RecipeOut``):
+         *     every field below is one this module has explicitly decided is safe to
+         *     hand to an anonymous visitor holding a valid token. Anything on
+         *     ``RecipeOut`` not listed here is dropped, including future additions —
+         *     ``from_recipe_out`` round-trips through ``RecipeOut.model_dump()`` and
+         *     pydantic silently ignores keys this model doesn't declare, so a new
+         *     sensitive field added to ``RecipeOut`` later does NOT leak here by
+         *     default; a maintainer must opt it in.
+         *
+         *     Explicitly excluded, per the phase plan:
+         *     - ``notes`` / ``is_favorite`` — the owner's personal data, not the
+         *       recipe's.
+         *     - ``collection_ids`` — the owner's personal organization, meaningless
+         *       (and mildly revealing) to a stranger.
+         *     - ``extraction_meta`` — internal LLM/ingestion-job debugging internals.
+         *     - ``provenance`` — contains ``shared_by`` = the sharer's EMAIL ADDRESS.
+         *       That's the one field here that would leak PII, so it's excluded
+         *       outright rather than redacted field-by-field.
+         */
+        PublicRecipeOut: {
+            /** Cook Min */
+            cook_min?: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Cuisines
+             * @default []
+             */
+            cuisines: string[];
+            /** Derived From */
+            derived_from?: string | null;
+            /** Description */
+            description?: string | null;
+            /**
+             * Dish Types
+             * @default []
+             */
+            dish_types: string[];
+            /**
+             * Groups
+             * @default []
+             */
+            groups: components["schemas"]["IngredientGroupOut"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Image Ref */
+            image_ref?: string | null;
+            /**
+             * Is Verified
+             * @default false
+             */
+            is_verified: boolean;
+            /**
+             * Language
+             * @default en
+             */
+            language: string;
+            /** Last Edited At */
+            last_edited_at?: string | null;
+            /** Last Edited By */
+            last_edited_by?: string | null;
+            /**
+             * Owner Id
+             * Format: uuid
+             */
+            owner_id: string;
+            /** Prep Min */
+            prep_min?: number | null;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            servings?: components["schemas"]["ServingsOut"] | null;
+            /** Source */
+            source?: string | null;
+            /** Source Type */
+            source_type: string;
+            /**
+             * Steps
+             * @default []
+             */
+            steps: components["schemas"]["StepOut"][];
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
+            /** Title */
+            title: string;
+            /** Total Min */
+            total_min?: number | null;
+        };
         /** RecipeIn */
         RecipeIn: {
             /** Cook Min */
@@ -1945,6 +2155,71 @@ export interface operations {
             };
         };
     };
+    get_public_recipe_api_public__token__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicRecipeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_public_recipe_scaled_api_public__token__scaled_get: {
+        parameters: {
+            query?: {
+                factor?: number | null;
+                target_servings?: number | null;
+            };
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScaledRecipeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_recipes_api_recipes_get: {
         parameters: {
             query?: {
@@ -2272,6 +2547,88 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ScaledRecipeOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_public_links_api_share_public_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicLinkOut"][];
+                };
+            };
+        };
+    };
+    create_public_link_api_share_public_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePublicLinkIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicLinkOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_public_link_api_share_public__link_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                link_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

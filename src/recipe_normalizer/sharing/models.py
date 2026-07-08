@@ -1,16 +1,27 @@
-"""Sharing models: `shares`, the copy-on-share audit trail.
+"""Sharing models: `shares` (copy-on-share audit trail), `public_links`.
 
-More tables (public links, shared cookbooks + memberships) land here in
-later tasks of the same phase.
+More tables (shared cookbooks + memberships) land here in a later task of
+the same phase.
 """
 
+import secrets
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, func
+from sqlalchemy import DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from recipe_normalizer.db import Base, new_uuid
+
+
+def _new_token() -> str:
+    """Unguessable public-link token.
+
+    ``secrets.token_urlsafe(24)`` yields 24 random bytes (~192 bits of
+    entropy) as a 32-character urlsafe-base64 string — comfortably over the
+    >=128-bit bar from the phase plan's global constraints.
+    """
+    return secrets.token_urlsafe(24)
 
 
 class Share(Base):
@@ -47,6 +58,40 @@ class Share(Base):
     copied_recipe_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("recipes.id", ondelete="CASCADE"), index=True, nullable=False
     )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=func.now()
+    )
+
+
+class PublicLink(Base):
+    """A tokenized, revocable, read-only link to one recipe — no account needed.
+
+    ``recipe_id`` IS a real foreign key with ``ON DELETE CASCADE`` (unlike
+    ``Share.origin_recipe_id`` above): a public link has no reason to outlive
+    the recipe it points at — once the recipe is gone there is nothing left
+    to serve, so the link should disappear with it rather than start
+    resolving to a ghost / 404 forever.
+
+    Revocation is soft-delete (``revoked_at`` timestamp) rather than row
+    deletion so the owner's management list (``GET /api/share/public``) can
+    still show past links; the public GET endpoint treats a revoked link
+    exactly like a nonexistent token (both 404, same body — see
+    sharing/service.py).
+    """
+
+    __tablename__ = "public_links"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    token: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True, nullable=False, default=_new_token
+    )
+    recipe_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("recipes.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=func.now()
     )

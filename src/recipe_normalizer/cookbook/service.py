@@ -58,8 +58,10 @@ __all__ = [
     "delete_recipe",
     "find_recipe_id_by_fingerprint",
     "get_recipe",
+    "get_recipe_unscoped",
     "list_collections",
     "list_recipes",
+    "recipe_titles_for_ids",
     "register_hooks",
     "rename_collection",
     "repoint_ingredient_lines",
@@ -401,6 +403,32 @@ def get_recipe(
     if loaded is None or loaded.owner_id != owner_id:
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
     return RecipeOut.model_validate(loaded)
+
+
+def get_recipe_unscoped(db: Session, recipe_id: uuid.UUID) -> RecipeOut:
+    """Fetch a recipe by id only — NO owner check.
+
+    For trusted internal callers that have already established the caller's
+    right to view this *specific* recipe through an out-of-band mechanism
+    (e.g. `sharing.service` resolving a valid, unrevoked public-link token).
+    Never wire this to an authenticated user-facing route directly — that
+    would reintroduce the exact "recipe visible ⇔ owner" hole sharing is
+    meant to punch through deliberately, not accidentally.
+
+    Raises ApiError 404 if *recipe_id* doesn't exist.
+    """
+    loaded = _load_recipe_full(db, recipe_id)
+    if loaded is None:
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+    return RecipeOut.model_validate(loaded)
+
+
+def recipe_titles_for_ids(db: Session, ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """Map recipe ids to their titles (for callers rendering a list of refs)."""
+    if not ids:
+        return {}
+    rows = db.execute(select(Recipe.id, Recipe.title).where(Recipe.id.in_(ids))).all()
+    return {row.id: row.title for row in rows}
 
 
 def copy_recipe(
