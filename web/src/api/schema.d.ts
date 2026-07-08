@@ -551,6 +551,109 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/shared-cookbooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Shared Cookbooks */
+        get: operations["list_shared_cookbooks_api_shared_cookbooks_get"];
+        put?: never;
+        /** Create Shared Cookbook */
+        post: operations["create_shared_cookbook_api_shared_cookbooks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shared-cookbooks/{cookbook_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Shared Cookbook */
+        get: operations["get_shared_cookbook_api_shared_cookbooks__cookbook_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shared-cookbooks/{cookbook_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Invite Member */
+        post: operations["invite_member_api_shared_cookbooks__cookbook_id__members_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shared-cookbooks/{cookbook_id}/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove Member */
+        delete: operations["remove_member_api_shared_cookbooks__cookbook_id__members__user_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shared-cookbooks/{cookbook_id}/recipes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Shared Cookbook Recipe */
+        post: operations["add_shared_cookbook_recipe_api_shared_cookbooks__cookbook_id__recipes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shared-cookbooks/{cookbook_id}/recipes/{recipe_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove Shared Cookbook Recipe */
+        delete: operations["remove_shared_cookbook_recipe_api_shared_cookbooks__cookbook_id__recipes__recipe_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/vocab": {
         parameters: {
             query?: never;
@@ -572,6 +675,17 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AddSharedCookbookRecipeIn
+         * @description Body for POST /api/shared-cookbooks/{id}/recipes.
+         */
+        AddSharedCookbookRecipeIn: {
+            /**
+             * Recipe Id
+             * Format: uuid
+             */
+            recipe_id: string;
+        };
         /** AliasOut */
         AliasOut: {
             /** Alias */
@@ -627,6 +741,14 @@ export interface components {
              * Format: uuid
              */
             recipe_id: string;
+        };
+        /**
+         * CreateSharedCookbookIn
+         * @description Body for POST /api/shared-cookbooks.
+         */
+        CreateSharedCookbookIn: {
+            /** Name */
+            name: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -760,6 +882,17 @@ export interface components {
          * @enum {string}
          */
         InputType: "url" | "pdf" | "image" | "text";
+        /**
+         * InviteMemberIn
+         * @description Body for POST /api/shared-cookbooks/{id}/members.
+         */
+        InviteMemberIn: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+        };
         /**
          * JobDetailOut
          * @description Extended job output that also embeds the list of draft recipe summaries.
@@ -1233,6 +1366,8 @@ export interface components {
              * @default false
              */
             is_verified: boolean;
+            /** Last Edited By */
+            last_edited_by?: string | null;
             /** Title */
             title: string;
             /** Total Min */
@@ -1387,6 +1522,120 @@ export interface components {
              * Format: email
              */
             to_email: string;
+        };
+        /**
+         * SharedCookbookDetailOut
+         * @description GET /api/shared-cookbooks/{id} — full detail: members + recipes.
+         */
+        SharedCookbookDetailOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Members */
+            members: components["schemas"]["SharedCookbookMemberOut"][];
+            /** Name */
+            name: string;
+            /** Recipes */
+            recipes: components["schemas"]["SharedCookbookRecipeOut"][];
+        };
+        /**
+         * SharedCookbookMemberOut
+         * @description One member of a shared cookbook — display_name only, deliberately NOT
+         *     email. See sharing.service module docstring: friends already know each
+         *     other, and there's no reason to hand every member everyone else's email
+         *     address just to render a member list.
+         */
+        SharedCookbookMemberOut: {
+            /** Display Name */
+            display_name: string;
+            /** Is Creator */
+            is_creator: boolean;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+        };
+        /**
+         * SharedCookbookOut
+         * @description One shared cookbook, as it appears in the caller's own list.
+         */
+        SharedCookbookOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Created By
+             * Format: uuid
+             */
+            created_by: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Member Count */
+            member_count: number;
+            /** Name */
+            name: string;
+            /** Recipe Count */
+            recipe_count: number;
+        };
+        /**
+         * SharedCookbookRecipeOut
+         * @description One recipe in a shared cookbook's detail view.
+         *
+         *     RecipeSummary-shaped (id/title/image_ref/dish_types/total_min/
+         *     is_verified/created_at), plus who last edited it. Deliberately does NOT
+         *     include ``is_favorite`` — that column reflects the RECIPE OWNER's
+         *     personal favorite flag, which is meaningless (and mildly confusing) to
+         *     render to other members who aren't the owner.
+         */
+        SharedCookbookRecipeOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Dish Types
+             * @default []
+             */
+            dish_types: string[];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Image Ref */
+            image_ref?: string | null;
+            /**
+             * Is Verified
+             * @default false
+             */
+            is_verified: boolean;
+            /** Last Edited By */
+            last_edited_by?: string | null;
+            /** Last Edited By Name */
+            last_edited_by_name?: string | null;
+            /** Title */
+            title: string;
+            /** Total Min */
+            total_min?: number | null;
         };
         /**
          * SourceType
@@ -2662,6 +2911,220 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ShareOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_shared_cookbooks_api_shared_cookbooks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedCookbookOut"][];
+                };
+            };
+        };
+    };
+    create_shared_cookbook_api_shared_cookbooks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSharedCookbookIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedCookbookOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_shared_cookbook_api_shared_cookbooks__cookbook_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cookbook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedCookbookDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    invite_member_api_shared_cookbooks__cookbook_id__members_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cookbook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteMemberIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedCookbookMemberOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_member_api_shared_cookbooks__cookbook_id__members__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cookbook_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_shared_cookbook_recipe_api_shared_cookbooks__cookbook_id__recipes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cookbook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddSharedCookbookRecipeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedCookbookRecipeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_shared_cookbook_recipe_api_shared_cookbooks__cookbook_id__recipes__recipe_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cookbook_id: string;
+                recipe_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

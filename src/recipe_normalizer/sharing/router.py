@@ -1,9 +1,13 @@
-"""Sharing API routes: copy-on-share and public links.
+"""Sharing API routes: copy-on-share, public links, and shared cookbooks.
 
-Two routers live here:
+Three routers live here:
 
 - ``router`` (prefix ``/api/share``) — authenticated management endpoints,
   gated by ``get_current_user`` like every other cookbook route.
+- ``shared_cookbooks_router`` (prefix ``/api/shared-cookbooks``) —
+  authenticated shared-cookbook CRUD + membership + recipe-linking
+  endpoints. Every endpoint below the create/list pair is member-gated and
+  404s (never 403s) for non-members — see sharing/service.py for why.
 - ``public_router`` (prefix ``/api/public``) — the unauthenticated, token-only
   surface. These routes deliberately carry NO ``get_current_user`` dependency
   anywhere in their signature — see ``tests/sharing/test_router.py`` for a
@@ -25,14 +29,22 @@ from recipe_normalizer.db import get_db
 from recipe_normalizer.errors import ApiError
 from recipe_normalizer.sharing import service
 from recipe_normalizer.sharing.schemas import (
+    AddSharedCookbookRecipeIn,
     CreatePublicLinkIn,
+    CreateSharedCookbookIn,
+    InviteMemberIn,
     PublicLinkOut,
     PublicRecipeOut,
+    SharedCookbookDetailOut,
+    SharedCookbookMemberOut,
+    SharedCookbookOut,
+    SharedCookbookRecipeOut,
     ShareOut,
     ShareRecipeIn,
 )
 
 router = APIRouter(prefix="/api/share", tags=["sharing"])
+shared_cookbooks_router = APIRouter(prefix="/api/shared-cookbooks", tags=["shared-cookbooks"])
 public_router = APIRouter(prefix="/api/public", tags=["public"])
 
 _share_limit = limit_by_user("share", 30, 3600.0)
@@ -53,6 +65,91 @@ def share_recipe(
         recipe_id=body.recipe_id,
         to_email=body.to_email,
     )
+
+
+# ---------------------------------------------------------------------------
+# Shared cookbooks
+# ---------------------------------------------------------------------------
+
+
+@shared_cookbooks_router.post("", status_code=201, response_model=SharedCookbookOut)
+def create_shared_cookbook(
+    body: CreateSharedCookbookIn,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> SharedCookbookOut:
+    return service.create_shared_cookbook(db, creator_id=current_user.id, name=body.name)
+
+
+@shared_cookbooks_router.get("", response_model=list[SharedCookbookOut])
+def list_shared_cookbooks(
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> list[SharedCookbookOut]:
+    return service.list_my_shared_cookbooks(db, user_id=current_user.id)
+
+
+@shared_cookbooks_router.get("/{cookbook_id}", response_model=SharedCookbookDetailOut)
+def get_shared_cookbook(
+    cookbook_id: uuid.UUID,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> SharedCookbookDetailOut:
+    return service.get_shared_cookbook(db, user_id=current_user.id, cookbook_id=cookbook_id)
+
+
+@shared_cookbooks_router.post(
+    "/{cookbook_id}/members", status_code=201, response_model=SharedCookbookMemberOut
+)
+def invite_member(
+    cookbook_id: uuid.UUID,
+    body: InviteMemberIn,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> SharedCookbookMemberOut:
+    return service.invite_member(
+        db, user_id=current_user.id, cookbook_id=cookbook_id, email=body.email
+    )
+
+
+@shared_cookbooks_router.delete("/{cookbook_id}/members/{user_id}", status_code=204)
+def remove_member(
+    cookbook_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> Response:
+    service.remove_member(
+        db, user_id=current_user.id, cookbook_id=cookbook_id, target_user_id=user_id
+    )
+    return Response(status_code=204)
+
+
+@shared_cookbooks_router.post(
+    "/{cookbook_id}/recipes", status_code=201, response_model=SharedCookbookRecipeOut
+)
+def add_shared_cookbook_recipe(
+    cookbook_id: uuid.UUID,
+    body: AddSharedCookbookRecipeIn,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> SharedCookbookRecipeOut:
+    return service.add_recipe_to_shared_cookbook(
+        db, user_id=current_user.id, cookbook_id=cookbook_id, recipe_id=body.recipe_id
+    )
+
+
+@shared_cookbooks_router.delete("/{cookbook_id}/recipes/{recipe_id}", status_code=204)
+def remove_shared_cookbook_recipe(
+    cookbook_id: uuid.UUID,
+    recipe_id: uuid.UUID,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> Response:
+    service.remove_recipe_from_shared_cookbook(
+        db, user_id=current_user.id, cookbook_id=cookbook_id, recipe_id=recipe_id
+    )
+    return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------------

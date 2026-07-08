@@ -310,6 +310,11 @@ class RecipeSummary(BaseModel):
     is_verified: bool = False
     is_favorite: bool = False
     created_at: datetime
+    # Already public on the detail view (RecipeOut); exposing it here too is
+    # not a new leak class — it's what lets sharing.service build shared-
+    # cookbook recipe rows ("last edited by X") off this same summary shape
+    # instead of a bespoke query. See cookbook.service.recipe_summaries_for_ids.
+    last_edited_by: uuid.UUID | None = None
 
     model_config = {"from_attributes": True}
 

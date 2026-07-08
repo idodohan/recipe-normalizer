@@ -104,3 +104,80 @@ class PublicRecipeOut(BaseModel):
     def from_recipe_out(cls, recipe: RecipeOut) -> PublicRecipeOut:
         data: dict[str, Any] = recipe.model_dump(mode="json")
         return cls.model_validate(data)
+
+
+# ---------------------------------------------------------------------------
+# Shared cookbooks
+# ---------------------------------------------------------------------------
+
+
+class CreateSharedCookbookIn(BaseModel):
+    """Body for POST /api/shared-cookbooks."""
+
+    name: str = Field(min_length=1, max_length=120)
+
+
+class InviteMemberIn(BaseModel):
+    """Body for POST /api/shared-cookbooks/{id}/members."""
+
+    email: EmailStr = Field(max_length=320)
+
+
+class AddSharedCookbookRecipeIn(BaseModel):
+    """Body for POST /api/shared-cookbooks/{id}/recipes."""
+
+    recipe_id: uuid.UUID
+
+
+class SharedCookbookOut(BaseModel):
+    """One shared cookbook, as it appears in the caller's own list."""
+
+    id: uuid.UUID
+    name: str
+    created_by: uuid.UUID
+    created_at: datetime
+    member_count: int
+    recipe_count: int
+
+
+class SharedCookbookMemberOut(BaseModel):
+    """One member of a shared cookbook — display_name only, deliberately NOT
+    email. See sharing.service module docstring: friends already know each
+    other, and there's no reason to hand every member everyone else's email
+    address just to render a member list."""
+
+    user_id: uuid.UUID
+    display_name: str
+    is_creator: bool
+
+
+class SharedCookbookRecipeOut(BaseModel):
+    """One recipe in a shared cookbook's detail view.
+
+    RecipeSummary-shaped (id/title/image_ref/dish_types/total_min/
+    is_verified/created_at), plus who last edited it. Deliberately does NOT
+    include ``is_favorite`` — that column reflects the RECIPE OWNER's
+    personal favorite flag, which is meaningless (and mildly confusing) to
+    render to other members who aren't the owner.
+    """
+
+    id: uuid.UUID
+    title: str
+    image_ref: str | None = None
+    dish_types: list[str] = []
+    total_min: int | None = None
+    is_verified: bool = False
+    created_at: datetime
+    last_edited_by: uuid.UUID | None = None
+    last_edited_by_name: str | None = None
+
+
+class SharedCookbookDetailOut(BaseModel):
+    """GET /api/shared-cookbooks/{id} — full detail: members + recipes."""
+
+    id: uuid.UUID
+    name: str
+    created_by: uuid.UUID
+    created_at: datetime
+    members: list[SharedCookbookMemberOut]
+    recipes: list[SharedCookbookRecipeOut]

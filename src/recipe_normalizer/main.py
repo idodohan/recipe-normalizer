@@ -20,8 +20,10 @@ from recipe_normalizer.cookbook.router import router as cookbook_router
 from recipe_normalizer.errors import ApiError, install_error_handlers
 from recipe_normalizer.filestore import FileStore, get_file_store
 from recipe_normalizer.ingestion.router import router as ingestion_router
+from recipe_normalizer.sharing import service as sharing_service
 from recipe_normalizer.sharing.router import public_router as sharing_public_router
 from recipe_normalizer.sharing.router import router as sharing_router
+from recipe_normalizer.sharing.router import shared_cookbooks_router
 from recipe_normalizer.users.models import User
 from recipe_normalizer.users.router import router as users_router
 
@@ -110,6 +112,9 @@ def create_app() -> FastAPI:
 
     # Register cookbook merge hooks (idempotent)
     cookbook_service.register_hooks()
+    # Register sharing's shared-cookbook membership checker into cookbook
+    # (idempotent) — the access-widening hook, mirroring the line above.
+    sharing_service.register_hooks()
 
     # Include routers
     app.include_router(users_router)
@@ -117,6 +122,7 @@ def create_app() -> FastAPI:
     app.include_router(cookbook_router)
     app.include_router(ingestion_router)
     app.include_router(sharing_router)
+    app.include_router(shared_cookbooks_router)
     app.include_router(sharing_public_router)
 
     @app.get("/api/health", tags=["health"])
