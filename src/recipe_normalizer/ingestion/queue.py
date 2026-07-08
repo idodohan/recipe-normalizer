@@ -19,9 +19,9 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, cast
+from typing import Any
 
-from sqlalchemy import CursorResult, or_, select, update
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from recipe_normalizer.ingestion.models import Job, JobStatus
@@ -194,17 +194,25 @@ def fail(
 def release_stale(db: Session, *, older_than_minutes: int = 10) -> int:
     """Requeue running jobs whose lock is older than the threshold (dead workers).
 
-    Attempts are left unchanged — a crash is not an extraction failure.
-    Returns the number of jobs released.
+    Each release counts as an attempt so a job that repeatedly kills its worker
+    (OOM, segfault) cannot loop forever: past MAX_ATTEMPTS it fails terminally.
+    Returns the number of jobs released or failed.
     """
     cutoff = _now() - timedelta(minutes=older_than_minutes)
-    result = cast(
-        CursorResult[Any],
-        db.execute(
-            update(Job)
-            .where(Job.status == JobStatus.running, Job.locked_at < cutoff)
-            .values(status=JobStatus.queued, locked_at=None, locked_by=None)
-            .execution_options(synchronize_session=False)
-        ),
-    )
-    return int(result.rowcount or 0)
+    jobs = db.scalars(
+        select(Job)
+        .where(Job.status == JobStatus.running, Job.locked_at < cutoff)
+        .with_for_update(skip_locked=True)
+    ).all()
+    for job in jobs:
+        job.attempts += 1
+        _clear_lock(job)
+        if job.attempts < MAX_ATTEMPTS:
+            job.status = JobStatus.queued
+        else:
+            job.status = JobStatus.failed
+            job.error = "worker died repeatedly while processing this job"
+            if not job.reason:
+                job.reason = _DEFAULT_FALLBACK_REASON
+    db.flush()
+    return len(jobs)
