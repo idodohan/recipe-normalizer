@@ -56,7 +56,8 @@ export function useFavoriteMutation(recipeId: string) {
 
       const patchPage = withFavoritePatched(recipeId, isFavorite);
       queryClient.setQueriesData<RecipeListData>({ queryKey: ["recipes"] }, (current) => {
-        if (!current) return current;
+        // Guard against unexpected cache shape; InfiniteData always has pages array
+        if (!current || !Array.isArray((current as {pages?: unknown}).pages)) return current;
         return { ...current, pages: current.pages.map(patchPage) };
       });
 

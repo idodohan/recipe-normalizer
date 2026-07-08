@@ -22,6 +22,13 @@ const DIETARY_OPTIONS: { value: Dietary; label: string }[] = [
   { value: "gluten_free", label: "Gluten-free" },
 ];
 
+function parseDietary(raw: string | null | undefined): Dietary | undefined {
+  if (raw === "vegan" || raw === "vegetarian" || raw === "gluten_free") {
+    return raw;
+  }
+  return undefined;
+}
+
 const PAGE_SIZE = 24;
 
 // Pagination approach: `useInfiniteQuery` (offset-paged via `pageParam`),
@@ -43,7 +50,7 @@ export function CookbookPage() {
   const cuisine = get("cuisine") ?? "";
   const dishType = get("dish_type") ?? "";
   const tag = get("tag") ?? "";
-  const dietary = (get("dietary") as Dietary | undefined) ?? undefined;
+  const dietary = parseDietary(get("dietary"));
   const favorites = get("favorites") === "true";
 
   // Debounce still settling — don't commit the in-flight keystroke to the
@@ -102,7 +109,7 @@ export function CookbookPage() {
 
   function clearAll() {
     setQueryInput("");
-    patch({ q: undefined, cuisine: undefined, dish_type: undefined, tag: undefined, dietary: undefined });
+    patch({ q: undefined, cuisine: undefined, dish_type: undefined, tag: undefined, dietary: undefined, favorites: undefined });
   }
 
   // Commit the debounced search text to the URL once typing settles, so the
