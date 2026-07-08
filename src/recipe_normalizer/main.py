@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import mimetypes
+import time as _time
+from collections.abc import Awaitable, Callable
 from importlib.metadata import version
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
@@ -18,6 +21,8 @@ from recipe_normalizer.filestore import FileStore, get_file_store
 from recipe_normalizer.ingestion.router import router as ingestion_router
 from recipe_normalizer.users.models import User
 from recipe_normalizer.users.router import router as users_router
+
+access_logger = logging.getLogger("recipe_normalizer.access")
 
 
 def create_app() -> FastAPI:
@@ -37,6 +42,22 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def access_log(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """Log every request: method, path, status, and duration."""
+        start = _time.perf_counter()
+        response = await call_next(request)
+        access_logger.info(
+            "%s %s -> %d (%.0f ms)",
+            request.method,
+            request.url.path,
+            response.status_code,
+            (_time.perf_counter() - start) * 1000,
+        )
+        return response
 
     # Install consistent error-envelope handlers
     install_error_handlers(app)

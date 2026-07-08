@@ -5,8 +5,9 @@ Run: ``python -m recipe_normalizer.worker [--once]``
 Transaction model — the worker is NOT behind get_db; it owns sessions
 explicitly, one phase per session:
 
-1. housekeeping/claim session: ``release_stale`` (commit), ``claim_next``
-   (commit immediately so the FOR UPDATE row lock is released quickly);
+1. housekeeping/claim session: ``release_stale`` + ``purge_expired_sessions``
+   (one commit), ``claim_next`` (commit immediately so the FOR UPDATE row
+   lock is released quickly);
 2. processing session: re-fetch the job, ``process_job`` (flush-only),
    commit on success;
 3. failure session: if processing raised, the broken session is rolled back
@@ -61,6 +62,7 @@ from recipe_normalizer.filestore import FileStore, get_file_store
 from recipe_normalizer.ingestion import queue
 from recipe_normalizer.ingestion.models import Job
 from recipe_normalizer.llm.client import CostCapExceeded, DbUsageRecorder, LLMClient
+from recipe_normalizer.users.service import purge_expired_sessions
 
 __all__ = ["JobProcessingError", "main", "make_llm_for_job", "process_job", "run_worker"]
 
@@ -423,9 +425,12 @@ def _claim_one(worker_id: str) -> uuid.UUID | None:
     """Housekeeping + claim in one short-lived session; commits release locks fast."""
     with db_module.SessionLocal() as db:
         released = queue.release_stale(db)
+        purged = purge_expired_sessions(db)
         db.commit()
         if released:
             logger.info("worker=%s released %d stale job(s)", worker_id, released)
+        if purged:
+            logger.info("worker=%s purged %d expired session(s)", worker_id, purged)
         job = queue.claim_next(db, worker_id=worker_id)
         job_id = job.id if job is not None else None
         db.commit()  # release the FOR UPDATE row lock immediately

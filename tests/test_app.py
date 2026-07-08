@@ -8,6 +8,8 @@ via a monkeypatched throwaway route.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -310,3 +312,61 @@ def test_scaled_target_servings_without_recipe_servings_returns_422(
     body = resp.json()
     assert body["error"]["code"] == "validation_error"
     assert "servings" in body["error"]["message"]
+
+
+# ---------------------------------------------------------------------------
+# Observability: unhandled 500s are logged, requests get an access log line
+# ---------------------------------------------------------------------------
+
+
+def test_unhandled_error_returns_500_and_logs_traceback(caplog: pytest.LogCaptureFixture) -> None:
+    """A route that raises an unhandled RuntimeError yields the 500 envelope
+
+    AND the exception (with traceback) is logged at ERROR level, so an
+    on-call engineer can find it in the logs.
+    """
+    from fastapi import FastAPI
+
+    from recipe_normalizer.errors import install_error_handlers
+
+    throwaway = FastAPI()
+    install_error_handlers(throwaway)
+
+    @throwaway.get("/boom")
+    def _boom() -> None:
+        raise RuntimeError("kaboom")
+
+    with (
+        caplog.at_level(logging.ERROR, logger="recipe_normalizer.errors"),
+        TestClient(throwaway, raise_server_exceptions=False) as tc,
+    ):
+        resp = tc.get("/boom")
+
+    assert resp.status_code == 500
+    body = resp.json()
+    assert body["error"]["code"] == "internal_error"
+
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert error_records, "expected an ERROR-level log record for the unhandled exception"
+    record = error_records[0]
+    assert record.exc_info is not None
+    assert "RuntimeError" in caplog.text
+    assert "kaboom" in caplog.text
+
+
+def test_access_log_middleware_logs_request(caplog: pytest.LogCaptureFixture) -> None:
+    """Every request produces an INFO access-log line with method, path, status."""
+    app = create_app()
+    with (
+        caplog.at_level(logging.INFO, logger="recipe_normalizer.access"),
+        TestClient(app, raise_server_exceptions=False) as tc,
+    ):
+        resp = tc.get("/api/health")
+
+    assert resp.status_code == 200
+    access_records = [r for r in caplog.records if r.name == "recipe_normalizer.access"]
+    assert access_records, "expected an access-log record"
+    message = access_records[0].getMessage()
+    assert "GET" in message
+    assert "/api/health" in message
+    assert "200" in message

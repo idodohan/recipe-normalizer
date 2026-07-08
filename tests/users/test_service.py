@@ -67,3 +67,28 @@ def test_expired_session_rejected(db_session):
     token, _ = service.login(db_session, email="a@x.com", password="p1234567")
     db_session.query(DbSession).update({"expires_at": datetime.now(UTC) - timedelta(hours=1)})
     assert service.get_user_by_token(db_session, token) is None
+
+
+def test_purge_expired_sessions_deletes_only_expired(db_session):
+    """purge_expired_sessions removes rows with expires_at <= now and leaves the rest."""
+    from datetime import UTC, datetime, timedelta
+
+    from recipe_normalizer.users.auth import hash_token
+    from recipe_normalizer.users.models import Session as DbSession
+
+    service.register(db_session, email="a@x.com", password="p1234567", display_name="A")
+    service.register(db_session, email="b@x.com", password="p1234567", display_name="B")
+    expired_token, _ = service.login(db_session, email="a@x.com", password="p1234567")
+    live_token, _ = service.login(db_session, email="b@x.com", password="p1234567")
+
+    db_session.query(DbSession).filter(DbSession.token_hash == hash_token(expired_token)).update(
+        {"expires_at": datetime.now(UTC) - timedelta(hours=1)}
+    )
+    db_session.flush()
+
+    deleted = service.purge_expired_sessions(db_session)
+    assert deleted == 1
+
+    remaining = db_session.query(DbSession).all()
+    assert len(remaining) == 1
+    assert remaining[0].token_hash == hash_token(live_token)

@@ -1,6 +1,8 @@
 from datetime import UTC, datetime
+from typing import Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from recipe_normalizer.config import settings
@@ -13,7 +15,15 @@ from recipe_normalizer.users.auth import (
 from recipe_normalizer.users.models import Session as DbSession
 from recipe_normalizer.users.models import User
 
-__all__ = ["AuthError", "User", "get_user_by_token", "login", "logout", "register"]
+__all__ = [
+    "AuthError",
+    "User",
+    "get_user_by_token",
+    "login",
+    "logout",
+    "purge_expired_sessions",
+    "register",
+]
 
 _provider = PasswordAuthProvider()
 
@@ -76,6 +86,16 @@ def logout(db: Session, token: str) -> None:
     if session is not None:
         db.delete(session)
         db.flush()
+
+
+def purge_expired_sessions(db: Session) -> int:
+    """Delete expired session rows; returns how many were removed."""
+    result = cast(
+        "CursorResult[Any]",
+        db.execute(delete(DbSession).where(DbSession.expires_at <= datetime.now(UTC))),
+    )
+    db.flush()
+    return int(result.rowcount or 0)
 
 
 def get_user_by_token(db: Session, token: str) -> User | None:

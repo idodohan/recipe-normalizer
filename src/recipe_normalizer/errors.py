@@ -4,10 +4,14 @@ This module is dependency-free with respect to other recipe_normalizer modules â
 it defines base exceptions that other modules subclass.
 """
 
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+logger = logging.getLogger(__name__)
 
 
 class ApiError(Exception):
@@ -87,6 +91,7 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def fallback_handler(request: Request, exc: Exception) -> JSONResponse:
+        logger.exception("unhandled error on %s %s", request.method, request.url.path, exc_info=exc)
         return JSONResponse(
             status_code=500,
             content=_envelope("internal_error", "An unexpected error occurred."),
