@@ -116,8 +116,14 @@ export function CollectionsControl({ recipeId, collectionIds }: CollectionsContr
     onSuccess: async (created: CollectionOut) => {
       setNewName("");
       await queryClient.invalidateQueries({ queryKey: ["collections"] });
-      // Auto-check the newly created collection for this recipe.
-      setRecipeCollections.mutate([...collectionIds, created.id]);
+      // Auto-check the newly created collection for this recipe. Build the
+      // id set from the latest cached recipe (not the `collectionIds` prop
+      // closure) so a concurrent/just-finished PUT isn't clobbered by a
+      // stale set — see the busy-gating above for why only one mutation
+      // can be in flight at a time regardless.
+      const latest = queryClient.getQueryData<RecipeOut>(["recipe", recipeId]);
+      const ids = latest?.collection_ids ?? collectionIds;
+      setRecipeCollections.mutate([...ids, created.id]);
     },
     onError: () => {
       toast({
@@ -172,24 +178,43 @@ export function CollectionsControl({ recipeId, collectionIds }: CollectionsContr
     },
   });
 
+  // Serialize all mutating affordances in the panel behind a single flag:
+  // with more than one of these in flight at once, a later `onSuccess` can
+  // build its next id set from a closure/cache read that predates an
+  // earlier still-in-flight PUT, silently dropping an assignment
+  // (lost-update race). Gating every checkbox/Add/rename/delete control on
+  // `busy` makes that interleaving structurally impossible — only one
+  // mutation can be pending at a time, so each mutate() call is the only
+  // writer until it resolves and invalidates the cache.
+  const busy =
+    setRecipeCollections.isPending ||
+    createCollection.isPending ||
+    renameCollection.isPending ||
+    deleteCollection.isPending;
+
   function toggle(collectionId: string, checked: boolean) {
+    // Same freshness concern as the create-collection auto-check: read the
+    // latest cached recipe rather than trusting the `collectionIds` prop
+    // closure, which can be stale by the time this fires.
+    const latest = queryClient.getQueryData<RecipeOut>(["recipe", recipeId]);
+    const current = latest?.collection_ids ?? collectionIds;
     const next = checked
-      ? [...collectionIds, collectionId]
-      : collectionIds.filter((existing) => existing !== collectionId);
+      ? [...current, collectionId]
+      : current.filter((existing) => existing !== collectionId);
     setRecipeCollections.mutate(next);
   }
 
   function handleCreate(event: FormEvent) {
     event.preventDefault();
     const trimmed = newName.trim();
-    if (!trimmed || createCollection.isPending) return;
+    if (!trimmed || busy) return;
     createCollection.mutate(trimmed);
   }
 
   function handleRenameSubmit(event: FormEvent, collectionId: string) {
     event.preventDefault();
     const trimmed = renameValue.trim();
-    if (!trimmed || renameCollection.isPending) return;
+    if (!trimmed || busy) return;
     renameCollection.mutate({ id: collectionId, name: trimmed });
   }
 
@@ -261,7 +286,7 @@ export function CollectionsControl({ recipeId, collectionIds }: CollectionsContr
                         <button
                           type="submit"
                           className="coll__text-btn"
-                          disabled={renameCollection.isPending}
+                          disabled={busy}
                         >
                           Save
                         </button>
@@ -279,7 +304,7 @@ export function CollectionsControl({ recipeId, collectionIds }: CollectionsContr
                         <button
                           type="button"
                           className="coll__text-btn coll__text-btn--danger"
-                          disabled={deleteCollection.isPending}
+                          disabled={busy}
                           onClick={() => deleteCollection.mutate(collection.id)}
                         >
                           {deleteCollection.isPending ? "Deleting…" : "Yes"}
@@ -287,7 +312,7 @@ export function CollectionsControl({ recipeId, collectionIds }: CollectionsContr
                         <button
                           type="button"
                           className="coll__text-btn"
-                          disabled={deleteCollection.isPending}
+                          disabled={busy}
                           onClick={() => setDeletingId(null)}
                         >
                           No
@@ -303,6 +328,7 @@ export function CollectionsControl({ recipeId, collectionIds }: CollectionsContr
                           <button
                             type="button"
                             className="coll__text-btn"
+                            disabled={busy}
                             onClick={() => {
                               setRenamingId(collection.id);
                               setRenameValue(collection.name);
@@ -313,6 +339,7 @@ export function CollectionsControl({ recipeId, collectionIds }: CollectionsContr
                           <button
                             type="button"
                             className="coll__text-btn coll__text-btn--danger"
+                            disabled={busy}
                             onClick={() => setDeletingId(collection.id)}
                           >
                             Delete
@@ -325,7 +352,7 @@ export function CollectionsControl({ recipeId, collectionIds }: CollectionsContr
                       <input
                         type="checkbox"
                         checked={collectionIds.includes(collection.id)}
-                        disabled={setRecipeCollections.isPending}
+                        disabled={busy}
                         onChange={(event) => toggle(collection.id, event.target.checked)}
                       />
                       <span className="coll__name">{collection.name}</span>
@@ -353,7 +380,7 @@ export function CollectionsControl({ recipeId, collectionIds }: CollectionsContr
                 <button
                   type="submit"
                   className="coll__text-btn coll__text-btn--primary"
-                  disabled={!newName.trim() || createCollection.isPending}
+                  disabled={!newName.trim() || busy}
                 >
                   {createCollection.isPending ? "Adding…" : "Add"}
                 </button>
