@@ -22,6 +22,7 @@ def pg_url() -> Iterator[str]:
 @pytest.fixture(scope="session")
 def engine(pg_url: str) -> Iterator[Engine]:
     eng = create_engine(pg_url)
+    import recipe_normalizer.ai.models  # noqa: F401
     import recipe_normalizer.catalog.models  # noqa: F401
     import recipe_normalizer.cookbook.models  # noqa: F401
     import recipe_normalizer.ingestion.models  # noqa: F401

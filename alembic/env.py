@@ -4,6 +4,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 # add new model modules here or autogenerate will silently miss their tables
+import recipe_normalizer.ai.models  # noqa: F401, E402
 import recipe_normalizer.catalog.models  # noqa: F401, E402
 import recipe_normalizer.cookbook.models  # noqa: F401, E402
 import recipe_normalizer.ingestion.models  # noqa: F401, E402

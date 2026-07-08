@@ -11,6 +11,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
+from recipe_normalizer.ai.router import router as ai_router
 from recipe_normalizer.api_deps import get_current_user
 from recipe_normalizer.catalog.router import router as catalog_router
 from recipe_normalizer.config import settings
@@ -123,6 +124,7 @@ def create_app() -> FastAPI:
     app.include_router(sharing_router)
     app.include_router(shared_cookbooks_router)
     app.include_router(sharing_public_router)
+    app.include_router(ai_router)
 
     @app.get("/api/health", tags=["health"])
     def health() -> dict[str, str]:
