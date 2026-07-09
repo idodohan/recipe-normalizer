@@ -4709,6 +4709,66 @@
         ]
       }
     },
+    "/api/recipes/{recipe_id}/similar": {
+      "get": {
+        "description": "\"More like this\" \u2014 content-similar recipes from the CALLER's own cookbook.\n\nAccess to *recipe_id* is the same owner-or-shared-cookbook-member check\nevery other per-recipe read uses (404 otherwise), but the recommendations\nthemselves are always drawn from the caller's own cookbook \u2014 see\n`service.recommendations_for_recipe`'s docstring.",
+        "operationId": "get_similar_recipes_api_recipes__recipe_id__similar_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "recipe_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Recipe Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 6,
+              "maximum": 20,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RecipeSummary"
+                  },
+                  "title": "Response Get Similar Recipes Api Recipes  Recipe Id  Similar Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Similar Recipes",
+        "tags": [
+          "recipes"
+        ]
+      }
+    },
     "/api/share/public": {
       "get": {
         "operationId": "list_public_links_api_share_public_get",

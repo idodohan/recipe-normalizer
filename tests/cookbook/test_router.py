@@ -455,3 +455,59 @@ def test_list_recipes_collection_filter(auth_client: TestClient) -> None:
     other_collection_id = auth_client.post("/api/collections", json={"name": "Other"}).json()["id"]
     resp2 = auth_client.get("/api/recipes", params={"collection": other_collection_id})
     assert resp2.json()["items"] == []
+
+
+# ---------------------------------------------------------------------------
+# GET /api/recipes/{id}/similar — Phase 3 Task 8 recommendations (deterministic)
+# ---------------------------------------------------------------------------
+
+
+def test_similar_recipes_unauthenticated_returns_401(client: TestClient) -> None:
+    resp = client.get(f"/api/recipes/{uuid.uuid4()}/similar")
+    assert resp.status_code == 401
+
+
+def test_similar_recipes_no_overlap_returns_empty_list(auth_client: TestClient) -> None:
+    recipe_id = _create_recipe(auth_client)
+    resp = auth_client.get(f"/api/recipes/{recipe_id}/similar")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+def test_similar_recipes_missing_recipe_returns_404(auth_client: TestClient) -> None:
+    resp = auth_client.get(f"/api/recipes/{uuid.uuid4()}/similar")
+    assert resp.status_code == 404
+
+
+def test_similar_recipes_other_owner_returns_404(client: TestClient) -> None:
+    _register_and_login(client, "owner@example.com")
+    recipe_id = _create_recipe(client)
+
+    _register_and_login(client, "other@example.com")
+    resp = client.get(f"/api/recipes/{recipe_id}/similar")
+    assert resp.status_code == 404
+
+
+def test_similar_recipes_returns_overlapping_recipe(auth_client: TestClient) -> None:
+    _olive_oil_line = {"original_text": "olive oil", "name": "olive oil"}
+    target_id = auth_client.post(
+        "/api/recipes",
+        json={
+            "title": "Target",
+            "cuisines": ["Italian"],
+            "groups": [{"name": "Main", "lines": [_olive_oil_line]}],
+        },
+    ).json()["id"]
+    match_id = auth_client.post(
+        "/api/recipes",
+        json={
+            "title": "Match",
+            "cuisines": ["Italian"],
+            "groups": [{"name": "Main", "lines": [_olive_oil_line]}],
+        },
+    ).json()["id"]
+
+    resp = auth_client.get(f"/api/recipes/{target_id}/similar")
+    assert resp.status_code == 200
+    ids = [item["id"] for item in resp.json()]
+    assert ids == [match_id]

@@ -648,6 +648,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recipes/{recipe_id}/similar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Similar Recipes
+         * @description "More like this" — content-similar recipes from the CALLER's own cookbook.
+         *
+         *     Access to *recipe_id* is the same owner-or-shared-cookbook-member check
+         *     every other per-recipe read uses (404 otherwise), but the recommendations
+         *     themselves are always drawn from the caller's own cookbook — see
+         *     `service.recommendations_for_recipe`'s docstring.
+         */
+        get: operations["get_similar_recipes_api_recipes__recipe_id__similar_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/share/public": {
         parameters: {
             query?: never;
@@ -3357,6 +3382,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScaledRecipeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_similar_recipes_api_recipes__recipe_id__similar_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                recipe_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecipeSummary"][];
                 };
             };
             /** @description Validation Error */

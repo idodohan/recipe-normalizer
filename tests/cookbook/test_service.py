@@ -1001,6 +1001,174 @@ def test_list_recipes_dietary_unmatched_ingredient_line_does_not_disqualify(
 
 
 # ---------------------------------------------------------------------------
+# recommendations_for_recipe — Phase 3 Task 8 (deterministic content overlap)
+# ---------------------------------------------------------------------------
+
+
+def _recipe_with(
+    seeded: Session,
+    owner: User,
+    *,
+    title: str,
+    cuisines: list[str] | None = None,
+    ingredient_names: list[str] | None = None,
+) -> Any:
+    """Create a recipe with the given cuisines and catalog-matched ingredient names.
+
+    Every name in *ingredient_names* must be an exact seed catalog name (e.g.
+    "olive oil", "garlic", "onion", "butter") so `create_recipe`'s fuzzy
+    matching (no LLM) resolves it to a real `canonical_ingredient_id` —
+    required for the ingredient-overlap leg of the scoring formula to fire.
+    """
+    lines = [
+        IngredientLineIn(original_text=name, quantity=1, unit="cup", name=name)
+        for name in (ingredient_names or [])
+    ] or [IngredientLineIn(original_text="a pinch of something")]
+    data = _simple_recipe_in(title=title, lines=lines, cuisines=cuisines)
+    return cookbook_service.create_recipe(seeded, owner_id=owner.id, data=data)
+
+
+def test_recommendations_ranks_cuisine_and_ingredient_overlap_above_single_ingredient(
+    seeded: Session, owner: User
+) -> None:
+    """A shared cuisine + 2 shared ingredients outranks a recipe sharing only 1 ingredient.
+
+    target: Italian, {olive oil, garlic, onion}
+    strong: Italian, {garlic, onion}       -> 4*1 (cuisine) + 1*2 (ingredients) = 6
+    weak:   (no cuisine overlap), {garlic} -> 1*1 (ingredient)                  = 1
+    """
+    target = _recipe_with(
+        seeded,
+        owner,
+        title="Target",
+        cuisines=["Italian"],
+        ingredient_names=["olive oil", "garlic", "onion"],
+    )
+    strong = _recipe_with(
+        seeded,
+        owner,
+        title="Strong Match",
+        cuisines=["Italian"],
+        ingredient_names=["garlic", "onion"],
+    )
+    weak = _recipe_with(
+        seeded, owner, title="Weak Match", cuisines=["Mexican"], ingredient_names=["garlic"]
+    )
+
+    results = cookbook_service.recommendations_for_recipe(
+        seeded, user_id=owner.id, recipe_id=target.id
+    )
+    assert [r.id for r in results] == [strong.id, weak.id]
+
+
+def test_recommendations_excludes_self(seeded: Session, owner: User) -> None:
+    target = _recipe_with(
+        seeded, owner, title="Target", cuisines=["Italian"], ingredient_names=["olive oil"]
+    )
+    _recipe_with(seeded, owner, title="Other", cuisines=["Italian"], ingredient_names=["olive oil"])
+
+    results = cookbook_service.recommendations_for_recipe(
+        seeded, user_id=owner.id, recipe_id=target.id
+    )
+    assert target.id not in [r.id for r in results]
+
+
+def test_recommendations_owner_scoped_excludes_other_users_recipes(
+    seeded: Session, owner: User
+) -> None:
+    other = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    target = _recipe_with(
+        seeded,
+        owner,
+        title="Target",
+        cuisines=["Italian"],
+        ingredient_names=["olive oil", "garlic"],
+    )
+    # Same owner as `owner` for genuine overlap-> should show up.
+    mine = _recipe_with(
+        seeded,
+        owner,
+        title="Mine",
+        cuisines=["Italian"],
+        ingredient_names=["olive oil", "garlic"],
+    )
+    # Belongs to a DIFFERENT user, even though it overlaps perfectly -> must never appear.
+    _recipe_with(
+        seeded,
+        other,
+        title="Not Mine",
+        cuisines=["Italian"],
+        ingredient_names=["olive oil", "garlic"],
+    )
+
+    results = cookbook_service.recommendations_for_recipe(
+        seeded, user_id=owner.id, recipe_id=target.id
+    )
+    assert [r.id for r in results] == [mine.id]
+
+
+def test_recommendations_empty_when_no_overlap(seeded: Session, owner: User) -> None:
+    target = _recipe_with(
+        seeded, owner, title="Target", cuisines=["Italian"], ingredient_names=["olive oil"]
+    )
+    _recipe_with(seeded, owner, title="Unrelated", cuisines=["Japanese"], ingredient_names=["egg"])
+
+    results = cookbook_service.recommendations_for_recipe(
+        seeded, user_id=owner.id, recipe_id=target.id
+    )
+    assert results == []
+
+
+def test_recommendations_ties_broken_by_recency(seeded: Session, owner: User) -> None:
+    """Two candidates with an IDENTICAL score order newest-created first."""
+    target = _recipe_with(
+        seeded, owner, title="Target", cuisines=["Italian"], ingredient_names=["olive oil"]
+    )
+    older = _recipe_with(
+        seeded, owner, title="Older Match", cuisines=["Italian"], ingredient_names=[]
+    )
+    newer = _recipe_with(
+        seeded, owner, title="Newer Match", cuisines=["Italian"], ingredient_names=[]
+    )
+
+    results = cookbook_service.recommendations_for_recipe(
+        seeded, user_id=owner.id, recipe_id=target.id
+    )
+    assert [r.id for r in results] == [newer.id, older.id]
+
+
+def test_recommendations_respects_limit(seeded: Session, owner: User) -> None:
+    target = _recipe_with(
+        seeded, owner, title="Target", cuisines=["Italian"], ingredient_names=["olive oil"]
+    )
+    for i in range(3):
+        _recipe_with(seeded, owner, title=f"Match {i}", cuisines=["Italian"], ingredient_names=[])
+
+    results = cookbook_service.recommendations_for_recipe(
+        seeded, user_id=owner.id, recipe_id=target.id, limit=2
+    )
+    assert len(results) == 2
+
+
+def test_recommendations_missing_recipe_raises_404(seeded: Session, owner: User) -> None:
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.recommendations_for_recipe(
+            seeded, user_id=owner.id, recipe_id=uuid.uuid4()
+        )
+    assert exc_info.value.status_code == 404
+
+
+def test_recommendations_wrong_owner_raises_404(seeded: Session, owner: User) -> None:
+    other = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    target = _recipe_with(
+        seeded, other, title="Target", cuisines=["Italian"], ingredient_names=["olive oil"]
+    )
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.recommendations_for_recipe(seeded, user_id=owner.id, recipe_id=target.id)
+    assert exc_info.value.status_code == 404
+
+
+# ---------------------------------------------------------------------------
 # Collections — create/rename/delete/list
 # ---------------------------------------------------------------------------
 
