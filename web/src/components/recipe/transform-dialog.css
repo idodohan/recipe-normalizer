@@ -1,0 +1,98 @@
+/* ------------------------------------------------------------------ */
+/*  Transform dialog — instruction input + example chips, inside       */
+/*  Dialog's paper panel. The scale-boundary hint reads as guidance,    */
+/*  not an error: accent-toned, never the error-red used elsewhere.     */
+/* ------------------------------------------------------------------ */
+
+.transform-dlg__hint {
+  font-size: var(--text-small);
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-4);
+}
+
+.transform-dlg__label {
+  display: block;
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+  margin-bottom: var(--space-2);
+}
+
+.transform-dlg__input {
+  width: 100%;
+  min-height: 4.5rem;
+  padding: var(--space-3);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  resize: vertical;
+}
+
+.transform-dlg__examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.transform-dlg__example {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem; /* >=44px per a11y target size, matches ai-chat's send button */
+  padding: 0 var(--space-3);
+  background-color: transparent;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent-deep);
+  font-size: var(--text-small);
+  letter-spacing: 0.02em;
+}
+
+.transform-dlg__example:hover:not(:disabled) {
+  background-color: var(--color-accent-wash);
+}
+
+.transform-dlg__example:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* -- Scaling-boundary hint: guidance, not an error ---------------------- */
+
+.transform-dlg__scale-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: var(--space-4) 0 0;
+  padding: var(--space-3) var(--space-4);
+  border-left: 2px solid var(--color-accent);
+  background-color: var(--color-accent-wash);
+  color: var(--color-ink);
+  font-size: var(--text-small);
+}
+
+.transform-dlg__scale-link {
+  background: transparent;
+  border: none;
+  padding: 0;
+  min-height: 1.75rem;
+  font-size: var(--text-small);
+  font-weight: 600;
+  color: var(--color-accent-deep);
+  white-space: nowrap;
+}
+
+.transform-dlg__scale-link:hover {
+  text-decoration: underline;
+}
+
+/* -- Actions ------------------------------------------------------------ */
+
+.transform-dlg__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}

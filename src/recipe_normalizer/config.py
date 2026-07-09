@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     llm_max_retries: int = 3
     llm_timeout_s: float = 120.0
     job_cost_cap_usd: float = 1.50
+    ai_request_cost_cap_usd: float = 0.50
     admin_emails: str = ""
     rate_limit_auth_per_minute: int = 10
     rate_limit_ingest_per_hour: int = 60

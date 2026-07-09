@@ -18,11 +18,14 @@ import { FavoriteButton } from "../components/recipe/FavoriteButton";
 import { IngredientList } from "../components/recipe/IngredientList";
 import type { DisplayGroup } from "../components/recipe/IngredientList";
 import { NotesSection } from "../components/recipe/NotesSection";
+import { RecipeChatPanel } from "../components/recipe/RecipeChatPanel";
 import { RecipeImageBanner } from "../components/recipe/RecipeImageBanner";
 import { ScaleControl } from "../components/recipe/ScaleControl";
 import type { ScaleRequest } from "../components/recipe/ScaleControl";
 import { ShareDialog } from "../components/recipe/ShareDialog";
+import { SimilarRecipes } from "../components/recipe/SimilarRecipes";
 import { StepList } from "../components/recipe/StepList";
+import { TransformDialog } from "../components/recipe/TransformDialog";
 import "../components/recipe/recipe-detail.css";
 
 /** "Shared by Ana on Jul 8, 2026" — provenance renders only what's present. */
@@ -112,6 +115,7 @@ export function RecipeDetailPage() {
   const { user } = useUser();
   const [scale, setScale] = useState<ScaleRequest | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  const [transformOpen, setTransformOpen] = useState(false);
 
   const recipe = useQuery({
     queryKey: ["recipe", id],
@@ -250,6 +254,12 @@ export function RecipeDetailPage() {
               Share
             </Button>
           ) : null}
+          {/* Anyone who can read the recipe can transform it — same access
+              check the backend uses for chat/Q&A — so this isn't gated to
+              the owner; the produced draft belongs to whoever transforms. */}
+          <Button variant="secondary" onClick={() => setTransformOpen(true)}>
+            Transform
+          </Button>
           <Button variant="secondary" onClick={() => navigate(`/recipes/${id}/edit`)}>
             Edit
           </Button>
@@ -263,6 +273,12 @@ export function RecipeDetailPage() {
       {isOwner ? (
         <ShareDialog open={shareOpen} onClose={() => setShareOpen(false)} recipeId={id!} />
       ) : null}
+
+      <TransformDialog
+        open={transformOpen}
+        onClose={() => setTransformOpen(false)}
+        recipeId={id!}
+      />
 
       {remove.isError ? (
         <p className="rd__error" role="alert">
@@ -365,6 +381,16 @@ export function RecipeDetailPage() {
       </div>
 
       <NotesSection recipeId={id!} notes={data.notes ?? null} />
+
+      <RecipeChatPanel key={id} recipeId={id!} recipeTitle={data.title} />
+
+      {/* Placed last, after the chat panel — a closing "keep exploring"
+          module rather than competing with the recipe's own content or the
+          Q&A tool. Keyed implicitly by its own ["recipe", id, "similar"]
+          query key (not React `key={id}`): navigating to another recipe via
+          one of its own tiles changes that key, so it refetches cleanly
+          instead of carrying over the previous recipe's suggestions. */}
+      <SimilarRecipes recipeId={id!} />
     </article>
   );
 }

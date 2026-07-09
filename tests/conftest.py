@@ -22,6 +22,7 @@ def pg_url() -> Iterator[str]:
 @pytest.fixture(scope="session")
 def engine(pg_url: str) -> Iterator[Engine]:
     eng = create_engine(pg_url)
+    import recipe_normalizer.ai.models  # noqa: F401
     import recipe_normalizer.catalog.models  # noqa: F401
     import recipe_normalizer.cookbook.models  # noqa: F401
     import recipe_normalizer.ingestion.models  # noqa: F401
@@ -54,18 +55,32 @@ def _reset_rate_limiters() -> Iterator[None]:
     limits and flake, since the limiter instances live for the whole test
     session (created once at router import time).
     """
+    from recipe_normalizer.ai.router import (
+        _chat_limit,
+        _conversation_create_limit,
+        _cookbook_qa_limit,
+        _transform_limit,
+    )
     from recipe_normalizer.ingestion.router import _ingest_limit
     from recipe_normalizer.sharing.router import _public_limit, _share_limit
     from recipe_normalizer.users.router import _login_limit, _register_limit
 
     _login_limit.limiter.reset()  # type: ignore[attr-defined]
     _register_limit.limiter.reset()  # type: ignore[attr-defined]
+    _chat_limit.limiter.reset()  # type: ignore[attr-defined]
+    _conversation_create_limit.limiter.reset()  # type: ignore[attr-defined]
+    _cookbook_qa_limit.limiter.reset()  # type: ignore[attr-defined]
+    _transform_limit.limiter.reset()  # type: ignore[attr-defined]
     _ingest_limit.limiter.reset()  # type: ignore[attr-defined]
     _share_limit.limiter.reset()  # type: ignore[attr-defined]
     _public_limit.limiter.reset()  # type: ignore[attr-defined]
     yield
     _login_limit.limiter.reset()  # type: ignore[attr-defined]
     _register_limit.limiter.reset()  # type: ignore[attr-defined]
+    _chat_limit.limiter.reset()  # type: ignore[attr-defined]
+    _conversation_create_limit.limiter.reset()  # type: ignore[attr-defined]
+    _cookbook_qa_limit.limiter.reset()  # type: ignore[attr-defined]
+    _transform_limit.limiter.reset()  # type: ignore[attr-defined]
     _ingest_limit.limiter.reset()  # type: ignore[attr-defined]
     _share_limit.limiter.reset()  # type: ignore[attr-defined]
     _public_limit.limiter.reset()  # type: ignore[attr-defined]

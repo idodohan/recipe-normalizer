@@ -103,6 +103,239 @@
         "title": "CollectionOut",
         "type": "object"
       },
+      "ConversationCreateIn": {
+        "description": "Body for POST /api/ai/conversations.",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ConversationKind"
+          },
+          "recipe_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipe Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "ConversationCreateIn",
+        "type": "object"
+      },
+      "ConversationDetailOut": {
+        "description": "GET /api/ai/conversations/{id} \u2014 the conversation plus its full message history.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ConversationKind"
+          },
+          "messages": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/MessageOut"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "recipe_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipe Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "recipe_id",
+          "kind",
+          "title",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ConversationDetailOut",
+        "type": "object"
+      },
+      "ConversationKind": {
+        "enum": [
+          "recipe_chat",
+          "cookbook_qa"
+        ],
+        "title": "ConversationKind",
+        "type": "string"
+      },
+      "ConversationOut": {
+        "description": "One conversation, as it appears in list/create responses (no messages).",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ConversationKind"
+          },
+          "recipe_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipe Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "recipe_id",
+          "kind",
+          "title",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ConversationOut",
+        "type": "object"
+      },
+      "CookbookQaCreateIn": {
+        "description": "Body for POST /api/ai/cookbook-qa.",
+        "properties": {
+          "content": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "CookbookQaCreateIn",
+        "type": "object"
+      },
+      "CookbookQaOut": {
+        "description": "Response for POST /api/ai/cookbook-qa.\n\n`conversation_id` is always present (the conversation the turn was recorded\nto \u2014 newly created when the request didn't pass one). `referenced_recipe_ids`\nare the ids of every recipe `search_recipes` returned during this turn's tool\nloop (deduped, first-seen order) \u2014 NOT an attempt to parse the model's prose\nfor which ones it actually cited; the UI renders these as clickable chips.",
+        "properties": {
+          "conversation_id": {
+            "format": "uuid",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "message": {
+            "$ref": "#/components/schemas/MessageOut"
+          },
+          "referenced_recipe_ids": {
+            "default": [],
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Referenced Recipe Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "message"
+        ],
+        "title": "CookbookQaOut",
+        "type": "object"
+      },
       "CreatePublicLinkIn": {
         "description": "Body for POST /api/share/public.",
         "properties": {
@@ -558,7 +791,8 @@
           "url",
           "pdf",
           "image",
-          "text"
+          "text",
+          "transform"
         ],
         "title": "InputType",
         "type": "string"
@@ -875,6 +1109,59 @@
         ],
         "title": "MergeIn",
         "type": "object"
+      },
+      "MessageCreateIn": {
+        "description": "Body for POST /api/ai/conversations/{id}/messages.",
+        "properties": {
+          "content": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "MessageCreateIn",
+        "type": "object"
+      },
+      "MessageOut": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/MessageRole"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "content",
+          "created_at"
+        ],
+        "title": "MessageOut",
+        "type": "object"
+      },
+      "MessageRole": {
+        "enum": [
+          "user",
+          "assistant"
+        ],
+        "title": "MessageRole",
+        "type": "string"
       },
       "PreferredMeasure": {
         "enum": [
@@ -2172,7 +2459,8 @@
           "pdf",
           "image",
           "text",
-          "manual"
+          "manual",
+          "transform"
         ],
         "title": "SourceType",
         "type": "string"
@@ -2242,6 +2530,43 @@
           "url"
         ],
         "title": "SubmitUrlIn",
+        "type": "object"
+      },
+      "TransformCreateIn": {
+        "description": "Body for POST /api/ai/recipes/{recipe_id}/transform.",
+        "properties": {
+          "instruction": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Instruction",
+            "type": "string"
+          }
+        },
+        "required": [
+          "instruction"
+        ],
+        "title": "TransformCreateIn",
+        "type": "object"
+      },
+      "TransformOut": {
+        "description": "Response for POST /api/ai/recipes/{recipe_id}/transform.\n\nThe transform never returns the draft recipe itself \u2014 it routes through the\nEXISTING ingestion review gate (see `ai.service.transform_recipe`), so these two\nids are exactly what a caller needs to land on that flow: `job_id` for\n`GET /api/jobs/{job_id}` (the review screen, same one URL/PDF/text jobs use) and\n`recipe_id` (the first produced draft) as a direct shortcut straight to it.",
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "recipe_id": {
+            "format": "uuid",
+            "title": "Recipe Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "recipe_id"
+        ],
+        "title": "TransformOut",
         "type": "object"
       },
       "UserOut": {
@@ -2321,6 +2646,292 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/ai/conversations": {
+      "get": {
+        "operationId": "list_conversations_api_ai_conversations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "recipe_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Recipe Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ConversationOut"
+                  },
+                  "title": "Response List Conversations Api Ai Conversations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Conversations",
+        "tags": [
+          "ai"
+        ]
+      },
+      "post": {
+        "operationId": "create_conversation_api_ai_conversations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Conversation",
+        "tags": [
+          "ai"
+        ]
+      }
+    },
+    "/api/ai/conversations/{conversation_id}": {
+      "get": {
+        "operationId": "get_conversation_api_ai_conversations__conversation_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Conversation",
+        "tags": [
+          "ai"
+        ]
+      }
+    },
+    "/api/ai/conversations/{conversation_id}/messages": {
+      "post": {
+        "description": "Post a user message to a recipe-chat conversation; returns the assistant's reply.\n\nThe LLM client is built per-request via `service.make_ai_llm` (a real,\ncost-capped `LLMClient` unless `RN_LLM_STUB=1`) \u2014 never constructed ad hoc\nhere, so the stub swap point stays centralized in one place.",
+        "operationId": "post_chat_message_api_ai_conversations__conversation_id__messages_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Chat Message",
+        "tags": [
+          "ai"
+        ]
+      }
+    },
+    "/api/ai/cookbook-qa": {
+      "post": {
+        "description": "Ask a question over the user's own cookbook; the model searches via tool-use.\n\nReturns the assistant `Message` plus `referenced_recipe_ids` \u2014 the ids of\nevery recipe `search_recipes` returned during this turn, for the UI to\nrender as clickable chips (see `ai.service.cookbook_qa_turn`).",
+        "operationId": "post_cookbook_qa_api_ai_cookbook_qa_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CookbookQaCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CookbookQaOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Cookbook Qa",
+        "tags": [
+          "ai"
+        ]
+      }
+    },
+    "/api/ai/recipes/{recipe_id}/transform": {
+      "post": {
+        "description": "Apply a qualitative instruction to a recipe; the result lands in the review gate.\n\nReturns `{job_id, recipe_id}` \u2014 NOT the draft recipe itself. There is deliberately no\nnew review UI for this: `job_id` is the SAME kind of id `GET /api/jobs/{job_id}` (the\nexisting Inbox/Review screen) already handles, and the caller is expected to navigate\nthere (or straight to `recipe_id`) exactly as it would after any other extraction job\nreaches `needs_review`. See `ai.service.transform_recipe`'s docstring for the scaling\nboundary (a pure \"halve it\"/\"double it\" instruction is refused here with a 422 before\nany LLM call, pointing at the deterministic `/api/recipes/{recipe_id}/scaled` endpoint).",
+        "operationId": "post_transform_recipe_api_ai_recipes__recipe_id__transform_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "recipe_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Recipe Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransformCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransformOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Transform Recipe",
+        "tags": [
+          "ai"
+        ]
+      }
+    },
     "/api/auth/login": {
       "post": {
         "operationId": "login_api_auth_login_post",
@@ -4093,6 +4704,66 @@
           }
         },
         "summary": "Scale Recipe Endpoint",
+        "tags": [
+          "recipes"
+        ]
+      }
+    },
+    "/api/recipes/{recipe_id}/similar": {
+      "get": {
+        "description": "\"More like this\" \u2014 content-similar recipes from the CALLER's own cookbook.\n\nAccess to *recipe_id* is the same owner-or-shared-cookbook-member check\nevery other per-recipe read uses (404 otherwise), but the recommendations\nthemselves are always drawn from the caller's own cookbook \u2014 see\n`service.recommendations_for_recipe`'s docstring.",
+        "operationId": "get_similar_recipes_api_recipes__recipe_id__similar_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "recipe_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Recipe Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 6,
+              "maximum": 20,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RecipeSummary"
+                  },
+                  "title": "Response Get Similar Recipes Api Recipes  Recipe Id  Similar Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Similar Recipes",
         "tags": [
           "recipes"
         ]

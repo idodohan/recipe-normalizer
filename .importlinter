@@ -77,6 +77,46 @@ ignore_imports =
     recipe_normalizer.cookbook.service -> recipe_normalizer.cookbook.models
     recipe_normalizer.catalog.service -> recipe_normalizer.catalog.models
 
+[importlinter:contract:ai-cannot-import-sibling-models]
+name = ai module must not import sibling models (only cookbook/ingestion/sharing/users service+schemas, extraction's stateless normalize+persist, and llm client+schema layers)
+type = forbidden
+source_modules =
+    recipe_normalizer.ai
+forbidden_modules =
+    recipe_normalizer.users.models
+    recipe_normalizer.catalog.models
+    recipe_normalizer.cookbook.models
+    recipe_normalizer.ingestion.models
+    recipe_normalizer.sharing.models
+    recipe_normalizer.llm.models
+ignore_imports =
+    recipe_normalizer.ai.router -> recipe_normalizer.api_deps
+    recipe_normalizer.ai.service -> recipe_normalizer.cookbook.service
+    recipe_normalizer.llm.client -> recipe_normalizer.llm.models
+    # Task 6 (transformations): ai.service reuses extraction.persist.persist_drafts
+    # (the SAME draft-conversion/catalog-matching path the worker uses — DRY, not a
+    # reimplementation) and ingestion.service.create_transform_job (which lands a
+    # transform's draft in the EXISTING review gate as a Job already in
+    # needs_review). Both edges are cut here exactly like the cookbook.service edge
+    # above — ai never touches ingestion.models or cookbook.models directly, only
+    # these two services' own public functions.
+    recipe_normalizer.ai.service -> recipe_normalizer.extraction.persist
+    recipe_normalizer.ai.service -> recipe_normalizer.ingestion.service
+
+[importlinter:contract:nothing-imports-ai]
+name = no other module may import ai (ai sits at the top of the dependency graph, like sharing but one layer further out)
+type = forbidden
+source_modules =
+    recipe_normalizer.catalog
+    recipe_normalizer.cookbook
+    recipe_normalizer.ingestion
+    recipe_normalizer.sharing
+    recipe_normalizer.users
+    recipe_normalizer.extraction
+    recipe_normalizer.llm
+forbidden_modules =
+    recipe_normalizer.ai
+
 [importlinter:contract:ingestion-cannot-import-sibling-models]
 name = ingestion module must not import sibling models
 type = forbidden

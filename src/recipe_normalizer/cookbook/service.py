@@ -12,7 +12,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-from sqlalchemy import exists, func, literal_column, or_, select, update
+from sqlalchemy import exists, func, literal, literal_column, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from recipe_normalizer.catalog import service as catalog_service
@@ -31,6 +31,9 @@ from recipe_normalizer.cookbook.models import (
     Step,
     Tag,
     collection_recipes,
+    recipe_cuisines,
+    recipe_dish_types,
+    recipe_tags,
 )
 from recipe_normalizer.cookbook.schemas import (
     CollectionOut,
@@ -65,6 +68,7 @@ __all__ = [
     "list_recipes",
     "recipe_summaries_for_ids",
     "recipe_titles_for_ids",
+    "recommendations_for_recipe",
     "register_hooks",
     "register_membership_checker",
     "rename_collection",
@@ -407,6 +411,8 @@ def create_recipe(
     llm: LLMClient | None = None,
     extraction_meta: dict[str, Any] | None = None,
     image_ref: str | None = None,
+    derived_from: uuid.UUID | None = None,
+    provenance: dict[str, Any] | None = None,
 ) -> RecipeOut:
     """Create a new recipe and return a fully-populated RecipeOut.
 
@@ -414,6 +420,11 @@ def create_recipe(
     - Vocab rows get-or-created.
     - Ingredient lines: catalog-matched (or unreviewed created), normalized when possible.
     - extraction_meta / image_ref: provenance from the extraction pipeline (None for manual).
+    - derived_from / provenance: set when this recipe was produced FROM another recipe rather
+      than an external source — currently only `ai.service.transform_recipe` (a recipe transform
+      draft, e.g. "make it vegan"). None/None for every other caller (extraction, manual create).
+      Mirrors `copy_recipe`'s `provenance` convention but as an optional pass-through here rather
+      than always-set, since most `create_recipe` callers have no such lineage to record.
     - Flushes; caller owns commit.
     """
     # Fingerprint uniqueness check
@@ -442,6 +453,8 @@ def create_recipe(
         prep_min=data.prep_min,
         cook_min=data.cook_min,
         total_min=data.total_min,
+        derived_from=derived_from,
+        provenance=provenance,
     )
     db.add(recipe)
     db.flush()  # get recipe.id
@@ -853,6 +866,169 @@ def list_recipes(
         limit=limit,
         offset=offset,
     )
+
+
+# ---------------------------------------------------------------------------
+# Content-based recommendations (Phase 3 Task 8) — deterministic, NO LLM.
+#
+# Module placement: this lives here, not in `ai.service`, because the
+# weighted-overlap query needs to join directly against the m2m association
+# tables (`recipe_cuisines`/`recipe_dish_types`/`recipe_tags`) and
+# `IngredientLine.canonical_ingredient_id` — models `ai` is explicitly
+# forbidden from importing (see .importlinter's `ai-cannot-import-sibling-
+# models` contract, which lists `recipe_normalizer.cookbook.models`).
+# `list_recipes`'s public filters (`cuisine=`/`dish_type=`/`tag=`/`dietary=`)
+# are yes/no predicates, not "how many things overlap" counts, so they can't
+# be reused as-is for scoring; putting this next to `list_recipes` keeps the
+# recipe-relationship query logic in one module and lets `ai.router` (or
+# `cookbook.router`) call a single well-typed function instead of ai reaching
+# past cookbook.service into cookbook.models. Collaborative filtering
+# (recommendations informed by OTHER users' cookbooks) is an explicit
+# non-goal — every candidate is scored purely against content already in
+# *user_id*'s own cookbook.
+# ---------------------------------------------------------------------------
+
+#: Weighted-overlap scoring formula (see `recommendations_for_recipe`):
+#:
+#:     score = WEIGHT_CUISINE    * |shared cuisines|
+#:           + WEIGHT_DISH_TYPE  * |shared dish types|
+#:           + WEIGHT_TAG        * |shared tags|
+#:           + WEIGHT_INGREDIENT * |shared canonical ingredients|
+#:
+#: Cuisine/dish-type overlap is the strongest "this is a similar recipe"
+#: signal (sharing a whole genre, e.g. both "Italian" or both "dessert"), a
+#: shared tag a medium signal, and a single shared canonical ingredient the
+#: weakest (nearly any two recipes share SOME ingredient, e.g. salt) — hence
+#: cuisine/dish_type >> tag > ingredient. These are deliberately plain
+#: integers (not normalized/fractional) so the score stays simple to reason
+#: about and to test.
+WEIGHT_CUISINE = 4
+WEIGHT_DISH_TYPE = 4
+WEIGHT_TAG = 2
+WEIGHT_INGREDIENT = 1
+
+#: Default "More like this" row size (see `recommendations_for_recipe`).
+DEFAULT_RECOMMENDATION_LIMIT = 6
+
+
+def _recipe_assoc_ids(db: Session, recipe_id: uuid.UUID, assoc_table: Any, id_col: str) -> set[Any]:
+    """Return the distinct set of vocab ids *recipe_id* is linked to in *assoc_table*.
+
+    One cheap indexed query against a two-column association table (composite
+    PK on (recipe_id, <vocab>_id)) — used to resolve the "target" recipe's
+    cuisine/dish_type/tag ids before scoring every candidate against them.
+    """
+    col = assoc_table.c[id_col]
+    return set(db.scalars(select(col).where(assoc_table.c.recipe_id == recipe_id)))
+
+
+def recommendations_for_recipe(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    recipe_id: uuid.UUID,
+    limit: int = DEFAULT_RECOMMENDATION_LIMIT,
+) -> list[RecipeSummary]:
+    """ "More like this": top *limit* recipes in *user_id*'s OWN cookbook, by content overlap.
+
+    NOT collaborative filtering (an explicit non-goal) and uses NO LLM —
+    purely deterministic content similarity, scored per the WEIGHT_* formula
+    documented above.
+
+    Access to *recipe_id* itself uses the SAME widened `user_recipe_access`
+    check every other per-recipe read in this module uses (owner OR
+    shared-cookbook member) — 404 if neither. The CANDIDATE POOL, however, is
+    ALWAYS *user_id*'s own cookbook (`Recipe.owner_id == user_id`), regardless
+    of whether *recipe_id* belongs to *user_id* or was reached via a shared
+    cookbook: a member browsing someone else's shared recipe gets
+    recommendations drawn from THEIR OWN cookbook, never the owner's. This is
+    both the intended UX (never recommend a recipe the viewer can't open) and
+    the safe default (never leaks the existence of another user's other
+    recipes to a shared-cookbook member).
+
+    Excludes *recipe_id* itself. Recipes scoring 0 (no overlap at all) are
+    excluded too — an empty list means genuinely nothing in the cookbook
+    overlaps, not "give me something anyway." Ties are broken by recency
+    (`Recipe.created_at` descending, newest first).
+
+    Query shape: FOUR small upfront queries resolve *recipe_id*'s own
+    cuisine/dish_type/tag/canonical-ingredient id sets (each a single indexed
+    lookup against a two-column association table), then ONE query scores
+    every candidate recipe against those fixed id sets via correlated scalar
+    subqueries and returns the top *limit* — never N+1 over the whole
+    cookbook regardless of how many recipes *user_id* owns.
+    """
+    if user_recipe_access(db, user_id, recipe_id) is None:
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+
+    cuisine_ids = _recipe_assoc_ids(db, recipe_id, recipe_cuisines, "cuisine_id")
+    dish_type_ids = _recipe_assoc_ids(db, recipe_id, recipe_dish_types, "dish_type_id")
+    tag_ids = _recipe_assoc_ids(db, recipe_id, recipe_tags, "tag_id")
+    ingredient_ids: set[uuid.UUID] = set(
+        db.scalars(
+            select(IngredientLine.canonical_ingredient_id)
+            .join(IngredientGroup, IngredientLine.group_id == IngredientGroup.id)
+            .where(
+                IngredientGroup.recipe_id == recipe_id,
+                IngredientLine.canonical_ingredient_id.is_not(None),
+            )
+            .distinct()
+        )
+    )
+
+    if not (cuisine_ids or dish_type_ids or tag_ids or ingredient_ids):
+        # Nothing to score against — every candidate would score 0 anyway;
+        # skip the query entirely rather than running a guaranteed-empty one.
+        return []
+
+    def _shared_vocab_count(assoc_table: Any, id_col: str, ids: set[Any]) -> Any:
+        if not ids:
+            return literal(0)
+        col = assoc_table.c[id_col]
+        return (
+            select(func.count(func.distinct(col)))
+            .where(assoc_table.c.recipe_id == Recipe.id, col.in_(ids))
+            .correlate(Recipe)
+            .scalar_subquery()
+        )
+
+    def _shared_ingredient_count(ids: set[uuid.UUID]) -> Any:
+        if not ids:
+            return literal(0)
+        return (
+            select(func.count(func.distinct(IngredientLine.canonical_ingredient_id)))
+            .select_from(IngredientLine)
+            .join(IngredientGroup, IngredientLine.group_id == IngredientGroup.id)
+            .where(
+                IngredientGroup.recipe_id == Recipe.id,
+                IngredientLine.canonical_ingredient_id.in_(ids),
+            )
+            .correlate(Recipe)
+            .scalar_subquery()
+        )
+
+    score_expr = (
+        _shared_vocab_count(recipe_cuisines, "cuisine_id", cuisine_ids) * WEIGHT_CUISINE
+        + _shared_vocab_count(recipe_dish_types, "dish_type_id", dish_type_ids) * WEIGHT_DISH_TYPE
+        + _shared_vocab_count(recipe_tags, "tag_id", tag_ids) * WEIGHT_TAG
+        + _shared_ingredient_count(ingredient_ids) * WEIGHT_INGREDIENT
+    )
+
+    scored = (
+        select(Recipe.id, score_expr.label("score"))
+        .where(Recipe.owner_id == user_id, Recipe.id != recipe_id)
+        .subquery()
+    )
+    stmt = (
+        select(Recipe)
+        .join(scored, scored.c.id == Recipe.id)
+        .where(scored.c.score > 0)
+        .options(*_RECIPE_SUMMARY_OPTIONS)
+        .order_by(scored.c.score.desc(), Recipe.created_at.desc())
+        .limit(limit)
+    )
+    recipes = db.scalars(stmt).all()
+    return [RecipeSummary.model_validate(r) for r in recipes]
 
 
 def update_recipe(

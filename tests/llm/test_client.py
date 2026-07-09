@@ -182,6 +182,102 @@ def test_structured_recorder_errors_do_not_crash_the_call() -> None:
     assert client.spent_usd == pytest.approx(0.0175)
 
 
+# --- chat -----------------------------------------------------------------
+
+
+def test_chat_happy_path_returns_text_and_records_usage() -> None:
+    stub = StubAnthropicClient(create_results=[text_response("Bake at 350F for 30 minutes.")])
+    recorder = RecorderSpy()
+    client = LLMClient(recorder=recorder, anthropic_client=stub)
+
+    result = client.chat(
+        feature="ai.recipe_chat",
+        system="You answer questions about THIS recipe only.",
+        messages=[{"role": "user", "content": "How long do I bake this?"}],
+    )
+
+    assert result == "Bake at 350F for 30 minutes."
+    [call] = stub.messages.create_calls
+    assert call["model"] == settings.llm_model
+    assert call["max_tokens"] == 1024
+    assert call["system"] == "You answer questions about THIS recipe only."
+    assert call["messages"] == [{"role": "user", "content": "How long do I bake this?"}]
+    assert "output_config" not in call  # free-form, unlike structured()
+    [record] = recorder.records
+    assert record["feature"] == "ai.recipe_chat"
+    assert client.spent_usd == pytest.approx(0.0175)
+
+
+def test_chat_respects_max_tokens_and_model_overrides() -> None:
+    stub = StubAnthropicClient(create_results=[text_response("ok")])
+    client = LLMClient(anthropic_client=stub)
+
+    client.chat(
+        feature="f",
+        system="s",
+        messages=[{"role": "user", "content": "hi"}],
+        max_tokens=256,
+        model="claude-haiku-4-5",
+    )
+
+    [call] = stub.messages.create_calls
+    assert call["max_tokens"] == 256
+    assert call["model"] == "claude-haiku-4-5"
+
+
+def test_chat_fast_routes_to_fast_model() -> None:
+    stub = StubAnthropicClient(create_results=[text_response("ok")])
+    client = LLMClient(anthropic_client=stub)
+
+    client.chat(feature="f", system="s", messages=[{"role": "user", "content": "hi"}], fast=True)
+
+    assert stub.messages.create_calls[0]["model"] == settings.llm_fast_model
+
+
+def test_chat_refusal_raises_llm_error_after_recording_usage() -> None:
+    stub = StubAnthropicClient(create_results=[message_response([], "refusal")])
+    recorder = RecorderSpy()
+    client = LLMClient(recorder=recorder, anthropic_client=stub)
+
+    with pytest.raises(LLMError, match="refused"):
+        client.chat(feature="f", system="s", messages=[{"role": "user", "content": "hi"}])
+
+    assert len(recorder.records) == 1
+
+
+def test_chat_missing_text_block_raises() -> None:
+    stub = StubAnthropicClient(create_results=[message_response([], "end_turn")])
+    client = LLMClient(anthropic_client=stub)
+
+    with pytest.raises(LLMError, match="text block"):
+        client.chat(feature="f", system="s", messages=[{"role": "user", "content": "hi"}])
+
+
+def test_chat_natural_language_non_answer_is_not_an_error() -> None:
+    # The MODEL saying "I don't know" in ordinary prose (stop_reason=end_turn,
+    # a normal text block) is NOT an LLMError — only an SDK-level refusal is.
+    # Grounded no-fabrication answers look exactly like this.
+    stub = StubAnthropicClient(
+        create_results=[text_response("This recipe doesn't say what temperature to use.")]
+    )
+    client = LLMClient(anthropic_client=stub)
+
+    result = client.chat(feature="f", system="s", messages=[{"role": "user", "content": "temp?"}])
+
+    assert result == "This recipe doesn't say what temperature to use."
+
+
+def test_chat_checks_cost_cap_before_calling() -> None:
+    stub = StubAnthropicClient(create_results=[text_response("a"), text_response("b")])
+    client = LLMClient(anthropic_client=stub, cost_cap_usd=0.015)
+
+    client.chat(feature="f", system="s", messages=[{"role": "user", "content": "hi"}])
+    with pytest.raises(CostCapExceeded):
+        client.chat(feature="f", system="s", messages=[{"role": "user", "content": "hi"}])
+
+    assert len(stub.messages.create_calls) == 1
+
+
 # --- classify_bool ------------------------------------------------------------
 
 

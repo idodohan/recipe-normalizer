@@ -21,6 +21,7 @@ from recipe_normalizer.cookbook.schemas import (
     RecipeOut,
     RecipePage,
     RecipePersonalPatch,
+    RecipeSummary,
     SetRecipeCollectionsIn,
 )
 from recipe_normalizer.db import get_db
@@ -274,6 +275,30 @@ def scale_recipe_endpoint(
         return scale_recipe(recipe, factor)
     except ValueError as exc:
         raise ApiError(422, "validation_error", str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Content-based recommendations (Phase 3 Task 8) — deterministic, NO LLM.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/recipes/{recipe_id}/similar", response_model=list[RecipeSummary])
+def get_similar_recipes(
+    recipe_id: uuid.UUID,
+    limit: int = Query(default=6, ge=1, le=20),
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> list[RecipeSummary]:
+    """ "More like this" — content-similar recipes from the CALLER's own cookbook.
+
+    Access to *recipe_id* is the same owner-or-shared-cookbook-member check
+    every other per-recipe read uses (404 otherwise), but the recommendations
+    themselves are always drawn from the caller's own cookbook — see
+    `service.recommendations_for_recipe`'s docstring.
+    """
+    return service.recommendations_for_recipe(
+        db, user_id=current_user.id, recipe_id=recipe_id, limit=limit
+    )
 
 
 # ---------------------------------------------------------------------------

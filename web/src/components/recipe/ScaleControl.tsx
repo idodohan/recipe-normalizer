@@ -77,7 +77,10 @@ export function ScaleControl({ scale, onChange, baseServings }: ScaleControlProp
   }
 
   return (
-    <div className="scale">
+    // `id` is a stable target for TransformDialog's scaling-boundary hint —
+    // clicking "Go to Scale control" scrolls/focuses here rather than
+    // navigating (scaling stays a code path on THIS page, not an AI call).
+    <div className="scale" id="scale-control">
       <span className="scale__label" id="scale-label">
         Scale
       </span>

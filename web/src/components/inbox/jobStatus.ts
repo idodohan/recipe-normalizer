@@ -20,6 +20,7 @@ export const INPUT_LABEL: Record<InputType, string> = {
   pdf: "PDF",
   image: "Image",
   text: "Text",
+  transform: "AI transform",
 };
 
 /** True while at least one job is still being worked — drives live polling. */

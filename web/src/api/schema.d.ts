@@ -4,6 +4,117 @@
  */
 
 export interface paths {
+    "/api/ai/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Conversations */
+        get: operations["list_conversations_api_ai_conversations_get"];
+        put?: never;
+        /** Create Conversation */
+        post: operations["create_conversation_api_ai_conversations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ai/conversations/{conversation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Conversation */
+        get: operations["get_conversation_api_ai_conversations__conversation_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ai/conversations/{conversation_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Chat Message
+         * @description Post a user message to a recipe-chat conversation; returns the assistant's reply.
+         *
+         *     The LLM client is built per-request via `service.make_ai_llm` (a real,
+         *     cost-capped `LLMClient` unless `RN_LLM_STUB=1`) — never constructed ad hoc
+         *     here, so the stub swap point stays centralized in one place.
+         */
+        post: operations["post_chat_message_api_ai_conversations__conversation_id__messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ai/cookbook-qa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Cookbook Qa
+         * @description Ask a question over the user's own cookbook; the model searches via tool-use.
+         *
+         *     Returns the assistant `Message` plus `referenced_recipe_ids` — the ids of
+         *     every recipe `search_recipes` returned during this turn, for the UI to
+         *     render as clickable chips (see `ai.service.cookbook_qa_turn`).
+         */
+        post: operations["post_cookbook_qa_api_ai_cookbook_qa_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ai/recipes/{recipe_id}/transform": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Transform Recipe
+         * @description Apply a qualitative instruction to a recipe; the result lands in the review gate.
+         *
+         *     Returns `{job_id, recipe_id}` — NOT the draft recipe itself. There is deliberately no
+         *     new review UI for this: `job_id` is the SAME kind of id `GET /api/jobs/{job_id}` (the
+         *     existing Inbox/Review screen) already handles, and the caller is expected to navigate
+         *     there (or straight to `recipe_id`) exactly as it would after any other extraction job
+         *     reaches `needs_review`. See `ai.service.transform_recipe`'s docstring for the scaling
+         *     boundary (a pure "halve it"/"double it" instruction is refused here with a 422 before
+         *     any LLM call, pointing at the deterministic `/api/recipes/{recipe_id}/scaled` endpoint).
+         */
+        post: operations["post_transform_recipe_api_ai_recipes__recipe_id__transform_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/login": {
         parameters: {
             query?: never;
@@ -537,6 +648,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recipes/{recipe_id}/similar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Similar Recipes
+         * @description "More like this" — content-similar recipes from the CALLER's own cookbook.
+         *
+         *     Access to *recipe_id* is the same owner-or-shared-cookbook-member check
+         *     every other per-recipe read uses (404 otherwise), but the recommendations
+         *     themselves are always drawn from the caller's own cookbook — see
+         *     `service.recommendations_for_recipe`'s docstring.
+         */
+        get: operations["get_similar_recipes_api_recipes__recipe_id__similar_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/share/public": {
         parameters: {
             query?: never;
@@ -770,6 +906,122 @@ export interface components {
             recipe_count: number;
         };
         /**
+         * ConversationCreateIn
+         * @description Body for POST /api/ai/conversations.
+         */
+        ConversationCreateIn: {
+            kind: components["schemas"]["ConversationKind"];
+            /** Recipe Id */
+            recipe_id?: string | null;
+            /** Title */
+            title?: string | null;
+        };
+        /**
+         * ConversationDetailOut
+         * @description GET /api/ai/conversations/{id} — the conversation plus its full message history.
+         */
+        ConversationDetailOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            kind: components["schemas"]["ConversationKind"];
+            /**
+             * Messages
+             * @default []
+             */
+            messages: components["schemas"]["MessageOut"][];
+            /** Recipe Id */
+            recipe_id: string | null;
+            /** Title */
+            title: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+        };
+        /**
+         * ConversationKind
+         * @enum {string}
+         */
+        ConversationKind: "recipe_chat" | "cookbook_qa";
+        /**
+         * ConversationOut
+         * @description One conversation, as it appears in list/create responses (no messages).
+         */
+        ConversationOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            kind: components["schemas"]["ConversationKind"];
+            /** Recipe Id */
+            recipe_id: string | null;
+            /** Title */
+            title: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+        };
+        /**
+         * CookbookQaCreateIn
+         * @description Body for POST /api/ai/cookbook-qa.
+         */
+        CookbookQaCreateIn: {
+            /** Content */
+            content: string;
+            /** Conversation Id */
+            conversation_id?: string | null;
+        };
+        /**
+         * CookbookQaOut
+         * @description Response for POST /api/ai/cookbook-qa.
+         *
+         *     `conversation_id` is always present (the conversation the turn was recorded
+         *     to — newly created when the request didn't pass one). `referenced_recipe_ids`
+         *     are the ids of every recipe `search_recipes` returned during this turn's tool
+         *     loop (deduped, first-seen order) — NOT an attempt to parse the model's prose
+         *     for which ones it actually cited; the UI renders these as clickable chips.
+         */
+        CookbookQaOut: {
+            /**
+             * Conversation Id
+             * Format: uuid
+             */
+            conversation_id: string;
+            message: components["schemas"]["MessageOut"];
+            /**
+             * Referenced Recipe Ids
+             * @default []
+             */
+            referenced_recipe_ids: string[];
+        };
+        /**
          * CreatePublicLinkIn
          * @description Body for POST /api/share/public.
          */
@@ -919,7 +1171,7 @@ export interface components {
          * InputType
          * @enum {string}
          */
-        InputType: "url" | "pdf" | "image" | "text";
+        InputType: "url" | "pdf" | "image" | "text" | "transform";
         /**
          * InviteMemberIn
          * @description Body for POST /api/shared-cookbooks/{id}/members.
@@ -1070,6 +1322,35 @@ export interface components {
              */
             target_id: string;
         };
+        /**
+         * MessageCreateIn
+         * @description Body for POST /api/ai/conversations/{id}/messages.
+         */
+        MessageCreateIn: {
+            /** Content */
+            content: string;
+        };
+        /** MessageOut */
+        MessageOut: {
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            role: components["schemas"]["MessageRole"];
+        };
+        /**
+         * MessageRole
+         * @enum {string}
+         */
+        MessageRole: "user" | "assistant";
         /**
          * PreferredMeasure
          * @enum {string}
@@ -1688,7 +1969,7 @@ export interface components {
          * SourceType
          * @enum {string}
          */
-        SourceType: "web" | "pdf" | "image" | "text" | "manual";
+        SourceType: "web" | "pdf" | "image" | "text" | "manual" | "transform";
         /** StepIn */
         StepIn: {
             /** Original Text */
@@ -1718,6 +1999,36 @@ export interface components {
         SubmitUrlIn: {
             /** Url */
             url: string;
+        };
+        /**
+         * TransformCreateIn
+         * @description Body for POST /api/ai/recipes/{recipe_id}/transform.
+         */
+        TransformCreateIn: {
+            /** Instruction */
+            instruction: string;
+        };
+        /**
+         * TransformOut
+         * @description Response for POST /api/ai/recipes/{recipe_id}/transform.
+         *
+         *     The transform never returns the draft recipe itself — it routes through the
+         *     EXISTING ingestion review gate (see `ai.service.transform_recipe`), so these two
+         *     ids are exactly what a caller needs to land on that flow: `job_id` for
+         *     `GET /api/jobs/{job_id}` (the review screen, same one URL/PDF/text jobs use) and
+         *     `recipe_id` (the first produced draft) as a direct shortcut straight to it.
+         */
+        TransformOut: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+            /**
+             * Recipe Id
+             * Format: uuid
+             */
+            recipe_id: string;
         };
         /** UserOut */
         UserOut: {
@@ -1758,6 +2069,204 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_conversations_api_ai_conversations_get: {
+        parameters: {
+            query?: {
+                recipe_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_conversation_api_ai_conversations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConversationCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_conversation_api_ai_conversations__conversation_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_chat_message_api_ai_conversations__conversation_id__messages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_cookbook_qa_api_ai_cookbook_qa_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CookbookQaCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CookbookQaOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_transform_recipe_api_ai_recipes__recipe_id__transform_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recipe_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransformCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransformOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     login_api_auth_login_post: {
         parameters: {
             query?: never;
@@ -2873,6 +3382,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScaledRecipeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_similar_recipes_api_recipes__recipe_id__similar_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                recipe_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecipeSummary"][];
                 };
             };
             /** @description Validation Error */
