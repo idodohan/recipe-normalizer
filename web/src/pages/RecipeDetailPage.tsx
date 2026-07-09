@@ -24,6 +24,7 @@ import { ScaleControl } from "../components/recipe/ScaleControl";
 import type { ScaleRequest } from "../components/recipe/ScaleControl";
 import { ShareDialog } from "../components/recipe/ShareDialog";
 import { StepList } from "../components/recipe/StepList";
+import { TransformDialog } from "../components/recipe/TransformDialog";
 import "../components/recipe/recipe-detail.css";
 
 /** "Shared by Ana on Jul 8, 2026" — provenance renders only what's present. */
@@ -113,6 +114,7 @@ export function RecipeDetailPage() {
   const { user } = useUser();
   const [scale, setScale] = useState<ScaleRequest | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  const [transformOpen, setTransformOpen] = useState(false);
 
   const recipe = useQuery({
     queryKey: ["recipe", id],
@@ -251,6 +253,12 @@ export function RecipeDetailPage() {
               Share
             </Button>
           ) : null}
+          {/* Anyone who can read the recipe can transform it — same access
+              check the backend uses for chat/Q&A — so this isn't gated to
+              the owner; the produced draft belongs to whoever transforms. */}
+          <Button variant="secondary" onClick={() => setTransformOpen(true)}>
+            Transform
+          </Button>
           <Button variant="secondary" onClick={() => navigate(`/recipes/${id}/edit`)}>
             Edit
           </Button>
@@ -264,6 +272,12 @@ export function RecipeDetailPage() {
       {isOwner ? (
         <ShareDialog open={shareOpen} onClose={() => setShareOpen(false)} recipeId={id!} />
       ) : null}
+
+      <TransformDialog
+        open={transformOpen}
+        onClose={() => setTransformOpen(false)}
+        recipeId={id!}
+      />
 
       {remove.isError ? (
         <p className="rd__error" role="alert">

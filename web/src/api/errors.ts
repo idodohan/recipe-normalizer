@@ -20,6 +20,9 @@ export type ApiErrorEnvelope = {
   message?: string;
   existingId?: string;
   jobId?: string;
+  /** `extra.scale_endpoint` on a transform's 422 `use_scale_feature` — see
+   *  `ai.service.transform_recipe`'s scaling boundary. */
+  scaleEndpoint?: string;
 };
 
 /** Pull the error envelope (code + message + extras) out of an openapi-fetch error. */
@@ -34,5 +37,7 @@ export function apiErrorEnvelope(body: unknown): ApiErrorEnvelope {
   const existingId =
     typeof err["existing_id"] === "string" ? err["existing_id"] : undefined;
   const jobId = typeof err["job_id"] === "string" ? err["job_id"] : undefined;
-  return { code, message, existingId, jobId };
+  const scaleEndpoint =
+    typeof err["scale_endpoint"] === "string" ? err["scale_endpoint"] : undefined;
+  return { code, message, existingId, jobId, scaleEndpoint };
 }
