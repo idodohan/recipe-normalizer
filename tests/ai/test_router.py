@@ -8,7 +8,12 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from recipe_normalizer.ai.router import _chat_limit, _cookbook_qa_limit, _transform_limit
+from recipe_normalizer.ai.router import (
+    _chat_limit,
+    _conversation_create_limit,
+    _cookbook_qa_limit,
+    _transform_limit,
+)
 from recipe_normalizer.ai.router import router as ai_router
 from recipe_normalizer.cookbook.router import router as cookbook_router
 from recipe_normalizer.ingestion.router import router as ingestion_router
@@ -113,6 +118,25 @@ def test_list_conversations_filters_by_recipe_id(owner_client: TestClient) -> No
     body = resp.json()
     assert len(body) == 1
     assert body[0]["recipe_id"] == recipe_id
+
+
+def test_create_conversation_rate_limited_after_100_per_hour(owner_client: TestClient) -> None:
+    recipe_id = _create_recipe(owner_client)
+
+    # Create 100 conversations successfully (don't need separate recipes)
+    for _ in range(100):
+        resp = owner_client.post(
+            "/api/ai/conversations", json={"recipe_id": recipe_id, "kind": "recipe_chat"}
+        )
+        assert resp.status_code == 201
+
+    # The 101st should be rate-limited
+    resp = owner_client.post(
+        "/api/ai/conversations", json={"recipe_id": recipe_id, "kind": "recipe_chat"}
+    )
+    assert resp.status_code == 429
+
+    _conversation_create_limit.limiter.reset()  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------

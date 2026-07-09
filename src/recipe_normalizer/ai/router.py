@@ -37,6 +37,10 @@ router = APIRouter(prefix="/api/ai", tags=["ai"])
 #: LLM cost cap).
 _chat_limit = limit_by_user("ai_chat", 60, 3600.0)
 
+#: 100 conversation creates/hour/user — modest limit for conversation creation
+#: to prevent unbounded empty conversation rows per the phase plan spec.
+_conversation_create_limit = limit_by_user("ai_conversation_create", 100, 3600.0)
+
 #: Same shape as `_chat_limit` — a separate bucket (own name, own counter) so
 #: heavy recipe-chat use doesn't eat into a user's cookbook Q&A allowance or
 #: vice versa.
@@ -57,7 +61,12 @@ def list_conversations(
     return service.list_conversations(db, user_id=current_user.id, recipe_id=recipe_id)
 
 
-@router.post("/conversations", status_code=201, response_model=ConversationOut)
+@router.post(
+    "/conversations",
+    status_code=201,
+    response_model=ConversationOut,
+    dependencies=[Depends(_conversation_create_limit)],
+)
 def create_conversation(
     body: ConversationCreateIn,
     db: Session = Depends(get_db),  # noqa: B008
