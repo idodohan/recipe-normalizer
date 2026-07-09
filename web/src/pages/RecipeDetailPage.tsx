@@ -23,6 +23,7 @@ import { RecipeImageBanner } from "../components/recipe/RecipeImageBanner";
 import { ScaleControl } from "../components/recipe/ScaleControl";
 import type { ScaleRequest } from "../components/recipe/ScaleControl";
 import { ShareDialog } from "../components/recipe/ShareDialog";
+import { SimilarRecipes } from "../components/recipe/SimilarRecipes";
 import { StepList } from "../components/recipe/StepList";
 import { TransformDialog } from "../components/recipe/TransformDialog";
 import "../components/recipe/recipe-detail.css";
@@ -382,6 +383,14 @@ export function RecipeDetailPage() {
       <NotesSection recipeId={id!} notes={data.notes ?? null} />
 
       <RecipeChatPanel key={id} recipeId={id!} recipeTitle={data.title} />
+
+      {/* Placed last, after the chat panel — a closing "keep exploring"
+          module rather than competing with the recipe's own content or the
+          Q&A tool. Keyed implicitly by its own ["recipe", id, "similar"]
+          query key (not React `key={id}`): navigating to another recipe via
+          one of its own tiles changes that key, so it refetches cleanly
+          instead of carrying over the previous recipe's suggestions. */}
+      <SimilarRecipes recipeId={id!} />
     </article>
   );
 }

@@ -1,0 +1,132 @@
+/* ------------------------------------------------------------------ */
+/*  Similar recipes — "More like this". A quiet discovery row of        */
+/*  compact plates: hairline top, small drop-initial (or thumbnail),   */
+/*  title, dish-type/time meta. Lighter-weight than RecipeCard so the   */
+/*  row reads as a footnote to the recipe, not a second cookbook grid.  */
+/* ------------------------------------------------------------------ */
+
+.similar {
+  border-top: var(--hairline);
+  margin-top: var(--space-7);
+  padding-top: var(--space-5);
+}
+
+.similar__heading {
+  font-family: var(--font-display);
+  font-size: var(--text-heading);
+  font-weight: 560;
+  color: var(--color-ink);
+  margin-bottom: var(--space-4);
+}
+
+.similar__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6) var(--space-5);
+}
+
+.similar__grid > li {
+  display: flex;
+  flex: 1 1 9.5rem;
+  max-width: 12rem;
+  min-width: 0;
+}
+
+.similar__tile {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 2.75rem; /* ≥44px tap target even for the shortest (image-only) tile */
+  border-top: 1px solid var(--color-hairline-strong);
+  padding-top: var(--space-2);
+  color: var(--color-ink);
+  transition: border-color 160ms ease;
+}
+
+.similar__tile:hover,
+.similar__tile:focus-visible {
+  text-decoration: none;
+  border-top-color: var(--color-accent);
+}
+
+.similar__tile:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.similar__image {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-3);
+}
+
+.similar__initial {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 2.5rem;
+  font-weight: 600;
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  color: var(--color-accent);
+  margin-bottom: var(--space-3);
+  transition: color 160ms ease;
+}
+
+.similar__tile:hover .similar__initial {
+  color: var(--color-accent-deep);
+}
+
+.similar__title {
+  font-size: var(--text-small);
+  font-weight: 560;
+  line-height: var(--leading-snug);
+  color: var(--color-ink);
+  margin-bottom: var(--space-1);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.similar__meta {
+  margin-top: auto;
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* -- Loading skeleton — mirrors the tile's own box model so there's no    */
+/*    layout shift when real content replaces it.                          */
+
+.similar__tile--skel {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--color-hairline-strong);
+  padding-top: var(--space-2);
+  gap: var(--space-2);
+}
+
+.similar__skel-kicker {
+  height: 0.5rem;
+}
+
+.similar__skel-plate {
+  height: 2.5rem;
+  width: 2.5rem;
+  margin: var(--space-1) 0 var(--space-2);
+}
+
+.similar__skel-title {
+  height: 0.75rem;
+}
