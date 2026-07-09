@@ -45,8 +45,13 @@ export default defineConfig({
       reuseExistingServer: true,
       timeout: 30_000,
       /* Allow the extraction E2E to submit the local fixture server (port
-       * 8099) without tripping the SSRF guard — see netguard.py. */
-      env: { ...process.env, RN_NETGUARD_ALLOW_HOSTS: "localhost" },
+       * 8099) without tripping the SSRF guard — see netguard.py.
+       * RN_LLM_STUB=1 swaps in the canned `_StubAiLLMClient` for every
+       * ai.service call (chat/cookbook-qa/transform) made IN THIS PROCESS —
+       * see ai.spec.ts — so those endpoints answer deterministically without
+       * an ANTHROPIC_API_KEY. Mirrors the extraction E2E's worker subprocess,
+       * which already sets the same flag for its own (separate) LLM calls. */
+      env: { ...process.env, RN_NETGUARD_ALLOW_HOSTS: "localhost", RN_LLM_STUB: "1" },
     },
     {
       /* Frontend dev server — proxies /api to localhost:8000 */
