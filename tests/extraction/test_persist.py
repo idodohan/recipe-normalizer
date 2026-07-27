@@ -347,3 +347,31 @@ def test_persist_empty_result_returns_no_ids(seeded: Session, owner: User) -> No
         image_ref=None,
     )
     assert ids == []
+
+
+def test_persist_lands_drafts_in_the_ingesting_users_default_cookbook(
+    seeded: Session, owner: User
+) -> None:
+    """No cookbook-less recipe escapes the worker's persist path.
+
+    ``persist_drafts`` never passes a ``cookbook_id``, so it relies on
+    ``create_recipe``'s ``ensure_default_cookbook`` fallback — this pins that
+    the fallback really is the path taken (the alternative, a NULL
+    ``cookbook_id``, is what the finalize migration's NOT NULL forbids).
+    """
+    ids = persist_drafts(
+        seeded,
+        owner_id=owner.id,
+        result=_result(_flour_recipe("Ingested Loaf")),
+        llm=StubLLM(),  # type: ignore[arg-type]
+        source="pasted text",
+        source_type=SourceType.text,
+        source_fingerprint="fp-default-cookbook",
+        extraction_meta=None,
+        image_ref=None,
+    )
+
+    default = cookbook_service.ensure_default_cookbook(seeded, owner.id)
+    row = seeded.get(Recipe, ids[0])
+    assert row is not None
+    assert row.cookbook_id == default.id

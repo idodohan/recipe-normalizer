@@ -1091,6 +1091,13 @@ def copy_recipe(
     *recipe_id* before calling this. Raises ApiError 404 if *recipe_id*
     doesn't exist at all.
 
+    The copy is filed in *new_owner_id*'s own default cookbook
+    (``ensure_default_cookbook``, created on first use) — NEVER the source
+    recipe's cookbook, which belongs to the sharer and whose members must not
+    silently gain access to the recipient's copy. This is also what keeps
+    copy-on-share from minting cookbook-less recipes (``recipes.cookbook_id``
+    is NOT NULL as of the finalize migration).
+
     Copied verbatim: title/description/servings/prep_min/cook_min/total_min/
     language/source/source_type, image_ref (shared BY REFERENCE — the
     content-addressed file itself is not duplicated, both recipes just point
@@ -1140,8 +1147,11 @@ def copy_recipe(
     if source is None:
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
 
+    target_cookbook = ensure_default_cookbook(db, new_owner_id)
+
     new_recipe = Recipe(
         owner_id=new_owner_id,
+        cookbook_id=target_cookbook.id,
         title=source.title,
         description=source.description,
         image_ref=source.image_ref,
