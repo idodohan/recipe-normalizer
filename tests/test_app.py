@@ -592,6 +592,70 @@ def test_public_cookbook_happy_path(app_client: TestClient) -> None:
     assert "notes" not in raw
 
 
+def test_public_cookbook_hides_editor_member_last_edited_by(app_client: TestClient) -> None:
+    """A recipe last-edited by an EDITOR MEMBER (not the owner) must not leak
+    that member's user id via ``last_edited_by``.
+
+    ``last_edited_by`` is set to the EDITING user's id, not necessarily the
+    owner's (see ``cookbook.service.update_recipe``'s docstring) — a member
+    who edits a recipe in a cookbook the owner later makes public never
+    consented to their account id being exposed to anonymous visitors.
+    """
+    create_resp = app_client.post("/api/cookbooks", json={"name": "Leak Check Cookbook"})
+    assert create_resp.status_code == 201
+    cookbook = create_resp.json()
+
+    recipe_resp = app_client.post(
+        "/api/recipes", params={"cookbook_id": cookbook["id"]}, json=RECIPE_PAYLOAD
+    )
+    assert recipe_resp.status_code == 201
+    recipe_id = recipe_resp.json()["id"]
+
+    # A second client/cookie-jar over the SAME app+db, registered as a
+    # separate user, invited as an editor.
+    editor_email = "editor_leak_check@example.com"
+    editor_client = TestClient(app_client.app, raise_server_exceptions=False)
+    reg_resp = editor_client.post(
+        "/api/auth/register",
+        json={"email": editor_email, "password": "securepass1", "display_name": "Editor"},
+    )
+    assert reg_resp.status_code == 201
+    editor_user_id = reg_resp.json()["id"]
+    login_resp = editor_client.post(
+        "/api/auth/login", json={"email": editor_email, "password": "securepass1"}
+    )
+    assert login_resp.status_code == 200
+
+    invite_resp = app_client.post(
+        f"/api/cookbooks/{cookbook['id']}/members",
+        json={"email": editor_email, "role": "editor"},
+    )
+    assert invite_resp.status_code == 201
+
+    # The editor does a full-replace edit, setting last_edited_by to THEIR id.
+    edit_resp = editor_client.patch(
+        f"/api/recipes/{recipe_id}", json={**RECIPE_PAYLOAD, "title": "Edited By Member"}
+    )
+    assert edit_resp.status_code == 200
+    assert edit_resp.json()["last_edited_by"] == editor_user_id
+
+    # Make the cookbook public AFTER the member edit.
+    patch_resp = app_client.patch(f"/api/cookbooks/{cookbook['id']}", json={"visibility": "public"})
+    assert patch_resp.status_code == 200
+    token = patch_resp.json()["public_token"]
+    assert token
+
+    anon = TestClient(app_client.app, raise_server_exceptions=False)
+    resp = anon.get(f"/api/public/cookbooks/{token}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["recipes"][0]["title"] == "Edited By Member"
+
+    raw = resp.text
+    assert editor_user_id not in raw
+    assert "last_edited_by" not in raw
+
+
 def test_public_cookbook_unlisted_also_readable(app_client: TestClient) -> None:
     create_resp = app_client.post("/api/cookbooks", json={"name": "Unlisted Cookbook"})
     cookbook = create_resp.json()

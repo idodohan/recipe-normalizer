@@ -381,6 +381,28 @@ def test_update_member_role_missing_member_returns_404(owner_client: TestClient)
     assert resp.status_code == 404
 
 
+@pytest.mark.parametrize("role", ["editor", "viewer"])
+def test_update_member_role_forbidden_for_non_owner(
+    owner_client: TestClient, db_session: Session, role: str
+) -> None:
+    cookbook = _create_cookbook(owner_client)
+    member = _second_client(db_session)
+    invite = owner_client.post(
+        f"/api/cookbooks/{cookbook['id']}/members",
+        json={"email": "member@example.com", "role": role},
+    )
+    member_user_id = invite.json()["user_id"]
+    stranger = _second_client(db_session, "stranger@example.com")
+    resp = member.patch(
+        f"/api/cookbooks/{cookbook['id']}/members/{member_user_id}", json={"role": "editor"}
+    )
+    assert resp.status_code == 404
+    resp2 = stranger.patch(
+        f"/api/cookbooks/{cookbook['id']}/members/{member_user_id}", json={"role": "editor"}
+    )
+    assert resp2.status_code == 404
+
+
 def test_remove_member(owner_client: TestClient, db_session: Session) -> None:
     cookbook = _create_cookbook(owner_client)
     member = _second_client(db_session)
@@ -399,6 +421,29 @@ def test_remove_member_idempotent_for_non_member(owner_client: TestClient) -> No
     cookbook = _create_cookbook(owner_client)
     resp = owner_client.delete(f"/api/cookbooks/{cookbook['id']}/members/{uuid.uuid4()}")
     assert resp.status_code == 204
+
+
+@pytest.mark.parametrize("role", ["editor", "viewer"])
+def test_remove_member_forbidden_for_non_owner(
+    owner_client: TestClient, db_session: Session, role: str
+) -> None:
+    cookbook = _create_cookbook(owner_client)
+    member = _second_client(db_session)
+    invite = owner_client.post(
+        f"/api/cookbooks/{cookbook['id']}/members",
+        json={"email": "member@example.com", "role": role},
+    )
+    member_user_id = invite.json()["user_id"]
+    stranger = _second_client(db_session, "stranger@example.com")
+
+    # A member can't remove themselves (or anyone) via this owner-only route.
+    resp = member.delete(f"/api/cookbooks/{cookbook['id']}/members/{member_user_id}")
+    assert resp.status_code == 404
+    resp2 = stranger.delete(f"/api/cookbooks/{cookbook['id']}/members/{member_user_id}")
+    assert resp2.status_code == 404
+
+    # The member is still a member — neither forbidden attempt actually removed them.
+    assert member.get(f"/api/cookbooks/{cookbook['id']}").status_code == 200
 
 
 def test_leave_cookbook(owner_client: TestClient, db_session: Session) -> None:

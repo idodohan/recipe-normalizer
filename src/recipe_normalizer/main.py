@@ -41,19 +41,32 @@ _public_cookbook_limit = limit_by_ip("public_cookbook", 60, 60.0)
 
 
 class PublicCookbookRecipeOut(PublicRecipeOut):
-    """``PublicRecipeOut``, minus ``owner_id``, for recipes nested in a public cookbook.
+    """``PublicRecipeOut``, minus every raw user id, for recipes nested in a public cookbook.
 
-    ``PublicRecipeOut`` (the per-recipe public-link allowlist) DOES carry
-    ``owner_id`` — acceptable there since a bare, unguessable UUID isn't PII
-    on its own, and that route's threat model already accepted it. This
-    endpoint's contract is stricter ("MUST NOT leak owner_id"), so this
-    subclass re-declares the field ``exclude=True`` to drop it from
-    serialization while still reusing every other field/validator (and
-    ``from_recipe_out``) from the base class verbatim — no duplication of
-    the allowlist itself.
+    ``PublicRecipeOut`` (the per-recipe public-link allowlist) carries two
+    fields that resolve to a real account id — acceptable there since a
+    bare, unguessable UUID isn't PII on its own, and that route's threat
+    model already accepted it:
+
+    - ``owner_id`` — always the recipe owner.
+    - ``last_edited_by`` — whoever last full-replace-edited the recipe
+      (``PATCH /api/recipes/{id}``). For a cookbook with editor MEMBERS this
+      is NOT necessarily the owner — it can be any editor's account id, so
+      leaking it here would expose a member's identity to anyone holding
+      the cookbook's public link, which they never consented to. (Every
+      other field on the base class was audited: ``derived_from`` is a
+      RECIPE id, not a user id, and everything else is non-identifying.)
+
+    This endpoint's contract is stricter ("MUST NOT leak owner_id [or]
+    member emails" — a member's raw user id falls under that same "internal
+    fields" umbrella), so this subclass re-declares both fields
+    ``exclude=True`` to drop them from serialization while still reusing
+    every other field/validator (and ``from_recipe_out``) from the base
+    class verbatim — no duplication of the allowlist itself.
     """
 
     owner_id: uuid.UUID = Field(exclude=True)
+    last_edited_by: uuid.UUID | None = Field(default=None, exclude=True)
 
 
 class PublicCookbookOut(BaseModel):
