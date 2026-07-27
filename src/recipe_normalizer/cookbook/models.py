@@ -2,7 +2,7 @@
 
 import enum
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -20,6 +20,7 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -317,4 +318,65 @@ class Collection(TimestampMixin, Base):
 
     recipes: Mapped[list[Recipe]] = relationship(
         secondary=collection_recipes, back_populates="collections"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Cookbooks — owner-scoped containers with shared membership
+# ---------------------------------------------------------------------------
+
+
+class CookbookVisibility(enum.StrEnum):
+    private = "private"
+    unlisted = "unlisted"
+    public = "public"
+
+
+class CookbookRole(enum.StrEnum):
+    editor = "editor"
+    viewer = "viewer"
+
+
+class Cookbook(TimestampMixin, Base):
+    __tablename__ = "cookbooks"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cover_image_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    visibility: Mapped[CookbookVisibility] = mapped_column(
+        Enum(CookbookVisibility, name="cookbookvisibility"),
+        default=CookbookVisibility.private,
+        server_default=CookbookVisibility.private.value,
+        nullable=False,
+    )
+    # Minted lazily (secrets.token_urlsafe(24)) the first time a cookbook is
+    # made public/unlisted — that minting logic lands in a later task; here
+    # it's just a nullable, unique column.
+    public_token: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
+
+class CookbookMember(Base):
+    """A user's membership in a shared cookbook (owner is implicit, not a member row)."""
+
+    __tablename__ = "cookbook_members"
+
+    cookbook_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("cookbooks.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    role: Mapped[CookbookRole] = mapped_column(
+        Enum(CookbookRole, name="cookbookrole"), nullable=False
+    )
+    added_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=func.now()
     )
