@@ -338,6 +338,31 @@ class RecipePage(BaseModel):
     offset: int
 
 
+class CookbookSummary(BaseModel):
+    """Row shape for listing a user's cookbooks (owned + member-of).
+
+    ``role`` is ``"owner"`` for cookbooks the caller owns outright, or the
+    resolved ``CookbookRole`` value ("editor"/"viewer") for cookbooks the
+    caller is merely a member of — see cookbook.service.list_my_cookbooks.
+    """
+
+    id: uuid.UUID
+    name: str
+    description: str | None = None
+    visibility: str
+    role: str
+    recipe_count: int
+    is_default: bool
+    cover_image_ref: str | None = None
+
+    model_config = {"from_attributes": True}
+
+    @field_validator("cover_image_ref", mode="after")
+    @classmethod
+    def cover_image_ref_to_url(cls, v: str | None) -> str | None:
+        return _image_url(v)
+
+
 class CollectionOut(BaseModel):
     """Response shape for the collections endpoints — includes a recipe count.
 

@@ -7,6 +7,7 @@ we only import from catalog.service (which re-exports the conversion API).
 
 from __future__ import annotations
 
+import secrets
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -41,6 +42,7 @@ from recipe_normalizer.cookbook.models import (
 )
 from recipe_normalizer.cookbook.schemas import (
     CollectionOut,
+    CookbookSummary,
     IngredientLineIn,
     RecipeIn,
     RecipeOut,
@@ -50,6 +52,7 @@ from recipe_normalizer.cookbook.schemas import (
 from recipe_normalizer.errors import ApiError
 from recipe_normalizer.filestore import FileStore
 from recipe_normalizer.sniff import detect_media_type
+from recipe_normalizer.users import service as users_service
 
 __all__ = [
     "MAX_IMAGE_BYTES",
@@ -63,23 +66,35 @@ __all__ = [
     "cookbook_access",
     "copy_recipe",
     "create_collection",
+    "create_cookbook",
     "create_recipe",
     "delete_collection",
+    "delete_cookbook",
     "delete_recipe",
+    "ensure_default_cookbook",
     "find_recipe_id_by_fingerprint",
     "get_recipe",
     "get_recipe_image_ref_unscoped",
     "get_recipe_unscoped",
+    "invite_cookbook_member",
+    "leave_cookbook",
     "list_collections",
+    "list_my_cookbooks",
     "list_recipes",
     "recipe_summaries_for_ids",
     "recipe_titles_for_ids",
     "recommendations_for_recipe",
     "register_hooks",
     "register_membership_checker",
+    "remove_cookbook_member",
     "rename_collection",
+    "rename_cookbook",
     "repoint_ingredient_lines",
     "require_cookbook_access",
+    "set_cookbook_cover",
+    "set_cookbook_description",
+    "set_cookbook_member_role",
+    "set_cookbook_visibility",
     "set_personal",
     "set_recipe_collections",
     "set_recipe_image",
@@ -313,6 +328,294 @@ def require_cookbook_access(
     if cookbook is None or resolved is None or _rank(resolved) < _rank(need):
         raise ApiError(404, "not_found", f"Cookbook {cookbook_id} not found.")
     return cookbook
+
+
+# ---------------------------------------------------------------------------
+# Cookbook CRUD, visibility, and membership (Task 4)
+#
+# All MANAGE operations (rename/description/cover/delete/visibility/every
+# membership mutation) gate through require_cookbook_access(..., need="owner")
+# above — the single choke point, never a hand-rolled owner_id== check here.
+# ---------------------------------------------------------------------------
+
+#: Name given to the auto-created default cookbook (see ensure_default_cookbook).
+DEFAULT_COOKBOOK_NAME = "My Cookbook"
+
+
+def ensure_default_cookbook(db: Session, user_id: uuid.UUID) -> Cookbook:
+    """Return *user_id*'s default cookbook, creating it if none exists yet.
+
+    Idempotent: a user has exactly one ``is_default`` cookbook, and repeated
+    calls return the same row rather than creating duplicates. The created
+    cookbook is named "My Cookbook", private, and marked is_default=True.
+    Flushes; caller owns commit.
+    """
+    existing = db.scalars(
+        select(Cookbook).where(Cookbook.owner_id == user_id, Cookbook.is_default.is_(True))
+    ).first()
+    if existing is not None:
+        return existing
+
+    cookbook = Cookbook(
+        owner_id=user_id,
+        name=DEFAULT_COOKBOOK_NAME,
+        visibility=CookbookVisibility.private,
+        is_default=True,
+    )
+    db.add(cookbook)
+    db.flush()
+    return cookbook
+
+
+def _cookbook_recipe_counts(db: Session, cookbook_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
+    """Map cookbook id -> number of recipes in it, for the given ids only."""
+    if not cookbook_ids:
+        return {}
+    rows = db.execute(
+        select(Recipe.cookbook_id, func.count())
+        .where(Recipe.cookbook_id.in_(cookbook_ids))
+        .group_by(Recipe.cookbook_id)
+    ).all()
+    return {cookbook_id: count for cookbook_id, count in rows if cookbook_id is not None}
+
+
+def list_my_cookbooks(db: Session, user_id: uuid.UUID) -> list[CookbookSummary]:
+    """List every cookbook *user_id* has a claim on: owned outright, plus member-of.
+
+    Owned cookbooks (``Cookbook.owner_id == user_id``) get role "owner";
+    cookbooks reached via a ``CookbookMember`` row get that row's
+    ``CookbookRole``. A user is never both (owners never get a member row —
+    see cookbook/models.py), so there is no risk of the same cookbook
+    appearing twice. Each summary carries a ``recipe_count`` computed via one
+    grouped aggregate query (no N+1 across the returned cookbooks).
+    """
+    owned = db.scalars(select(Cookbook).where(Cookbook.owner_id == user_id)).all()
+    member_rows = db.execute(
+        select(Cookbook, CookbookMember.role)
+        .join(CookbookMember, CookbookMember.cookbook_id == Cookbook.id)
+        .where(CookbookMember.user_id == user_id)
+    ).all()
+
+    entries: list[tuple[Cookbook, str]] = [(cookbook, "owner") for cookbook in owned]
+    entries.extend((cookbook, str(role)) for cookbook, role in member_rows)
+
+    counts = _cookbook_recipe_counts(db, [cookbook.id for cookbook, _ in entries])
+
+    return [
+        CookbookSummary(
+            id=cookbook.id,
+            name=cookbook.name,
+            description=cookbook.description,
+            visibility=str(cookbook.visibility),
+            role=role,
+            recipe_count=counts.get(cookbook.id, 0),
+            is_default=cookbook.is_default,
+            cover_image_ref=cookbook.cover_image_ref,
+        )
+        for cookbook, role in entries
+    ]
+
+
+def create_cookbook(
+    db: Session,
+    owner_id: uuid.UUID,
+    name: str,
+    description: str | None = None,
+) -> Cookbook:
+    """Create a new (non-default, private) cookbook owned by owner_id.
+
+    Flushes; caller owns commit.
+    """
+    cookbook = Cookbook(owner_id=owner_id, name=name.strip(), description=description)
+    db.add(cookbook)
+    db.flush()
+    return cookbook
+
+
+def rename_cookbook(
+    db: Session,
+    cookbook_id: uuid.UUID,
+    user_id: uuid.UUID,
+    name: str,
+) -> Cookbook:
+    """Rename a cookbook. Owner-only (404 via require_cookbook_access otherwise)."""
+    cookbook = require_cookbook_access(db, user_id=user_id, cookbook_id=cookbook_id, need="owner")
+    cookbook.name = name.strip()
+    db.flush()
+    return cookbook
+
+
+def set_cookbook_description(
+    db: Session,
+    cookbook_id: uuid.UUID,
+    user_id: uuid.UUID,
+    description: str | None,
+) -> Cookbook:
+    """Set a cookbook's description. Owner-only (404 otherwise)."""
+    cookbook = require_cookbook_access(db, user_id=user_id, cookbook_id=cookbook_id, need="owner")
+    cookbook.description = description
+    db.flush()
+    return cookbook
+
+
+def set_cookbook_cover(
+    db: Session,
+    cookbook_id: uuid.UUID,
+    user_id: uuid.UUID,
+    cover_image_ref: str | None,
+) -> Cookbook:
+    """Set a cookbook's cover image ref. Owner-only (404 otherwise)."""
+    cookbook = require_cookbook_access(db, user_id=user_id, cookbook_id=cookbook_id, need="owner")
+    cookbook.cover_image_ref = cover_image_ref
+    db.flush()
+    return cookbook
+
+
+def delete_cookbook(db: Session, cookbook_id: uuid.UUID, user_id: uuid.UUID) -> None:
+    """Delete a cookbook (its recipes CASCADE). Owner-only (404 otherwise).
+
+    Raises ApiError(409, "cannot_delete_default", ...) if this is the user's
+    default cookbook — every user must always have exactly one. Flushes;
+    caller owns commit.
+    """
+    cookbook = require_cookbook_access(db, user_id=user_id, cookbook_id=cookbook_id, need="owner")
+    if cookbook.is_default:
+        raise ApiError(
+            409,
+            "cannot_delete_default",
+            "The default cookbook cannot be deleted.",
+        )
+    db.delete(cookbook)
+    db.flush()
+
+
+def set_cookbook_visibility(
+    db: Session,
+    cookbook_id: uuid.UUID,
+    user_id: uuid.UUID,
+    visibility: CookbookVisibility,
+) -> Cookbook:
+    """Set a cookbook's visibility. Owner-only (404 otherwise).
+
+    Moving to unlisted/public mints ``public_token`` via
+    ``secrets.token_urlsafe(24)`` — but only if one isn't already set, so
+    toggling back and forth doesn't invalidate a previously shared link.
+    Moving to private clears the token (None) so a stale link stops working.
+    Flushes; caller owns commit.
+    """
+    cookbook = require_cookbook_access(db, user_id=user_id, cookbook_id=cookbook_id, need="owner")
+    cookbook.visibility = visibility
+    if visibility in (CookbookVisibility.unlisted, CookbookVisibility.public):
+        if cookbook.public_token is None:
+            cookbook.public_token = secrets.token_urlsafe(24)
+    else:
+        cookbook.public_token = None
+    db.flush()
+    return cookbook
+
+
+def invite_cookbook_member(
+    db: Session,
+    cookbook_id: uuid.UUID,
+    owner_id: uuid.UUID,
+    email: str,
+    role: CookbookRole,
+) -> CookbookMember:
+    """Invite a user by email to a cookbook. Owner-only (404 otherwise).
+
+    Looks up the invitee via ``users.service.get_user_by_email`` (never
+    reaching into users.models directly — see .importlinter) — 404
+    ``recipient_not_found`` if no account has that email, matching this
+    codebase's existing user-enumeration discipline (sharing.service does
+    the same). Re-inviting an existing member updates their role in place
+    rather than erroring. The owner is authoritative via ``Cookbook.owner_id``
+    and is never given a member row — inviting the owner's own email raises
+    a 422 rather than creating a nonsensical member row.
+    Flushes; caller owns commit.
+    """
+    cookbook = require_cookbook_access(db, user_id=owner_id, cookbook_id=cookbook_id, need="owner")
+
+    invitee = users_service.get_user_by_email(db, email)
+    if invitee is None:
+        raise ApiError(404, "recipient_not_found", "No account with that email.")
+
+    if invitee.id == cookbook.owner_id:
+        raise ApiError(
+            422,
+            "validation_error",
+            "The owner is already implicitly a member of their own cookbook.",
+        )
+
+    existing = db.get(CookbookMember, (cookbook_id, invitee.id))
+    if existing is not None:
+        existing.role = role
+        db.flush()
+        return existing
+
+    member = CookbookMember(
+        cookbook_id=cookbook_id,
+        user_id=invitee.id,
+        role=role,
+        added_by=owner_id,
+    )
+    db.add(member)
+    db.flush()
+    return member
+
+
+def set_cookbook_member_role(
+    db: Session,
+    cookbook_id: uuid.UUID,
+    owner_id: uuid.UUID,
+    member_user_id: uuid.UUID,
+    role: CookbookRole,
+) -> CookbookMember:
+    """Change a member's role. Owner-only (404 otherwise).
+
+    Raises ApiError 404 if member_user_id has no membership row for this
+    cookbook. Flushes; caller owns commit.
+    """
+    require_cookbook_access(db, user_id=owner_id, cookbook_id=cookbook_id, need="owner")
+    member = db.get(CookbookMember, (cookbook_id, member_user_id))
+    if member is None:
+        raise ApiError(
+            404, "not_found", f"Member {member_user_id} not found in cookbook {cookbook_id}."
+        )
+    member.role = role
+    db.flush()
+    return member
+
+
+def remove_cookbook_member(
+    db: Session,
+    cookbook_id: uuid.UUID,
+    owner_id: uuid.UUID,
+    member_user_id: uuid.UUID,
+) -> None:
+    """Remove a member from a cookbook. Owner-only (404 otherwise).
+
+    Idempotent — removing a user who isn't (or is no longer) a member is a
+    no-op, not an error. Flushes; caller owns commit.
+    """
+    require_cookbook_access(db, user_id=owner_id, cookbook_id=cookbook_id, need="owner")
+    member = db.get(CookbookMember, (cookbook_id, member_user_id))
+    if member is not None:
+        db.delete(member)
+        db.flush()
+
+
+def leave_cookbook(db: Session, cookbook_id: uuid.UUID, user_id: uuid.UUID) -> None:
+    """Remove the caller's own membership row from a cookbook.
+
+    No access-level check — any caller may always remove their own
+    membership row. Idempotent — a no-op if user_id was never a member (or
+    is the owner, who has no member row to remove). Flushes; caller owns
+    commit.
+    """
+    member = db.get(CookbookMember, (cookbook_id, user_id))
+    if member is not None:
+        db.delete(member)
+        db.flush()
 
 
 # ---------------------------------------------------------------------------

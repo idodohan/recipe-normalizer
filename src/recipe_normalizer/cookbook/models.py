@@ -375,6 +375,12 @@ class CookbookMember(Base):
     """A user's membership in a shared cookbook (owner is implicit, not a member row)."""
 
     __tablename__ = "cookbook_members"
+    __table_args__ = (
+        # The composite PK (cookbook_id, user_id) can't serve a bare
+        # `WHERE user_id = X` lookup (list_my_cookbooks' "member of" query) —
+        # a standalone index on user_id is required for that access path.
+        Index("ix_cookbook_members_user_id", "user_id"),
+    )
 
     cookbook_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("cookbooks.id", ondelete="CASCADE"), primary_key=True
