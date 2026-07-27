@@ -20,7 +20,6 @@ const NAV_ITEMS: Array<
   { label: "Cookbook", to: "/" },
   { label: "Inbox", to: "/inbox" },
   { label: "Catalog", to: "/catalog" },
-  { label: "Shares", to: "/shares" },
 ];
 
 export function AppShell({ user }: { user: User }) {

@@ -9,6 +9,7 @@ via a monkeypatched throwaway route.
 from __future__ import annotations
 
 import logging
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -690,3 +691,79 @@ def test_public_cookbook_unknown_token_returns_404(app_client: TestClient) -> No
     anon = TestClient(app_client.app, raise_server_exceptions=False)
     resp = anon.get("/api/public/cookbooks/totally-bogus-token-xyz")
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# The flat compat shim: GET /api/recipes spans every readable cookbook, and
+# the retired /api/shared-cookbooks* surface is gone (Task 9)
+# ---------------------------------------------------------------------------
+
+
+def test_flat_recipe_list_includes_a_cookbook_shared_to_me(app_client: TestClient) -> None:
+    """GET /api/recipes is "my stuff + shared-with-me", so the current
+    (pre-rebuild) frontend's flat cookbook page still shows everything the
+    user can reach — including recipes in someone else's cookbook they were
+    invited into as a mere VIEWER.
+    """
+    create_resp = app_client.post("/api/cookbooks", json={"name": "Compat Shim Cookbook"})
+    assert create_resp.status_code == 201
+    cookbook = create_resp.json()
+
+    recipe_resp = app_client.post(
+        "/api/recipes",
+        params={"cookbook_id": cookbook["id"]},
+        json={**RECIPE_PAYLOAD, "title": "Shared Into My Flat List"},
+    )
+    assert recipe_resp.status_code == 201
+
+    viewer_email = "flat_list_viewer@example.com"
+    viewer_client = TestClient(app_client.app, raise_server_exceptions=False)
+    assert (
+        viewer_client.post(
+            "/api/auth/register",
+            json={"email": viewer_email, "password": "securepass1", "display_name": "Viewer"},
+        ).status_code
+        == 201
+    )
+    assert (
+        viewer_client.post(
+            "/api/auth/login", json={"email": viewer_email, "password": "securepass1"}
+        ).status_code
+        == 200
+    )
+
+    # Before the invite the viewer's flat list can't see it.
+    before = viewer_client.get("/api/recipes")
+    assert before.status_code == 200
+    assert "Shared Into My Flat List" not in [r["title"] for r in before.json()["items"]]
+
+    invite_resp = app_client.post(
+        f"/api/cookbooks/{cookbook['id']}/members",
+        json={"email": viewer_email, "role": "viewer"},
+    )
+    assert invite_resp.status_code == 201
+
+    after = viewer_client.get("/api/recipes")
+    assert after.status_code == 200
+    assert "Shared Into My Flat List" in [r["title"] for r in after.json()["items"]]
+
+
+def test_retired_shared_cookbook_routes_are_gone(app_client: TestClient) -> None:
+    """The /api/shared-cookbooks* surface 404s at the ROUTER level.
+
+    Not a 500 from a dropped table, and not a stale route: the paths are
+    simply not registered any more, so an old client hitting them gets a
+    clean 404 (co-owned cookbooks live at /api/cookbooks now).
+    """
+    routes = {getattr(route, "path", "") for route in app_client.app.routes}  # type: ignore[attr-defined]
+    assert not any(path.startswith("/api/shared-cookbooks") for path in routes)
+
+    for method, path in (
+        ("GET", "/api/shared-cookbooks"),
+        ("POST", "/api/shared-cookbooks"),
+        ("GET", f"/api/shared-cookbooks/{uuid.uuid4()}"),
+        ("POST", f"/api/shared-cookbooks/{uuid.uuid4()}/recipes"),
+        ("DELETE", f"/api/shared-cookbooks/{uuid.uuid4()}/members/{uuid.uuid4()}"),
+    ):
+        resp = app_client.request(method, path, json={"name": "x"})
+        assert resp.status_code == 404, f"{method} {path} -> {resp.status_code}"

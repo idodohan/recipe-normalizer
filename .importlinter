@@ -47,6 +47,11 @@ ignore_imports =
     recipe_normalizer.cookbook.service -> recipe_normalizer.users.service
 
 [importlinter:contract:cookbook-cannot-import-sharing]
+# Task 9: this used to be load-bearing for the shared-cookbook access-widening
+# hook (sharing registered a membership checker INTO cookbook to invert the
+# dependency). That hook is gone — co-ownership is now cookbook's own
+# Cookbook/CookbookMember model — but the direction still holds: sharing
+# (copy-on-share, public links) builds on cookbook, never the reverse.
 name = cookbook module must not import sharing (sharing depends on cookbook, never the reverse)
 type = forbidden
 source_modules =

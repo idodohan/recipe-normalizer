@@ -13,13 +13,14 @@ type ShareDialogProps = {
   recipeId: string;
 };
 
-type AddState = "idle" | "pending" | "added" | "already";
-
 /**
- * The recipe's "Share" dialog — owner-only. Three independent sections,
- * each with its own query/mutations so one failing doesn't block another:
- * copy-on-share by email, a revocable public link, and adding the recipe
- * to one of the owner's shared cookbooks (with inline create-new).
+ * The recipe's "Share" dialog — owner-only. Two independent sections, each
+ * with its own query/mutations so one failing doesn't block another:
+ * copy-on-share by email and a revocable public link.
+ *
+ * The third section — "add to a shared cookbook" — is gone with the
+ * shared-cookbook feature itself; co-owned cookbooks are now real Cookbooks,
+ * shared by inviting members to them, not by pinning individual recipes.
  */
 export function ShareDialog({ open, onClose, recipeId }: ShareDialogProps) {
   return (
@@ -27,7 +28,6 @@ export function ShareDialog({ open, onClose, recipeId }: ShareDialogProps) {
       <div className="share-dlg">
         <SendCopySection recipeId={recipeId} />
         <PublicLinkSection recipeId={recipeId} open={open} />
-        <SharedCookbookSection recipeId={recipeId} open={open} />
       </div>
     </Dialog>
   );
@@ -251,150 +251,6 @@ function PublicLinkSection({ recipeId, open }: { recipeId: string; open: boolean
           {create.isPending ? "Creating…" : "Create link"}
         </button>
       )}
-    </section>
-  );
-}
-
-function SharedCookbookSection({ recipeId, open }: { recipeId: string; open: boolean }) {
-  const queryClient = useQueryClient();
-  const [newName, setNewName] = useState("");
-  const [status, setStatus] = useState<Record<string, AddState>>({});
-
-  const cookbooks = useQuery({
-    queryKey: ["shared-cookbooks"],
-    enabled: open,
-    queryFn: async () => {
-      const { data, error } = await api.GET("/api/shared-cookbooks");
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  const addTo = useMutation({
-    mutationFn: async (cookbookId: string) => {
-      const { error } = await api.POST("/api/shared-cookbooks/{cookbook_id}/recipes", {
-        params: { path: { cookbook_id: cookbookId } },
-        body: { recipe_id: recipeId },
-      });
-      if (error) throw error;
-      return cookbookId;
-    },
-    onMutate: (cookbookId) => {
-      setStatus((prev) => ({ ...prev, [cookbookId]: "pending" }));
-    },
-    onSuccess: (cookbookId) => {
-      setStatus((prev) => ({ ...prev, [cookbookId]: "added" }));
-    },
-    onError: (error, cookbookId) => {
-      const { code } = apiErrorEnvelope(error);
-      if (code === "already_added") {
-        setStatus((prev) => ({ ...prev, [cookbookId]: "already" }));
-        return;
-      }
-      setStatus((prev) => {
-        const next = { ...prev };
-        delete next[cookbookId];
-        return next;
-      });
-      toast({
-        title: "Could not add recipe",
-        description: apiErrorMessage(error, "Please try again."),
-        variant: "error",
-      });
-    },
-  });
-
-  const create = useMutation({
-    mutationFn: async (name: string) => {
-      const { data, error } = await api.POST("/api/shared-cookbooks", { body: { name } });
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: async (created) => {
-      setNewName("");
-      await queryClient.invalidateQueries({ queryKey: ["shared-cookbooks"] });
-      // Mirrors CollectionsControl's auto-add-on-create — a freshly made
-      // cookbook is almost always created *for* the recipe you're sharing.
-      addTo.mutate(created.id);
-    },
-    onError: (error) => {
-      toast({
-        title: "Could not create shared cookbook",
-        description: apiErrorMessage(error, "Please try again."),
-        variant: "error",
-      });
-    },
-  });
-
-  function handleCreate(event: FormEvent) {
-    event.preventDefault();
-    const trimmed = newName.trim();
-    if (!trimmed || create.isPending) return;
-    create.mutate(trimmed);
-  }
-
-  const items = cookbooks.data ?? [];
-
-  return (
-    <section className="share-dlg__section">
-      <h3 className="share-dlg__heading">Add to a shared cookbook</h3>
-
-      {cookbooks.isPending ? (
-        <p className="share-dlg__status">Loading…</p>
-      ) : cookbooks.isError ? (
-        <p className="share-dlg__error" role="alert">
-          {apiErrorMessage(cookbooks.error, "Could not load your shared cookbooks.")}
-        </p>
-      ) : items.length === 0 ? (
-        <p className="share-dlg__status">No shared cookbooks yet — start one below.</p>
-      ) : (
-        <ul className="share-dlg__cookbook-list">
-          {items.map((cookbook) => {
-            const state = status[cookbook.id] ?? "idle";
-            return (
-              <li key={cookbook.id} className="share-dlg__cookbook-item">
-                <span className="share-dlg__cookbook-name">{cookbook.name}</span>
-                <button
-                  type="button"
-                  className="share-dlg__text-btn share-dlg__text-btn--primary"
-                  disabled={state !== "idle"}
-                  onClick={() => addTo.mutate(cookbook.id)}
-                >
-                  {state === "pending"
-                    ? "Adding…"
-                    : state === "added"
-                      ? "Added"
-                      : state === "already"
-                        ? "Already in"
-                        : "Add"}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      <form className="share-dlg__create-form" onSubmit={handleCreate}>
-        <label className="share-dlg__create-label" htmlFor="share-dlg-new-cookbook">
-          New shared cookbook
-        </label>
-        <div className="share-dlg__row">
-          <input
-            id="share-dlg-new-cookbook"
-            className="input share-dlg__input"
-            placeholder="e.g. Sunday Dinners"
-            value={newName}
-            onChange={(event) => setNewName(event.target.value)}
-          />
-          <button
-            type="submit"
-            className="btn btn--secondary btn--sm"
-            disabled={!newName.trim() || create.isPending}
-          >
-            {create.isPending ? "Creating…" : "Create"}
-          </button>
-        </div>
-      </form>
     </section>
   );
 }

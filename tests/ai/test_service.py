@@ -14,6 +14,7 @@ from recipe_normalizer.ai.models import Conversation, ConversationKind, Message,
 from recipe_normalizer.ai.prompts import SEARCH_RECIPES_TOOL
 from recipe_normalizer.ai.schemas import ConversationOut
 from recipe_normalizer.cookbook import service as cookbook_service
+from recipe_normalizer.cookbook.models import CookbookRole
 from recipe_normalizer.cookbook.schemas import (
     IngredientGroupIn,
     IngredientLineIn,
@@ -32,13 +33,6 @@ from recipe_normalizer.ingestion import service as ingestion_service
 from recipe_normalizer.ingestion.models import InputType, JobStatus
 from recipe_normalizer.llm.client import CostCapExceeded, DbUsageRecorder, LLMClient, LLMError
 from recipe_normalizer.llm.models import LlmUsage
-
-# Importing sharing.service self-registers the shared-cookbook membership
-# checker into cookbook_service (bottom-of-module call, see worker.py's own
-# comment on the same idiom) — needed for the access-lost test below, which
-# grants `other_user` access via shared-cookbook membership rather than
-# ownership.
-from recipe_normalizer.sharing import service as sharing_service
 from recipe_normalizer.users.models import User
 from tests.ai.fakes import FakeChatLLM, FakeStructuredLLM
 from tests.llm.stubs import (
@@ -425,18 +419,25 @@ def test_chat_turn_wrong_owner_raises_404(
     assert fake.calls == []
 
 
-def test_chat_turn_access_lost_after_shared_cookbook_removal_raises_404(
+def test_chat_turn_access_lost_after_cookbook_membership_removal_raises_404(
     db_session: Session, owner: User, other_user: User
 ) -> None:
-    recipe = _create_recipe(db_session, owner.id)
-    cookbook = sharing_service.create_shared_cookbook(
-        db_session, creator_id=owner.id, name="Friends"
+    """Every turn re-derives access from the recipe's cookbook, not the FK.
+
+    ``other_user`` reaches the recipe purely as a member of the cookbook
+    holding it (never as its owner), so removing that membership must revoke
+    the chat mid-conversation.
+    """
+    cookbook = cookbook_service.create_cookbook(db_session, owner_id=owner.id, name="Friends")
+    recipe = cookbook_service.create_recipe(
+        db_session, owner_id=owner.id, data=_simple_recipe_in(), cookbook_id=cookbook.id
     )
-    sharing_service.invite_member(
-        db_session, user_id=owner.id, cookbook_id=cookbook.id, email=other_user.email
-    )
-    sharing_service.add_recipe_to_shared_cookbook(
-        db_session, user_id=owner.id, cookbook_id=cookbook.id, recipe_id=recipe.id
+    cookbook_service.invite_cookbook_member(
+        db_session,
+        cookbook_id=cookbook.id,
+        owner_id=owner.id,
+        email=other_user.email,
+        role=CookbookRole.editor,
     )
     conversation = ai_service.create_conversation(
         db_session, user_id=other_user.id, recipe_id=recipe.id, kind=ConversationKind.recipe_chat
@@ -451,8 +452,8 @@ def test_chat_turn_access_lost_after_shared_cookbook_removal_raises_404(
         llm=FakeChatLLM(reply="First answer."),  # type: ignore[arg-type]
     )
 
-    sharing_service.remove_member(
-        db_session, user_id=owner.id, cookbook_id=cookbook.id, target_user_id=other_user.id
+    cookbook_service.remove_cookbook_member(
+        db_session, cookbook_id=cookbook.id, owner_id=owner.id, member_user_id=other_user.id
     )
 
     # The conversation row (and its FK to the still-existing recipe) is

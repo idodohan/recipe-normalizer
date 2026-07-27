@@ -380,6 +380,93 @@ def test_list_recipes_excludes_other_owners(seeded: Session, owner: User) -> Non
     assert page.total == 1
 
 
+def test_list_recipes_spans_cookbooks_shared_to_me(seeded: Session, owner: User) -> None:
+    """The flat compat list is "my stuff + shared-with-me", across cookbooks.
+
+    A recipe someone else owns, in a cookbook they own, appears in MY flat
+    list as soon as I hold a member row on that cookbook — as viewer just as
+    much as editor. Before the pivot this list was strictly
+    ``Recipe.owner_id == me``.
+    """
+    stranger = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    viewer_book = make_cookbook(seeded, stranger, name="Viewer Book")
+    editor_book = make_cookbook(seeded, stranger, name="Editor Book")
+    add_member(seeded, viewer_book, owner, CookbookRole.viewer)
+    add_member(seeded, editor_book, owner, CookbookRole.editor)
+    cookbook_service.create_recipe(
+        seeded,
+        owner_id=stranger.id,
+        data=_simple_recipe_in(title="Shared As Viewer"),
+        cookbook_id=viewer_book.id,
+    )
+    cookbook_service.create_recipe(
+        seeded,
+        owner_id=stranger.id,
+        data=_simple_recipe_in(title="Shared As Editor"),
+        cookbook_id=editor_book.id,
+    )
+    cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_simple_recipe_in(title="Mine"))
+
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id)
+
+    assert {s.title for s in page.items} == {"Mine", "Shared As Viewer", "Shared As Editor"}
+    assert page.total == 3
+
+
+def test_list_recipes_excludes_public_cookbooks_i_am_not_a_member_of(
+    seeded: Session, owner: User
+) -> None:
+    """The flat list is not a discovery feed.
+
+    A public (or unlisted) cookbook is readable — ``cookbook_access`` grants
+    any caller viewer on it — but its recipes must NOT pour into every user's
+    flat list, which would otherwise grow without bound as strangers publish
+    cookbooks. Discovery is the public cookbook page's job.
+    """
+    stranger = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    for visibility in (CookbookVisibility.public, CookbookVisibility.unlisted):
+        book = make_cookbook(
+            seeded, stranger, name=f"{visibility.value} book", visibility=visibility
+        )
+        cookbook_service.create_recipe(
+            seeded,
+            owner_id=stranger.id,
+            data=_simple_recipe_in(title=f"{visibility.value} recipe"),
+            cookbook_id=book.id,
+        )
+
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id)
+
+    assert page.items == []
+    assert page.total == 0
+
+
+def test_list_recipes_span_still_honors_filters_and_pagination(
+    seeded: Session, owner: User
+) -> None:
+    """Every existing filter/pagination knob applies to the widened scope too."""
+    stranger = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    shared = make_cookbook(seeded, stranger, name="Shared Book")
+    add_member(seeded, shared, owner, CookbookRole.editor)
+    for title, total_min in (("Quick Shared", 10), ("Slow Shared", 120)):
+        data = _simple_recipe_in(title=title)
+        data.total_min = total_min
+        cookbook_service.create_recipe(
+            seeded, owner_id=stranger.id, data=data, cookbook_id=shared.id
+        )
+    mine = _simple_recipe_in(title="Quick Mine")
+    mine.total_min = 15
+    cookbook_service.create_recipe(seeded, owner_id=owner.id, data=mine)
+
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id, max_total_min=30)
+    assert {s.title for s in page.items} == {"Quick Shared", "Quick Mine"}
+    assert page.total == 2
+
+    first = cookbook_service.list_recipes(seeded, owner_id=owner.id, limit=1, offset=0)
+    assert first.total == 3
+    assert len(first.items) == 1
+
+
 # ---------------------------------------------------------------------------
 # update_recipe
 # ---------------------------------------------------------------------------
@@ -1918,6 +2005,87 @@ def test_editor_of_shared_cookbook_can_update_and_delete(seeded: Session, owner:
 
     cookbook_service.delete_recipe(seeded, owner_id=editor.id, recipe_id=created.id)
     assert seeded.get(Recipe, created.id) is None
+
+
+def test_recipe_access_matrix_is_cookbook_derived_only(seeded: Session, owner: User) -> None:
+    """Owner / editor-member / viewer-member / non-member, with no second path.
+
+    Recipe access used to be a UNION of cookbook-derived access and a legacy
+    widening callback that `sharing` registered (any member of any shared
+    cookbook containing the recipe). That union is gone, so this pins the
+    whole matrix through the one remaining rule: the recipe's cookbook.
+    """
+    editor = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    viewer = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    stranger = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    cookbook = make_cookbook(seeded, owner, name="Shared Book")
+    add_member(seeded, cookbook, editor, CookbookRole.editor)
+    add_member(seeded, cookbook, viewer, CookbookRole.viewer)
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_simple_recipe_in(), cookbook_id=cookbook.id
+    )
+
+    assert cookbook_service.recipe_access(seeded, user_id=owner.id, recipe_id=created.id) == "owner"
+    assert (
+        cookbook_service.recipe_access(seeded, user_id=editor.id, recipe_id=created.id)
+        == CookbookRole.editor
+    )
+    assert (
+        cookbook_service.recipe_access(seeded, user_id=viewer.id, recipe_id=created.id)
+        == CookbookRole.viewer
+    )
+    assert cookbook_service.recipe_access(seeded, user_id=stranger.id, recipe_id=created.id) is None
+    assert cookbook_service.recipe_access(seeded, user_id=None, recipe_id=created.id) is None
+    assert cookbook_service.recipe_access(seeded, user_id=owner.id, recipe_id=uuid.uuid4()) is None
+
+    # ...and the read/write endpoints agree with it.
+    for user in (owner, editor, viewer):
+        assert (
+            cookbook_service.get_recipe(seeded, owner_id=user.id, recipe_id=created.id).id
+            == created.id
+        )
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.get_recipe(seeded, owner_id=stranger.id, recipe_id=created.id)
+    assert exc_info.value.status_code == 404
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.update_recipe(
+            seeded,
+            owner_id=stranger.id,
+            recipe_id=created.id,
+            data=_simple_recipe_in(title="Stolen"),
+            editor_id=stranger.id,
+        )
+    assert exc_info.value.status_code == 404
+
+
+def test_recipe_owner_without_a_member_row_cannot_reach_their_own_recipe(
+    seeded: Session, owner: User
+) -> None:
+    """Owning the recipe ROW is not access — the cookbook decides, alone.
+
+    This is exactly why the pivot migration synthesizes an editor member row
+    for every recipe owner who isn't a member of the cookbook that claimed
+    their recipe (see 4e1b7c9a52d8's ``_build_member_rows``): without it, this
+    is the state a user would wake up in.
+    """
+    contributor = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    cookbook = make_cookbook(seeded, owner, name="Shared Book")
+    add_member(seeded, cookbook, contributor, CookbookRole.editor)
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=contributor.id, data=_simple_recipe_in(), cookbook_id=cookbook.id
+    )
+
+    cookbook_service.remove_cookbook_member(
+        seeded, cookbook_id=cookbook.id, owner_id=owner.id, member_user_id=contributor.id
+    )
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.get_recipe(seeded, owner_id=contributor.id, recipe_id=created.id)
+    assert exc_info.value.status_code == 404
+    # ...and it is gone from their flat list too, so the list can never show a
+    # recipe its owner would 404 on.
+    page = cookbook_service.list_recipes(seeded, owner_id=contributor.id)
+    assert created.id not in {item.id for item in page.items}
 
 
 def test_legacy_null_cookbook_recipe_owner_only_access(seeded: Session, owner: User) -> None:

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import secrets
 import uuid
-from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -77,16 +76,17 @@ __all__ = [
     "get_recipe_image_ref_unscoped",
     "get_recipe_unscoped",
     "invite_cookbook_member",
+    "is_recipe_owner",
     "leave_cookbook",
     "list_collections",
     "list_my_cookbooks",
     "list_recipes",
     "move_recipe",
+    "recipe_access",
     "recipe_summaries_for_ids",
     "recipe_titles_for_ids",
     "recommendations_for_recipe",
     "register_hooks",
-    "register_membership_checker",
     "remove_cookbook_member",
     "rename_collection",
     "rename_cookbook",
@@ -100,7 +100,6 @@ __all__ = [
     "set_recipe_collections",
     "set_recipe_image",
     "update_recipe",
-    "user_recipe_access",
     "verify_recipe",
 ]
 
@@ -175,66 +174,6 @@ def register_hooks() -> None:
         return
     catalog_service.register_merge_hook(repoint_ingredient_lines)
     _hooks_registered = True
-
-
-# ---------------------------------------------------------------------------
-# Access widening — THE authorization choke point (phase 2, shared cookbooks)
-#
-# cookbook must never import sharing (see .importlinter's
-# cookbook-cannot-import-sharing contract), so the dependency runs the other
-# way: `sharing` registers a callback here at startup, mirroring exactly how
-# *this* module registers `repoint_ingredient_lines` into catalog above.
-# ---------------------------------------------------------------------------
-
-_membership_checker: Callable[[Session, uuid.UUID, uuid.UUID], bool] | None = None
-
-
-def register_membership_checker(cb: Callable[[Session, uuid.UUID, uuid.UUID], bool]) -> None:
-    """Register sharing's shared-cookbook-membership checker (called by sharing.service).
-
-    *cb* answers "(db, user_id, recipe_id) -> is user_id a member of some
-    shared cookbook that contains recipe_id?". There is exactly one real
-    registrant in this codebase; a later call simply replaces the callback
-    (handy for tests that want to stub it out).
-    """
-    global _membership_checker
-    _membership_checker = cb
-
-
-def user_recipe_access(
-    db: Session, user_id: uuid.UUID, recipe_id: uuid.UUID
-) -> Literal["owner", "member"] | None:
-    """Resolve *user_id*'s access level to *recipe_id* — the ONE centralized check.
-
-    Returns:
-      - ``"owner"`` if *user_id* owns the recipe outright.
-      - ``"member"`` if not the owner, but *user_id* is a member of a shared
-        cookbook containing the recipe (per the registered membership
-        checker — always ``None``/no-match if sharing never registered one,
-        e.g. a test that imports only cookbook.service).
-      - ``None`` otherwise: the recipe doesn't exist, or exists but *user_id*
-        has no claim on it. Callers treat this as their 404 case.
-
-    This is the single choke point every access-widening decision in this
-    module goes through. Of the owner-scoped functions below, exactly three
-    are widened to accept "member" access: ``get_recipe`` (which also backs
-    the ``/scaled`` endpoint — the router fetches via ``get_recipe`` before
-    scaling) and ``update_recipe``. Everything else — ``delete_recipe``,
-    ``set_personal`` (favorites/notes), ``set_recipe_collections``,
-    ``set_recipe_image``/``clear_recipe_image``, and ``list_recipes`` (a
-    user's personal cookbook listing must never surface someone else's
-    shared recipes — the shared-cookbook page is the place for those) —
-    deliberately keeps its original owner-only check and does NOT call this
-    function.
-    """
-    owner_id = db.scalar(select(Recipe.owner_id).where(Recipe.id == recipe_id))
-    if owner_id is None:
-        return None
-    if owner_id == user_id:
-        return "owner"
-    if _membership_checker is not None and _membership_checker(db, user_id, recipe_id):
-        return "member"
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -332,13 +271,21 @@ def require_cookbook_access(
 
 
 # ---------------------------------------------------------------------------
-# Recipe access derived from its cookbook (Task 5) — replaces the old
-# `user_recipe_access` widening for create/move/get/update/delete. A recipe
-# with a NULL `cookbook_id` (legacy row, pre-migration — see
-# Recipe.cookbook_id's docstring) has no cookbook to derive access from, so
-# it falls back to a plain owner-only check via `recipe.owner_id` directly —
-# this keeps pre-migration recipes from ever 500ing while never granting a
-# non-owner access to one.
+# Recipe access derived from its cookbook — THE only recipe-access rule.
+#
+# Every recipe lives in exactly one cookbook, so "who may read/edit this
+# recipe" is answered entirely by "who may read/edit its cookbook". There is
+# no per-recipe grant, and no second, wider path: the pre-pivot
+# shared-cookbook widening (a callback `sharing` registered here, consulted
+# whenever the caller didn't own the recipe outright) is gone — shared access
+# is now a `CookbookMember` row, which `cookbook_access` already resolves.
+#
+# A recipe with a NULL `cookbook_id` (legacy row, pre-migration — see
+# Recipe.cookbook_id's docstring) has no cookbook to derive access from, so it
+# falls back to a plain owner-only check via `recipe.owner_id` directly. That
+# branch is unreachable once the finalize migration's NOT NULL is in place;
+# it stays as a belt-and-braces guard so a stray row could never 500 (and
+# could never widen access either).
 # ---------------------------------------------------------------------------
 
 
@@ -349,6 +296,37 @@ def _recipe_access(db: Session, *, user_id: uuid.UUID | None, recipe: Recipe) ->
             return "owner"
         return None
     return cookbook_access(db, user_id=user_id, cookbook_id=recipe.cookbook_id)
+
+
+def recipe_access(db: Session, *, user_id: uuid.UUID | None, recipe_id: uuid.UUID) -> Access | None:
+    """Resolve *user_id*'s access level to *recipe_id* by id (None if no claim).
+
+    The by-id sibling of ``_recipe_access``, for callers that hold only a
+    recipe id and want to gate on access without fetching the whole recipe
+    (``ai.service``'s conversation/transform entry points,
+    ``recommendations_for_recipe``). Returns ``None`` both for a nonexistent
+    recipe and for one the caller has no claim on — callers treat both as
+    their 404 case, never revealing which it was.
+    """
+    recipe = db.get(Recipe, recipe_id)
+    if recipe is None:
+        return None
+    return _recipe_access(db, user_id=user_id, recipe=recipe)
+
+
+def is_recipe_owner(db: Session, user_id: uuid.UUID, recipe_id: uuid.UUID) -> bool:
+    """True iff *recipe_id* exists and ``recipes.owner_id`` is *user_id*.
+
+    Deliberately about the RECIPE ROW's owner, not cookbook-derived access:
+    ``sharing`` uses this for the two operations that must be reserved to the
+    person whose recipe it is, no matter which cookbook it currently sits in
+    (copy-on-share, and minting a public link). Those two must stay available
+    to a recipe's own owner even when their recipe lives in a cookbook someone
+    else owns (they contributed it as an editor member), and must stay
+    unavailable to a cookbook owner/editor who merely has access to it.
+    """
+    owner_id = db.scalar(select(Recipe.owner_id).where(Recipe.id == recipe_id))
+    return owner_id is not None and owner_id == user_id
 
 
 def _require_recipe_access(
@@ -363,24 +341,6 @@ def _require_recipe_access(
     resolved = _recipe_access(db, user_id=user_id, recipe=recipe)
     if resolved is None or _rank(resolved) < _rank(need):
         raise ApiError(404, "not_found", f"Recipe {recipe.id} not found.")
-
-
-def _has_recipe_access(
-    db: Session, *, user_id: uuid.UUID | None, recipe: Recipe, need: Access
-) -> bool:
-    """True if *user_id* has at least *need* cookbook-derived access to *recipe*,
-    OR — transitional fallback, ``get_recipe``/``update_recipe`` only — is
-    granted access via the legacy pre-cookbook-pivot sharing-module widening
-    (``user_recipe_access``, still the path ``sharing.service``/``ai.service``
-    go through for their own shared-cookbook-membership checks; it has not
-    been migrated onto the ``Cookbook``/``CookbookMember`` model yet). Once
-    sharing is migrated onto Cookbook membership, this fallback becomes
-    dead code and ``_require_recipe_access`` alone will suffice.
-    """
-    resolved = _recipe_access(db, user_id=user_id, recipe=recipe)
-    if resolved is not None and _rank(resolved) >= _rank(need):
-        return True
-    return user_id is not None and user_recipe_access(db, user_id, recipe.id) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -968,18 +928,14 @@ def get_recipe(
     compatibility with every existing call site — ingestion, sharing, the
     router's GET and /scaled endpoints), any caller with at least viewer
     access to the recipe's cookbook — owner, editor, or viewer member, or a
-    public/unlisted viewer — can read it. Also still honors the legacy
-    sharing-module widening (see ``_has_recipe_access``) so an existing
-    shared-cookbook member keeps read access until sharing is migrated onto
-    the Cookbook model. A caller with neither claim gets the same 404 as a
-    nonexistent id — this function never reveals whether a recipe merely
-    belongs to someone else.
+    public/unlisted viewer — can read it, and nobody else. A caller with no
+    claim gets the same 404 as a nonexistent id — this function never reveals
+    whether a recipe merely belongs to someone else.
     """
     loaded = _load_recipe_full(db, recipe_id)
     if loaded is None:
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
-    if not _has_recipe_access(db, user_id=owner_id, recipe=loaded, need=CookbookRole.viewer):
-        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+    _require_recipe_access(db, user_id=owner_id, recipe=loaded, need=CookbookRole.viewer)
     return RecipeOut.model_validate(loaded)
 
 
@@ -1230,6 +1186,27 @@ _INGREDIENT_TRIGRAM_THRESHOLD = 0.25
 _VALID_DIETARY_FILTERS = frozenset({"vegan", "vegetarian", "gluten_free"})
 
 
+def _readable_cookbook_ids(user_id: uuid.UUID) -> Any:
+    """A SELECT of every cookbook id *user_id* owns or is a member of.
+
+    Used as an ``IN (...)`` subquery by ``list_recipes``; Postgres plans it as
+    a semi-join, so no ids are materialized in Python. Owned and member-of
+    only — see ``list_recipes``'s docstring for why public/unlisted cookbooks
+    the caller isn't a member of are excluded.
+    """
+    return select(Cookbook.id).where(
+        or_(
+            Cookbook.owner_id == user_id,
+            exists(
+                select(1).where(
+                    CookbookMember.cookbook_id == Cookbook.id,
+                    CookbookMember.user_id == user_id,
+                )
+            ),
+        )
+    )
+
+
 def list_recipes(
     db: Session,
     *,
@@ -1246,7 +1223,17 @@ def list_recipes(
     limit: int = 1000,
     offset: int = 0,
 ) -> RecipePage:
-    """Return a page of recipes owned by owner_id, newest first, filters ANDed.
+    """Return a page of recipes *owner_id* can READ, newest first, filters ANDed.
+
+    SCOPE (the flat compat list): every recipe in a cookbook *owner_id* owns
+    OR is a member of (any role) — "my stuff + shared-with-me". Deliberately
+    NOT a discovery feed: a public/unlisted cookbook the caller is not a
+    member of is readable via its own cookbook page but does NOT pour its
+    recipes into this list, which would otherwise grow without bound as
+    strangers publish cookbooks. ``owner_id`` is kept as the parameter name
+    for call-site compatibility; it means "the calling user", and a recipe
+    someone else owns can now appear (shared to the caller as viewer or
+    editor).
 
     Search (*q*): a recipe matches when ANY of the following hold —
       1. title/description full-text search: ``to_tsvector('simple', title ||
@@ -1288,7 +1275,7 @@ def list_recipes(
 
     Raises ``ApiError`` 422 for an unrecognised *dietary* value.
     """
-    conditions: list[Any] = [Recipe.owner_id == owner_id]
+    conditions: list[Any] = [Recipe.cookbook_id.in_(_readable_cookbook_ids(owner_id))]
 
     if q and q.strip():
         q_stripped = q.strip()
@@ -1463,9 +1450,10 @@ def recommendations_for_recipe(
     purely deterministic content similarity, scored per the WEIGHT_* formula
     documented above.
 
-    Access to *recipe_id* itself uses the SAME widened `user_recipe_access`
-    check every other per-recipe read in this module uses (owner OR
-    shared-cookbook member) — 404 if neither. The CANDIDATE POOL, however, is
+    Access to *recipe_id* itself uses the SAME cookbook-derived check every
+    other per-recipe read in this module uses (`recipe_access` — owner,
+    member, or public/unlisted viewer of the recipe's cookbook) — 404 if no
+    claim. The CANDIDATE POOL, however, is
     ALWAYS *user_id*'s own cookbook (`Recipe.owner_id == user_id`), regardless
     of whether *recipe_id* belongs to *user_id* or was reached via a shared
     cookbook: a member browsing someone else's shared recipe gets
@@ -1486,7 +1474,7 @@ def recommendations_for_recipe(
     subqueries and returns the top *limit* — never N+1 over the whole
     cookbook regardless of how many recipes *user_id* owns.
     """
-    if user_recipe_access(db, user_id, recipe_id) is None:
+    if recipe_access(db, user_id=user_id, recipe_id=recipe_id) is None:
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
 
     cuisine_ids = _recipe_assoc_ids(db, recipe_id, recipe_cuisines, "cuisine_id")
@@ -1573,10 +1561,7 @@ def update_recipe(
     Access derives from the recipe's cookbook (see ``_recipe_access``):
     ``owner_id`` (again, kept as the param name for compatibility) needs
     editor+ access to the recipe's cookbook — owner or editor member — 404
-    otherwise (viewer members and non-members alike). Also still honors the
-    legacy sharing-module widening (see ``_has_recipe_access``) so an
-    existing shared-cookbook member keeps edit access until sharing is
-    migrated onto the Cookbook model.
+    otherwise (viewer members and non-members alike).
     - Replaces groups/lines/steps (delete-orphan cascade handles cleanup).
     - Re-runs catalog matching + normalization.
     - Sets last_edited_by and last_edited_at to *editor_id* — for a member
@@ -1587,8 +1572,7 @@ def update_recipe(
     recipe = db.scalars(select(Recipe).where(Recipe.id == recipe_id)).first()
     if recipe is None:
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
-    if not _has_recipe_access(db, user_id=owner_id, recipe=recipe, need=CookbookRole.editor):
-        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+    _require_recipe_access(db, user_id=owner_id, recipe=recipe, need=CookbookRole.editor)
 
     # Clear existing groups/steps — delete-orphan cascade removes children
     recipe.ingredient_groups.clear()

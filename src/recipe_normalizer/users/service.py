@@ -1,4 +1,3 @@
-import uuid
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -18,7 +17,6 @@ from recipe_normalizer.users.models import User
 __all__ = [
     "AuthError",
     "User",
-    "display_names_for_ids",
     "get_user_by_email",
     "get_user_by_token",
     "login",
@@ -112,21 +110,6 @@ def get_user_by_email(db: Session, email: str) -> User | None:
     """
     normalized = email.strip().lower()
     return db.scalars(select(User).where(User.email == normalized)).first()
-
-
-def display_names_for_ids(db: Session, ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
-    """Map user ids to their display_name (for callers rendering member/editor names).
-
-    Used by sharing.service to render shared-cookbook member lists and
-    per-recipe "last edited by" without it ever importing `users.models`
-    directly. Deliberately does NOT expose email — see sharing.service's
-    module docstring for why shared-cookbook members only ever see each
-    other's display names.
-    """
-    if not ids:
-        return {}
-    rows = db.execute(select(User.id, User.display_name).where(User.id.in_(ids))).all()
-    return {row.id: row.display_name for row in rows}
 
 
 def get_user_by_token(db: Session, token: str) -> User | None:

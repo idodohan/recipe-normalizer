@@ -113,14 +113,14 @@ def create_conversation(
     """Create a new conversation owned by *user_id*.
 
     When *recipe_id* is given, the caller must already have access to that
-    recipe — checked via `cookbook_service.user_recipe_access` (owner OR
-    shared-cookbook member, the SAME widened check `cookbook.service.get_recipe`
-    uses), 404 otherwise. This mirrors `sharing.service.add_recipe_to_shared_cookbook`'s
-    pattern of validating an incoming recipe id via `user_recipe_access` before
-    it's used as a foreign key, both to keep "which recipes can I start a
-    conversation about" identical to "which recipes can I read", and to avoid
-    an unhandled `IntegrityError` (FK violation) for a nonexistent recipe id
-    surfacing as a 500 — this way it's a clean 404 instead.
+    recipe — checked via `cookbook_service.recipe_access` (the SAME
+    cookbook-derived check `cookbook.service.get_recipe` uses: owner, member,
+    or public/unlisted viewer of the recipe's cookbook), 404 otherwise.
+    Validating an incoming recipe id before it's used as a foreign key both
+    keeps "which recipes can I start a conversation about" identical to "which
+    recipes can I read", and avoids an unhandled `IntegrityError` (FK
+    violation) for a nonexistent recipe id surfacing as a 500 — this way it's
+    a clean 404 instead.
 
     A recipe_id of ``None`` is valid (a cookbook-wide Q&A conversation) and
     skips this check entirely.
@@ -128,7 +128,7 @@ def create_conversation(
     Flushes; caller owns commit.
     """
     if recipe_id is not None and (
-        cookbook_service.user_recipe_access(db, user_id, recipe_id) is None
+        cookbook_service.recipe_access(db, user_id=user_id, recipe_id=recipe_id) is None
     ):
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
 
@@ -314,8 +314,9 @@ def chat_turn(
       - conversation ownership, via `get_conversation` (404 for a missing or
         someone-else's conversation);
       - CURRENT access to the conversation's recipe, via
-        `cookbook_service.user_recipe_access` (404 if access has since been
-        lost — e.g. the caller was removed from a shared cookbook after the
+        `cookbook_service.recipe_access` (404 if access has since been
+        lost — e.g. the caller was removed from the cookbook holding it, or
+        the recipe was moved to a cookbook they can't read, after the
         conversation was created; a stale `recipe_id` FK is not enough proof
         of present-day access).
 
@@ -343,7 +344,7 @@ def chat_turn(
 
     # Re-check access every turn — NOT just relying on the FK having resolved
     # once at create_conversation time.
-    if cookbook_service.user_recipe_access(db, user_id, detail.recipe_id) is None:
+    if cookbook_service.recipe_access(db, user_id=user_id, recipe_id=detail.recipe_id) is None:
         raise ApiError(404, "not_found", f"Recipe {detail.recipe_id} not found.")
     recipe = cookbook_service.get_recipe(db, owner_id=user_id, recipe_id=detail.recipe_id)
 
@@ -657,7 +658,7 @@ def transform_recipe(
 ) -> TransformOut:
     """Apply a qualitative instruction to a recipe, landing the result in the review gate.
 
-    Access is checked with the SAME `cookbook_service.user_recipe_access` every other
+    Access is checked with the SAME `cookbook_service.recipe_access` every other
     per-recipe ai feature uses (404 for a missing recipe or one the caller can't read).
 
     **Scaling boundary (mandatory, see the phase plan):** a PURE quantity-scale
@@ -682,7 +683,7 @@ def transform_recipe(
 
     Flushes; caller owns commit (same convention as the rest of this module).
     """
-    if cookbook_service.user_recipe_access(db, user_id, recipe_id) is None:
+    if cookbook_service.recipe_access(db, user_id=user_id, recipe_id=recipe_id) is None:
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
 
     if _is_pure_scaling_instruction(instruction):
