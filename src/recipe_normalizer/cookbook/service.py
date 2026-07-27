@@ -22,6 +22,10 @@ if TYPE_CHECKING:
     from recipe_normalizer.llm.client import LLMClient
 from recipe_normalizer.cookbook.models import (
     Collection,
+    Cookbook,
+    CookbookMember,
+    CookbookRole,
+    CookbookVisibility,
     Cuisine,
     DishType,
     IngredientGroup,
@@ -50,11 +54,13 @@ from recipe_normalizer.sniff import detect_media_type
 __all__ = [
     "MAX_IMAGE_BYTES",
     "UNSET",
+    "Access",
     "DuplicateCollectionNameError",
     "DuplicateRecipeError",
     "SourceType",
     "are_verified",
     "clear_recipe_image",
+    "cookbook_access",
     "copy_recipe",
     "create_collection",
     "create_recipe",
@@ -73,6 +79,7 @@ __all__ = [
     "register_membership_checker",
     "rename_collection",
     "repoint_ingredient_lines",
+    "require_cookbook_access",
     "set_personal",
     "set_recipe_collections",
     "set_recipe_image",
@@ -212,6 +219,100 @@ def user_recipe_access(
     if _membership_checker is not None and _membership_checker(db, user_id, recipe_id):
         return "member"
     return None
+
+
+# ---------------------------------------------------------------------------
+# Cookbook access / role resolution — THE authorization choke point for
+# cookbook-scoped operations (Task 4+ recipe/cookbook CRUD builds on this).
+#
+# Resolution order (first match wins):
+#   1. cookbook.owner_id == user_id       -> "owner"
+#   2. a CookbookMember row exists        -> that row's CookbookRole
+#   3. visibility in {unlisted, public}   -> CookbookRole.viewer (anonymous
+#                                             or any authenticated user)
+#   4. otherwise                          -> None
+#
+# Owner always wins even if a (pathological) member row also exists for the
+# same (cookbook_id, owner_id) pair. A None user_id (anonymous) can only ever
+# resolve to viewer (via public/unlisted) or None — steps 1 and 2 both
+# require a real user_id.
+# ---------------------------------------------------------------------------
+
+#: An access level: the literal "owner" (outranks every CookbookRole) or a
+#: resolved CookbookRole (editor/viewer). Ordered owner > editor > viewer —
+#: see `_rank`.
+Access = Literal["owner"] | CookbookRole
+
+_ACCESS_RANK: dict[Access, int] = {
+    CookbookRole.viewer: 1,
+    CookbookRole.editor: 2,
+    "owner": 3,
+}
+
+
+def _rank(level: Access) -> int:
+    """Map an Access level to its ordinal rank (higher = more privileged)."""
+    return _ACCESS_RANK[level]
+
+
+def _resolve_cookbook_access(
+    db: Session, *, user_id: uuid.UUID | None, cookbook: Cookbook
+) -> Access | None:
+    """Resolve *user_id*'s access to an already-loaded *cookbook* row."""
+    if user_id is not None and cookbook.owner_id == user_id:
+        return "owner"
+    if user_id is not None:
+        member_role = db.scalar(
+            select(CookbookMember.role).where(
+                CookbookMember.cookbook_id == cookbook.id,
+                CookbookMember.user_id == user_id,
+            )
+        )
+        if member_role is not None:
+            return member_role
+    if cookbook.visibility in (CookbookVisibility.unlisted, CookbookVisibility.public):
+        return CookbookRole.viewer
+    return None
+
+
+def cookbook_access(
+    db: Session, *, user_id: uuid.UUID | None, cookbook_id: uuid.UUID
+) -> Access | None:
+    """Resolve *user_id*'s access level to *cookbook_id* (None if no claim / doesn't exist).
+
+    See the module-level comment above for the exact resolution order.
+    *user_id* may be None (anonymous) — the only levels reachable then are
+    ``CookbookRole.viewer`` (via a public/unlisted cookbook) or ``None``.
+    """
+    cookbook = db.get(Cookbook, cookbook_id)
+    if cookbook is None:
+        return None
+    return _resolve_cookbook_access(db, user_id=user_id, cookbook=cookbook)
+
+
+def require_cookbook_access(
+    db: Session,
+    *,
+    user_id: uuid.UUID | None,
+    cookbook_id: uuid.UUID,
+    need: Access,
+) -> Cookbook:
+    """Return the Cookbook if *user_id* has at least *need* access, else raise 404.
+
+    Raises ApiError(404) — not 403 — both when the cookbook doesn't exist and
+    when it exists but the resolved access level is insufficient, so callers
+    never leak whether a cookbook merely belongs to someone else (matches
+    this module's existing not-found discipline, e.g. ``get_recipe``).
+    """
+    cookbook = db.get(Cookbook, cookbook_id)
+    resolved = (
+        None
+        if cookbook is None
+        else _resolve_cookbook_access(db, user_id=user_id, cookbook=cookbook)
+    )
+    if cookbook is None or resolved is None or _rank(resolved) < _rank(need):
+        raise ApiError(404, "not_found", f"Cookbook {cookbook_id} not found.")
+    return cookbook
 
 
 # ---------------------------------------------------------------------------
