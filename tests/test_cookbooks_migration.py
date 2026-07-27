@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -115,6 +116,7 @@ shared_cookbooks_t = sa.table(
     sa.column("id", sa.Uuid()),
     sa.column("name", sa.String()),
     sa.column("created_by", sa.Uuid()),
+    sa.column("created_at", sa.DateTime(timezone=True)),
 )
 shared_members_t = sa.table(
     "shared_cookbook_members",
@@ -132,18 +134,35 @@ shared_recipes_t = sa.table(
 ALICE = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
 BOB = uuid.UUID("00000000-0000-0000-0000-0000000000b0")
 CAROL = uuid.UUID("00000000-0000-0000-0000-0000000000ca")
+DAVE = uuid.UUID("00000000-0000-0000-0000-0000000000da")
 R_ALICE_SOLO = uuid.UUID("00000000-0000-0000-0000-0000000000e1")
 R_ALICE_SHARED = uuid.UUID("00000000-0000-0000-0000-0000000000e2")
 R_BOB_SHARED = uuid.UUID("00000000-0000-0000-0000-0000000000e3")
-SHARED_CB = uuid.UUID("00000000-0000-0000-0000-00000000005c")
+R_DAVE_SHARED = uuid.UUID("00000000-0000-0000-0000-0000000000e4")
+R_BOB_BAKERS = uuid.UUID("00000000-0000-0000-0000-0000000000e5")
+FAMILY_CB = uuid.UUID("00000000-0000-0000-0000-00000000005c")
+BAKERS_CB = uuid.UUID("00000000-0000-0000-0000-00000000005d")
+
+# Explicit, distinct timestamps: `now()` is the *transaction* clock in
+# Postgres, so seeding both cookbooks in one transaction would give them an
+# identical created_at and the first-wins tie-break would silently fall
+# through to the id ordering instead of the age ordering under test.
+FAMILY_CREATED = datetime(2026, 1, 1, tzinfo=UTC)
+BAKERS_CREATED = datetime(2026, 2, 1, tzinfo=UTC)
 
 
 def _seed_pre_migration_state(engine: Engine) -> None:
-    """Alice + Bob own recipes, Carol owns none; one shared cookbook.
+    """Two shared cookbooks with different creators, plus the tricky cases.
 
-    The shared cookbook is Alice's ("Family"), holds one recipe of hers and
-    one of Bob's, and — as ``sharing.service.create_shared_cookbook`` really
-    does — carries a self-membership row for its creator alongside Bob's.
+    * "Family" (Alice's, older) holds a recipe of Alice's, one of Bob's, and
+      one of **Dave's — and Dave is not a member of it**. That is reachable in
+      production: ``sharing.remove_member`` drops the membership row but
+      leaves the recipe link behind.
+    * "Bakers" (Bob's, newer) holds one of Bob's own recipes plus the *same*
+      Alice recipe Family already has — the contested, first-wins case.
+    * Both carry the creator's own self-membership row, as
+      ``sharing.service.create_shared_cookbook`` really does.
+    * Carol is a member of Bakers but owns no recipes at all.
     """
     with engine.begin() as conn:
         conn.execute(
@@ -155,48 +174,61 @@ def _seed_pre_migration_state(engine: Engine) -> None:
                     "password_hash": "x",
                     "display_name": name.title(),
                 }
-                for user_id, name in ((ALICE, "alice"), (BOB, "bob"), (CAROL, "carol"))
+                for user_id, name in (
+                    (ALICE, "alice"),
+                    (BOB, "bob"),
+                    (CAROL, "carol"),
+                    (DAVE, "dave"),
+                )
             ],
         )
         conn.execute(
             sa.insert(recipes_t),
             [
-                {
-                    "id": R_ALICE_SOLO,
-                    "owner_id": ALICE,
-                    "title": "Alice solo",
-                    "source_type": "manual",
-                },
-                {
-                    "id": R_ALICE_SHARED,
-                    "owner_id": ALICE,
-                    "title": "Alice shared",
-                    "source_type": "manual",
-                },
-                {
-                    "id": R_BOB_SHARED,
-                    "owner_id": BOB,
-                    "title": "Bob shared",
-                    "source_type": "manual",
-                },
+                {"id": recipe_id, "owner_id": owner, "title": title, "source_type": "manual"}
+                for recipe_id, owner, title in (
+                    (R_ALICE_SOLO, ALICE, "Alice solo"),
+                    (R_ALICE_SHARED, ALICE, "Alice shared"),
+                    (R_BOB_SHARED, BOB, "Bob shared"),
+                    (R_DAVE_SHARED, DAVE, "Dave shared"),
+                    (R_BOB_BAKERS, BOB, "Bob bakers"),
+                )
             ],
         )
         conn.execute(
             sa.insert(shared_cookbooks_t),
-            [{"id": SHARED_CB, "name": "Family", "created_by": ALICE}],
+            [
+                {
+                    "id": FAMILY_CB,
+                    "name": "Family",
+                    "created_by": ALICE,
+                    "created_at": FAMILY_CREATED,
+                },
+                {
+                    "id": BAKERS_CB,
+                    "name": "Bakers",
+                    "created_by": BOB,
+                    "created_at": BAKERS_CREATED,
+                },
+            ],
         )
         conn.execute(
             sa.insert(shared_members_t),
             [
-                {"cookbook_id": SHARED_CB, "user_id": ALICE, "added_by": ALICE},
-                {"cookbook_id": SHARED_CB, "user_id": BOB, "added_by": ALICE},
+                {"cookbook_id": FAMILY_CB, "user_id": ALICE, "added_by": ALICE},
+                {"cookbook_id": FAMILY_CB, "user_id": BOB, "added_by": ALICE},
+                {"cookbook_id": BAKERS_CB, "user_id": BOB, "added_by": BOB},
+                {"cookbook_id": BAKERS_CB, "user_id": CAROL, "added_by": BOB},
             ],
         )
         conn.execute(
             sa.insert(shared_recipes_t),
             [
-                {"cookbook_id": SHARED_CB, "recipe_id": R_ALICE_SHARED, "added_by": ALICE},
-                {"cookbook_id": SHARED_CB, "recipe_id": R_BOB_SHARED, "added_by": ALICE},
+                {"cookbook_id": FAMILY_CB, "recipe_id": R_ALICE_SHARED, "added_by": ALICE},
+                {"cookbook_id": FAMILY_CB, "recipe_id": R_BOB_SHARED, "added_by": BOB},
+                {"cookbook_id": FAMILY_CB, "recipe_id": R_DAVE_SHARED, "added_by": ALICE},
+                {"cookbook_id": BAKERS_CB, "recipe_id": R_ALICE_SHARED, "added_by": BOB},
+                {"cookbook_id": BAKERS_CB, "recipe_id": R_BOB_BAKERS, "added_by": BOB},
             ],
         )
 
@@ -204,6 +236,19 @@ def _seed_pre_migration_state(engine: Engine) -> None:
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
+
+def _members_of(
+    conn: sa.Connection, cookbook_id: uuid.UUID
+) -> list[tuple[uuid.UUID, str, uuid.UUID]]:
+    rows = conn.execute(
+        text(
+            "select user_id, role::text as role, added_by from cookbook_members "
+            "where cookbook_id = :cb order by user_id"
+        ),
+        {"cb": cookbook_id},
+    ).all()
+    return [(row.user_id, row.role, row.added_by) for row in rows]
 
 
 def test_backfill_preserves_every_recipe_and_shared_cookbook(migration_engine: Engine) -> None:
@@ -223,48 +268,57 @@ def test_backfill_preserves_every_recipe_and_shared_cookbook(migration_engine: E
         #    one default cookbook, private and named "My Cookbook".
         defaults = conn.execute(
             text(
-                "select owner_id, name, visibility::text, count(*) over () as total "
+                "select owner_id, name, visibility::text as visibility "
                 "from cookbooks where is_default"
             )
         ).all()
-        assert len(defaults) == 3
-        assert {row.owner_id for row in defaults} == {ALICE, BOB, CAROL}
+        assert len(defaults) == 4
+        assert {row.owner_id for row in defaults} == {ALICE, BOB, CAROL, DAVE}
         assert {row.name for row in defaults} == {"My Cookbook"}
         assert {row.visibility for row in defaults} == {"private"}
 
-        # 3. The shared cookbook became a real cookbook owned by its creator.
-        derived = conn.execute(
+        # 3. Each shared cookbook became a real cookbook owned by its creator.
+        family = conn.execute(
             text(
                 "select id, owner_id, is_default, visibility::text as visibility "
                 "from cookbooks where name = 'Family'"
             )
         ).one()
-        assert derived.owner_id == ALICE
-        assert derived.is_default is False
-        assert derived.visibility == "private"
+        bakers = conn.execute(
+            text("select id, owner_id, is_default from cookbooks where name = 'Bakers'")
+        ).one()
+        assert (family.owner_id, family.is_default, family.visibility) == (ALICE, False, "private")
+        assert (bakers.owner_id, bakers.is_default) == (BOB, False)
 
-        # 4. Members carried over as editors, audit trail intact. The creator
-        #    is deliberately NOT a member row — in the new model the owner is
-        #    implicit (see cookbook/service.list_my_cookbooks).
-        members = conn.execute(
-            text(
-                "select user_id, role::text as role, added_by from cookbook_members "
-                "where cookbook_id = :cb"
-            ),
-            {"cb": derived.id},
-        ).all()
-        assert [(m.user_id, m.role, m.added_by) for m in members] == [(BOB, "editor", ALICE)]
+        # 4. Members carried over as editors, audit trail intact. Each
+        #    cookbook's own creator is deliberately NOT a member row — in the
+        #    new model the owner is implicit (see list_my_cookbooks), and a
+        #    self-membership row would make the cookbook list it twice.
+        #    Dave's row is *synthesized*: he owns a recipe that Family claimed
+        #    but he was never a member of Family, so without it he would lose
+        #    all access to his own recipe.
+        assert _members_of(conn, family.id) == [
+            (BOB, "editor", ALICE),  # carried over from shared_cookbook_members
+            (DAVE, "editor", ALICE),  # synthesized — recipe owner, added_by = cookbook owner
+        ]
+        # Bob owns R_BOB_BAKERS which Bakers claimed, but Bob *is* Bakers'
+        # owner, so no row is synthesized for him. Carol carries over.
+        assert _members_of(conn, bakers.id) == [(CAROL, "editor", BOB)]
 
         # 5. Recipes land where they should: shared ones (whoever owns them)
-        #    in the derived cookbook, the rest in their owner's default.
+        #    in the derived cookbook, the rest in their owner's default. The
+        #    contested recipe — in BOTH shared cookbooks — goes to the older
+        #    one (Family), deterministically, and Bakers silently loses it.
         placement = dict(
             conn.execute(text("select id, cookbook_id from recipes")).all()  # type: ignore[arg-type]
         )
         alice_default = conn.execute(
             text("select id from cookbooks where is_default and owner_id = :o"), {"o": ALICE}
         ).scalar_one()
-        assert placement[R_ALICE_SHARED] == derived.id
-        assert placement[R_BOB_SHARED] == derived.id
+        assert placement[R_ALICE_SHARED] == family.id
+        assert placement[R_BOB_SHARED] == family.id
+        assert placement[R_DAVE_SHARED] == family.id
+        assert placement[R_BOB_BAKERS] == bakers.id
         assert placement[R_ALICE_SOLO] == alice_default
 
         # 6. The old shared_cookbook* tables are still here — Task 9 drops
@@ -286,6 +340,46 @@ def test_backfill_preserves_every_recipe_and_shared_cookbook(migration_engine: E
             )
         ).scalar_one()
         assert nullable == "YES"
+
+        # 8. THE invariant behind all of the above: nobody lost access to
+        #    their own recipe. Access is now derived from the cookbook, so
+        #    every recipe's owner must either own the cookbook holding it or
+        #    have a member row on it — otherwise cookbook.service's
+        #    _recipe_access returns None and the owner 404s on their own
+        #    recipe while the owner-scoped list still shows it.
+        stranded = conn.execute(
+            text(
+                "select r.id from recipes r "
+                "join cookbooks c on c.id = r.cookbook_id "
+                "left join cookbook_members m "
+                "  on m.cookbook_id = c.id and m.user_id = r.owner_id "
+                "where c.owner_id <> r.owner_id and m.user_id is null"
+            )
+        ).all()
+        assert stranded == [], "recipe owners must keep access to their own recipes"
+
+
+def test_backfill_logs_the_contested_shared_recipe_link(
+    migration_engine: Engine, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """The first-wins drop is reported, not silent.
+
+    Asserted through captured stderr rather than ``caplog``: ``env.py`` calls
+    ``fileConfig()`` on every alembic invocation, which wipes the handlers
+    pytest's log-capture fixture installs. The console handler fileConfig
+    then creates writes to stderr, which capfd does see.
+    """
+    _upgrade(migration_engine, PREV_HEAD)
+    _seed_pre_migration_state(migration_engine)
+    capfd.readouterr()  # drop everything the pre-migration upgrades emitted
+    _upgrade(migration_engine, "head")
+
+    err = capfd.readouterr().err
+    assert "1 recipe/shared-cookbook link(s) dropped" in err
+    # ...and the summary line accounts for the synthesized membership row.
+    assert "2 shared cookbook(s) converted" in err
+    assert "3 member row(s) written (1 synthesized" in err
+    assert "4 recipe(s) claimed" in err
 
 
 def test_partial_unique_index_blocks_a_second_default_cookbook(migration_engine: Engine) -> None:
