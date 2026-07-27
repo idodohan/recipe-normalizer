@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "react-router-dom";
+import { useBlocker, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { apiErrorMessage } from "../api/errors";
 import { Button } from "../components/Button";
@@ -10,7 +10,12 @@ import { Skeleton } from "../components/Skeleton";
 import { RecipeFormFields } from "../components/recipe/RecipeForm";
 import { RecipeImageBanner } from "../components/recipe/RecipeImageBanner";
 import { buildRecipeIn } from "../components/recipe/draft";
-import { recipeToFormState, useRecipeForm } from "../components/recipe/recipeFormState";
+import {
+  blockImplicitSubmit,
+  recipeToFormState,
+  useRecipeForm,
+} from "../components/recipe/recipeFormState";
+import { useUser } from "../hooks/useUser";
 import { useVocab } from "../hooks/useVocab";
 import { toast } from "../hooks/useToast";
 import type { components } from "../api/schema";
@@ -59,14 +64,26 @@ function RecipeEditForm({ recipe }: { recipe: RecipeOut }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const vocab = useVocab();
+  const { user } = useUser();
 
-  const initialState = recipeToFormState(recipe);
+  // Memoized: `recipeToFormState` mints a fresh uuid per line and per step,
+  // so re-running it on every keystroke was pure waste (useRecipeForm only
+  // ever reads it as the initial state). Same for its serialization below.
+  const initialState = useMemo(() => recipeToFormState(recipe), [recipe]);
   const form = useRecipeForm(initialState);
   const [banner, setBanner] = useState<string | null>(null);
 
   // Serialized once from the untouched initial state; compared against the
-  // live build() on Cancel to decide whether to confirm discarding.
-  const initialPayload = JSON.stringify(buildRecipeIn(initialState));
+  // live build() to decide whether leaving needs a confirm.
+  const initialPayload = useMemo(
+    () => JSON.stringify(buildRecipeIn(initialState)),
+    [initialState],
+  );
+
+  // A successful save navigates away with the form still "dirty" against its
+  // initial state — a ref (read when the blocker actually fires, not at
+  // render time) is what keeps that navigation from prompting.
+  const savedRef = useRef(false);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -79,6 +96,7 @@ function RecipeEditForm({ recipe }: { recipe: RecipeOut }) {
     },
     onSuccess: () => {
       setBanner(null);
+      savedRef.current = true;
       void queryClient.invalidateQueries({ queryKey: ["recipe", recipe.id] });
       void queryClient.invalidateQueries({ queryKey: ["recipes"] });
       toast({ title: "Recipe updated", variant: "success" });
@@ -90,9 +108,47 @@ function RecipeEditForm({ recipe }: { recipe: RecipeOut }) {
         : setBanner(apiErrorMessage(err, "Could not save your edits.")),
   });
 
+  const dirty = JSON.stringify(form.build()) !== initialPayload;
+
+  // Every way out of the editor is guarded, not just Cancel: in-app links
+  // and the back button go through the router blocker, a reload or a closed
+  // tab through beforeunload.
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      dirty &&
+      !savedRef.current &&
+      currentLocation.pathname !== nextLocation.pathname,
+  );
+
+  useEffect(() => {
+    if (blocker.state !== "blocked") return;
+    if (window.confirm("Discard your changes?")) {
+      blocker.proceed();
+    } else {
+      blocker.reset();
+    }
+  }, [blocker]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    // Only a cancelled beforeunload gets the browser's own leave prompt;
+    // the wording is the browser's, not ours. Setting returnValue is still
+    // required for Safari/older engines that ignore preventDefault() alone.
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  // The recipe's photo is owner-only on the backend (set_recipe_image /
+  // clear_recipe_image never widen to shared-cookbook members), so members
+  // editing a shared recipe don't get the photo controls.
+  const isOwner = Boolean(user && user.id === recipe.owner_id);
+
+  // The blocker prompts on its own — Cancel just navigates.
   function onCancel() {
-    const dirty = JSON.stringify(form.build()) !== initialPayload;
-    if (dirty && !window.confirm("Discard your changes?")) return;
     navigate(`/recipes/${recipe.id}`);
   }
 
@@ -110,6 +166,7 @@ function RecipeEditForm({ recipe }: { recipe: RecipeOut }) {
           event.preventDefault();
           save.mutate();
         }}
+        onKeyDown={blockImplicitSubmit}
         noValidate
       >
         {banner ? (
@@ -118,7 +175,11 @@ function RecipeEditForm({ recipe }: { recipe: RecipeOut }) {
           </div>
         ) : null}
 
-        <RecipeImageBanner recipeId={recipe.id} imageUrl={recipe.image_ref ?? null} />
+        <RecipeImageBanner
+          recipeId={recipe.id}
+          imageUrl={recipe.image_ref ?? null}
+          canManage={isOwner}
+        />
 
         <RecipeFormFields form={form} vocab={vocab.data} />
 

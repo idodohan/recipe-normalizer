@@ -69,18 +69,18 @@ def build_display(
 
     Rule (spec §5):
     - If normalized_amount is None (unconvertible): return original_text only.
-    - Otherwise: ``"{original} → {~?}{amount} {unit}{ (approx.)?}"``
+    - Otherwise: ``"{original} → {~?}{amount} {unit}"`` — the leading tilde is
+      the approximation marker; we don't also append "(approx.)".
 
     Examples:
-        "1 cup flour", 120.0, "g", True  -> "1 cup flour → ~120 g (approx.)"
+        "1 cup flour", 120.0, "g", True  -> "1 cup flour → ~120 g"
         "1 oz gin",   29.57, "ml", False -> "1 oz gin → 29.57 ml"
         "salt to taste", None, None, False -> "salt to taste"
     """
     if normalized_amount is None:
         return original_text
     prefix = "~" if is_approx else ""
-    suffix = " (approx.)" if is_approx else ""
-    return f"{original_text} → {prefix}{format_amount(normalized_amount)} {normalized_unit}{suffix}"
+    return f"{original_text} → {prefix}{format_amount(normalized_amount)} {normalized_unit}"
 
 
 # ---------------------------------------------------------------------------

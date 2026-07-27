@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { apiErrorMessage } from "../api/errors";
 import { Button } from "../components/Button";
 import { PageHeader } from "../components/PageHeader";
 import { JobList } from "../components/inbox/JobList";
@@ -29,6 +30,15 @@ export function InboxPage() {
       toast({
         title: `${count} recipe${count === 1 ? "" : "s"} accepted`,
         variant: "success",
+      });
+    },
+    // Without this a failure is indistinguishable from "0 accepted": the
+    // button just stops spinning and the drafts stay put.
+    onError: (error) => {
+      toast({
+        title: "Could not approve the drafts",
+        description: apiErrorMessage(error, "Nothing was accepted. Please try again."),
+        variant: "error",
       });
     },
   });

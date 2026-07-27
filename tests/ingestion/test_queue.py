@@ -232,6 +232,16 @@ def test_fail_truncates_error_and_keeps_existing_reason(
         assert job.reason == "tier 1 gave up"
 
 
+def test_fail_returns_true_when_applied(
+    queue_env: tuple[sessionmaker[Session], uuid.UUID],
+) -> None:
+    factory, user_id = queue_env
+    with factory() as s:
+        job = _add_job(s, user_id)
+        assert fail(s, job, error="boom") is True
+        s.commit()
+
+
 def test_fail_merges_artifacts_and_adds_cost(
     queue_env: tuple[sessionmaker[Session], uuid.UUID],
 ) -> None:
@@ -310,6 +320,51 @@ def test_complete_not_a_recipe_sets_reason(
         assert claimed.artifacts == {"raw_text_ref": "aa/bb.txt"}
         assert claimed.cost_usd == Decimal("0.01")
         assert claimed.locked_at is None and claimed.locked_by is None
+
+
+def test_complete_not_a_recipe_truncates_long_reason(
+    queue_env: tuple[sessionmaker[Session], uuid.UUID],
+) -> None:
+    """reason is String(1000): an over-long LLM reason must be truncated, not
+    blow up the flush with StringDataRightTruncation (which poisons the
+    session and loses the attempt's cost accounting)."""
+    factory, user_id = queue_env
+    with factory() as s:
+        job = _add_job(s, user_id)
+        complete_not_a_recipe(
+            s,
+            job,
+            reason="x" * 5000,
+            artifacts={},
+            cost_usd=Decimal("0.01"),
+        )
+        s.commit()
+        assert job.status == JobStatus.not_a_recipe
+        assert job.reason == "x" * 1000
+
+
+def test_complete_returns_true_when_applied(
+    queue_env: tuple[sessionmaker[Session], uuid.UUID],
+) -> None:
+    factory, user_id = queue_env
+    with factory() as s:
+        _add_job(s, user_id)
+        claimed = claim_next(s, worker_id="w1")
+        assert claimed is not None
+        s.commit()
+        assert (
+            complete_needs_review(
+                s,
+                claimed,
+                extraction_meta={"confidence": 0.9},
+                produced_ids=[],
+                artifacts={},
+                cost_usd=Decimal("0.10"),
+                expected_locked_by="w1",
+            )
+            is True
+        )
+        s.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -514,6 +569,45 @@ def test_complete_not_a_recipe_skipped_when_no_longer_running(
         assert fresh is not None
         assert fresh.status == JobStatus.queued
         assert fresh.reason is None
+
+
+def test_cas_guarded_transitions_report_rejection_to_the_caller(
+    queue_env: tuple[sessionmaker[Session], uuid.UUID],
+) -> None:
+    """A rejected transition must be OBSERVABLE: the worker has to know the
+    claim was lost so it can roll back (instead of committing orphan drafts
+    that no Job references)."""
+    factory, user_id = queue_env
+    job_id = _claim_then_steal(factory, user_id)
+
+    with factory() as s:
+        job = s.get(Job, job_id)
+        assert job is not None
+        assert (
+            complete_needs_review(
+                s,
+                job,
+                extraction_meta={"confidence": 0.9},
+                produced_ids=[str(uuid.uuid4())],
+                artifacts={},
+                cost_usd=Decimal("0.10"),
+                expected_locked_by="w1",
+            )
+            is False
+        )
+        assert (
+            complete_not_a_recipe(
+                s,
+                job,
+                reason="not a recipe",
+                artifacts={},
+                cost_usd=Decimal("0.01"),
+                expected_locked_by="w1",
+            )
+            is False
+        )
+        assert fail(s, job, error="boom", expected_locked_by="w1") is False
+        s.rollback()
 
 
 def test_complete_needs_review_applies_when_lock_matches(

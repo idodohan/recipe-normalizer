@@ -16,11 +16,18 @@ without playwright; when playwright is absent the tier-2 reason surfaces.
 NO network in tests: ``fetch`` (page HTML) and ``fetch_bytes`` (images) are
 constructor-injected callables; the registered instance uses the real httpx
 implementations. Tier 3 is faked in tests via the ``_load_browse`` seam.
+
+Fetching is deliberately defensive: every redirect hop is netguard-checked,
+status/content-type are judged from the response HEADERS, and the body is then
+streamed with a hard cap on DECOMPRESSED bytes (a gzip bomb is tiny on the wire)
+plus a wall-clock deadline for the whole fetch (httpx timeouts are per-operation
+and a slowloris trickle never trips them).
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from html.parser import HTMLParser
@@ -74,6 +81,14 @@ _HEADERS = {
 }
 
 _FETCH_TIMEOUT_S = 15.0
+# httpx timeouts are per-operation: a server trickling one byte per second can
+# hold a connection open forever without ever tripping them. This bounds the
+# WHOLE fetch (all redirect hops + body read).
+_FETCH_DEADLINE_S = 60.0
+# Hard caps on DECOMPRESSED body bytes — a gzip bomb is small on the wire and
+# only shows its size once inflated, so the cap is enforced while reading.
+_MAX_HTML_BYTES = 5 * 1024 * 1024
+_MAX_IMAGE_BYTES = 10 * 1024 * 1024  # matches cookbook.service.MAX_IMAGE_BYTES
 
 
 # ---------------------------------------------------------------------------
@@ -89,20 +104,100 @@ class FetchResult:
     content_type: str
 
 
-def _safe_get(url: str, *, client: httpx.Client | None = None) -> httpx.Response:
-    """GET with per-hop SSRF validation. Redirects are followed manually so
-    every hop (not just the first URL) is checked against netguard."""
+@dataclass
+class _Body:
+    url: str  # final url after redirects
+    status: int
+    data: bytes
+    content_type: str
+
+
+def _too_large(max_bytes: int) -> TierFailed:
+    return TierFailed(f"response body too large (over {max_bytes // (1024 * 1024)} MB)")
+
+
+def _read_capped(
+    response: httpx.Response,
+    *,
+    max_bytes: int,
+    deadline: float,
+    clock: Callable[[], float],
+) -> bytes:
+    """Read a streaming body incrementally, aborting past *max_bytes* or *deadline*.
+
+    Uses ``iter_bytes()`` with NO chunk size on purpose: httpx's fixed-size
+    chunker buffers until it has a full chunk, so a slowloris trickling a few
+    bytes per read would never yield and the deadline check would never run.
+    Un-sized, it yields per decoded network chunk, so the wall-clock deadline
+    is enforced against exactly that attack. The size cap is unaffected.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    for chunk in response.iter_bytes():
+        if clock() > deadline:
+            raise TierFailed(f"fetch took too long (over {_FETCH_DEADLINE_S:.0f}s)")
+        total += len(chunk)
+        if total > max_bytes:
+            raise _too_large(max_bytes)
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _declared_length(response: httpx.Response) -> int | None:
+    raw = response.headers.get("content-length")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _safe_stream(
+    url: str,
+    *,
+    max_bytes: int,
+    accept: Callable[[str], None] | None = None,
+    client: httpx.Client | None = None,
+    clock: Callable[[], float] = time.monotonic,
+) -> _Body:
+    """Stream a GET with per-hop SSRF validation and hard size/time bounds.
+
+    Redirects are followed manually so every hop (not just the first URL) is
+    checked against netguard. Status and content-type are judged from the
+    response HEADERS — the body is only read once it is wanted, and then only
+    incrementally up to *max_bytes* decompressed.
+    """
     own_client = client is None
     http = client or httpx.Client(timeout=_FETCH_TIMEOUT_S)
+    deadline = clock() + _FETCH_DEADLINE_S
     try:
         for _ in range(MAX_REDIRECTS + 1):
+            if clock() > deadline:
+                raise TierFailed(f"fetch took too long (over {_FETCH_DEADLINE_S:.0f}s)")
             assert_public_url(url)
-            response = http.get(url, headers=_HEADERS, follow_redirects=False)
-            if response.is_redirect and response.next_request is not None:
-                url = str(response.next_request.url)
-                continue
-            response.raise_for_status()
-            return response
+            request = http.build_request("GET", url, headers=_HEADERS)
+            response = http.send(request, stream=True, follow_redirects=False)
+            try:
+                if response.is_redirect and response.next_request is not None:
+                    url = str(response.next_request.url)
+                    continue
+                response.raise_for_status()
+                content_type = response.headers.get("content-type", "")
+                if accept is not None:
+                    accept(content_type)
+                declared = _declared_length(response)
+                if declared is not None and declared > max_bytes:
+                    raise _too_large(max_bytes)
+                data = _read_capped(response, max_bytes=max_bytes, deadline=deadline, clock=clock)
+            finally:
+                response.close()
+            return _Body(
+                url=str(response.url),
+                status=response.status_code,
+                data=data,
+                content_type=content_type,
+            )
         raise TierFailed(f"too many redirects (>{MAX_REDIRECTS})")
     except UnsafeUrlError as exc:
         raise TierFailed(f"blocked unsafe URL: {exc}") from exc
@@ -113,22 +208,55 @@ def _safe_get(url: str, *, client: httpx.Client | None = None) -> httpx.Response
             http.close()
 
 
-def default_fetch(url: str, *, client: httpx.Client | None = None) -> FetchResult:
-    """Real page fetcher: browser-ish UA, netguard-validated redirects, 15s timeout."""
-    response = _safe_get(url, client=client)
+def _charset_of(content_type: str) -> str:
+    for parameter in content_type.split(";")[1:]:
+        key, _, value = parameter.partition("=")
+        if key.strip().lower() == "charset":
+            return value.strip().strip("\"'") or "utf-8"
+    return "utf-8"
+
+
+def _decode(data: bytes, content_type: str) -> str:
+    try:
+        return data.decode(_charset_of(content_type), errors="replace")
+    except LookupError:  # unknown charset label
+        return data.decode("utf-8", errors="replace")
+
+
+def _require_html(content_type: str) -> None:
+    if "text/html" not in content_type.lower():
+        raise TierFailed(f"not an HTML page (content-type: {content_type or '?'})")
+
+
+def default_fetch(
+    url: str,
+    *,
+    client: httpx.Client | None = None,
+    clock: Callable[[], float] = time.monotonic,
+) -> FetchResult:
+    """Real page fetcher: browser-ish UA, netguard-validated redirects, bounded
+    body (5 MB decompressed) and a 60s wall-clock deadline."""
+    body = _safe_stream(
+        url, max_bytes=_MAX_HTML_BYTES, accept=_require_html, client=client, clock=clock
+    )
     return FetchResult(
-        url=str(response.url),
-        status=response.status_code,
-        html=response.text,
-        content_type=response.headers.get("content-type", ""),
+        url=body.url,
+        status=body.status,
+        html=_decode(body.data, body.content_type),
+        content_type=body.content_type,
     )
 
 
-def default_fetch_bytes(url: str) -> tuple[bytes, str]:
+def default_fetch_bytes(
+    url: str,
+    *,
+    client: httpx.Client | None = None,
+    clock: Callable[[], float] = time.monotonic,
+) -> tuple[bytes, str]:
     """Real binary fetcher for hero images; returns (data, media_type)."""
-    response = _safe_get(url)
-    media_type = response.headers.get("content-type", "application/octet-stream")
-    return response.content, media_type.split(";")[0].strip()
+    body = _safe_stream(url, max_bytes=_MAX_IMAGE_BYTES, client=client, clock=clock)
+    media_type = body.content_type or "application/octet-stream"
+    return body.data, media_type.split(";")[0].strip()
 
 
 # ---------------------------------------------------------------------------
@@ -250,8 +378,7 @@ class UrlExtractor:
     def acquire(self, payload: dict[str, Any], *, llm: LLMClient, store: FileStore) -> Acquired:
         url: str = payload["url"]
         fetched = self._fetch(url)
-        if "text/html" not in fetched.content_type.lower():
-            raise TierFailed(f"not an HTML page (content-type: {fetched.content_type or '?'})")
+        _require_html(fetched.content_type)  # injected fetchers may not check
         # Retain the raw page first (spec §6.4) — even if every tier fails.
         artifacts = {"raw_html_ref": store.save(fetched.html.encode("utf-8"), suffix="html")}
 

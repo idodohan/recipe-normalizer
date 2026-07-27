@@ -7,7 +7,9 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { api } from "../api/client";
+import { apiErrorMessage } from "../api/errors";
 import { Button } from "../components/Button";
+import { toast } from "../hooks/useToast";
 import { useTheme } from "../hooks/useTheme";
 import { useUserActions, type User } from "../hooks/useUser";
 import "./AppShell.css";
@@ -48,8 +50,23 @@ export function AppShell({ user }: { user: User }) {
     prevPathRef.current = location.pathname;
   }, [location.pathname]);
 
+  // Only clears local state once the server has actually dropped the session:
+  // a failed logout that still navigated to /login would leave a live cookie
+  // behind while looking signed out. A thrown request (offline) and an error
+  // envelope (5xx) are the same story to the user, so both surface one toast
+  // and leave them signed in to try again.
   async function signOut() {
-    await api.POST("/api/auth/logout");
+    try {
+      const { error } = await api.POST("/api/auth/logout");
+      if (error) throw error;
+    } catch (error) {
+      toast({
+        title: "Could not sign out",
+        description: apiErrorMessage(error, "Check your connection and try again."),
+        variant: "error",
+      });
+      return;
+    }
     clear();
     navigate("/login", { replace: true });
   }

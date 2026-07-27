@@ -236,14 +236,22 @@ export function SharedCookbookPage() {
                 className="input shc__add-select"
                 value={addRecipeId}
                 onChange={(event) => setAddRecipeId(event.target.value)}
-                disabled={myRecipes.isPending || addableRecipes.length === 0}
+                disabled={
+                  myRecipes.isPending || myRecipes.isError || addableRecipes.length === 0
+                }
               >
+                {/* The error branch has to come before the empty one: a failed
+                    fetch also yields zero addable recipes, and reporting that
+                    as "all your recipes are already in this cookbook" is a
+                    plain lie about the user's cookbook. */}
                 <option value="">
                   {myRecipes.isPending
                     ? "Loading your recipes…"
-                    : addableRecipes.length === 0
-                      ? "All your recipes are already in this cookbook"
-                      : "Choose a recipe…"}
+                    : myRecipes.isError
+                      ? "Could not load your recipes — reload to try again"
+                      : addableRecipes.length === 0
+                        ? "All your recipes are already in this cookbook"
+                        : "Choose a recipe…"}
                 </option>
                 {addableRecipes.map((recipe) => (
                   <option key={recipe.id} value={recipe.id}>

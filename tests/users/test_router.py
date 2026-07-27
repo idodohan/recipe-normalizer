@@ -74,6 +74,25 @@ def test_login_returns_200_and_sets_session_cookie(client: TestClient) -> None:
     assert "max-age=" in set_cookie.lower()
 
 
+def test_login_oversized_password_rejected_before_hashing(client: TestClient) -> None:
+    """A huge password must 422 at validation, never reach argon2.
+
+    Both login branches (known and unknown email) run an argon2 verify with a
+    64 MiB memory cost, so an unbounded password field is a cheap CPU/memory
+    amplifier. Same bound applies to register.
+    """
+    huge = "a" * 5000
+    resp = client.post("/api/auth/login", json={"email": "mallory@example.com", "password": huge})
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "validation_error"
+
+    resp = client.post(
+        "/api/auth/register",
+        json={"email": "mallory@example.com", "password": huge, "display_name": "M"},
+    )
+    assert resp.status_code == 422
+
+
 def test_login_wrong_password_returns_401_envelope(client: TestClient) -> None:
     client.post(
         "/api/auth/register",

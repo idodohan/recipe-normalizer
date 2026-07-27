@@ -133,7 +133,7 @@ export function RecipeChatPanel({ recipeId, recipeTitle }: RecipeChatPanelProps)
       ]);
       setPendingUser(null);
     },
-    onError: (error) => {
+    onError: (error, content) => {
       const { code } = apiErrorEnvelope(error);
       if (code === "not_found") {
         setUnavailable(true);
@@ -156,6 +156,11 @@ export function RecipeChatPanel({ recipeId, recipeTitle }: RecipeChatPanelProps)
         return;
       }
       setPendingUser((prev) => (prev ? { ...prev, failed: true } : prev));
+      // Mirror the unsent text back into the draft. The failed bubble lives
+      // only in `pendingUser`, which dies with the panel — without this,
+      // collapsing the disclosure (or navigating away) silently destroys what
+      // the user wrote. Never clobbers a newer draft they've started typing.
+      setDraft((current) => (current.trim().length > 0 ? current : content));
       toast({
         title: "Could not send message",
         description: apiErrorMessage(error, "Please try again."),
@@ -168,13 +173,20 @@ export function RecipeChatPanel({ recipeId, recipeTitle }: RecipeChatPanelProps)
     const trimmed = draft.trim();
     if (!trimmed || send.isPending || !listSettled) return;
     setDraft("");
-    setPendingUser({ id: `optimistic-${Date.now()}`, role: "user", content: trimmed });
+    setPendingUser({ id: `optimistic-${crypto.randomUUID()}`, role: "user", content: trimmed });
     send.mutate(trimmed);
   }
 
   function handleRetry(id: string) {
-    if (pendingUser?.id !== id) return;
+    // `send.isPending` guard: without it a double-click on "Try again" fires
+    // two turns for the same question (and, on a first send, could create two
+    // conversations).
+    if (pendingUser?.id !== id || send.isPending) return;
     const content = pendingUser.content;
+    // The retry takes ownership of the text again, so drop the copy onError
+    // parked in the draft — unless the user has since edited it into
+    // something else.
+    setDraft((current) => (current === content ? "" : current));
     setPendingUser({ ...pendingUser, failed: false });
     send.mutate(content);
   }

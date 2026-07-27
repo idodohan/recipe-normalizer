@@ -36,6 +36,7 @@ __all__ = [
     "UNSET",
     "CanonicalIngredient",
     "Converted",
+    "FuzzyCorpus",
     "IngredientStatus",
     "PreferredMeasure",
     "_MatchChoice",
@@ -249,31 +250,16 @@ def create_unreviewed(db: Session, *, name: str) -> CanonicalIngredient:
 # ---------------------------------------------------------------------------
 
 
-def match_or_create(
-    db: Session,
-    name: str,
-    *,
-    llm: LLMClient | None = None,
-) -> CanonicalIngredient:
-    """Return the best matching live ingredient for *name*, or create an unreviewed one.
+def _load_corpus(db: Session) -> tuple[list[str], list[uuid.UUID]]:
+    """Materialise (normalised_string, ingredient_id) for every live ingredient.
 
-    Resolution order:
-    1. Exact / alias match via ``match()`` → return immediately.
-    2. Build a corpus of (normalised_string, ingredient_id) for all live ingredients
-       — fetched once per call (~1 000 rows fine; add a caching layer later if needed).
-    3. ``rapidfuzz`` ``WRatio ≥ 90`` hit → follow merge chain and return.
-    4. Top-5 candidates in the 70–90 band → if *llm* is provided, ask once:
-       valid index in range → follow merge chain and return.
-    5. ``create_unreviewed(db, name=name)`` — idempotent.
+    Returns two parallel lists: the normalised strings rapidfuzz scores against
+    and the ingredient id each one belongs to.
+
+    This reads the *entire* alias table plus every canonical name (no LIMIT), so
+    it is the expensive part of ``match_or_create`` — see ``FuzzyCorpus`` for how
+    callers that resolve many names in one request amortise it.
     """
-    # Step 1: exact / alias match
-    exact = match(db, name)
-    if exact is not None:
-        return exact
-
-    norm_name = _normalise(name)
-
-    # Step 2: build corpus — all (alias_or_name, ingredient_id) for live ingredients
     # Fetch every (alias_text, ingredient_id) pair, plus (name, ingredient_id) as fallback.
     # JOIN filters to live (unmerged) ingredients — merge() re-points aliases so this
     # holds by invariant today, but we enforce it here rather than relying on it.
@@ -289,21 +275,102 @@ def match_or_create(
         )
     ).all()
 
-    # corpus: list of normalised strings; corpus_ids: parallel list of ingredient UUIDs
-    corpus: list[str] = []
-    corpus_ids: list[uuid.UUID] = []
+    strings: list[str] = []
+    ids: list[uuid.UUID] = []
     for alias_text, ing_id in alias_rows:
-        corpus.append(_normalise(alias_text))
-        corpus_ids.append(ing_id)
+        strings.append(_normalise(alias_text))
+        ids.append(ing_id)
     for ing_name, ing_id in name_rows:
-        corpus.append(_normalise(ing_name))
-        corpus_ids.append(ing_id)
+        strings.append(_normalise(ing_name))
+        ids.append(ing_id)
+    return strings, ids
 
-    if not corpus:
-        return create_unreviewed(db, name=name)
+
+class FuzzyCorpus:
+    """Lazily-built, reusable fuzzy-matching corpus for one unit of work.
+
+    ``match_or_create`` only needs the corpus when a name misses the exact/alias
+    index, and building it costs a full read of the alias + canonical tables.
+    Resolving a whole recipe one line at a time therefore used to rebuild it once
+    per unmatched line (a 40-line recipe ≈ 35 full-catalog materialisations in a
+    single HTTP request).
+
+    Pass ONE instance to every ``match_or_create`` call of a multi-name operation
+    (see ``cookbook.service._apply_groups``) and the load happens at most once.
+
+    Matching behaviour is unchanged: rows this run creates are appended via
+    ``add`` so a later name still fuzzy-matches an ingredient an earlier name
+    created, exactly as a fresh per-call load would. Scope an instance to a
+    single request/session — it is a snapshot, not a process-wide cache.
+    """
+
+    __slots__ = ("_ids", "_seen_ids", "_strings")
+
+    def __init__(self) -> None:
+        self._strings: list[str] | None = None
+        self._ids: list[uuid.UUID] = []
+        self._seen_ids: set[uuid.UUID] = set()
+
+    def entries(self, db: Session) -> tuple[list[str], list[uuid.UUID]]:
+        """Return (strings, ids), loading them on first use."""
+        if self._strings is None:
+            self._strings, self._ids = _load_corpus(db)
+            self._seen_ids = set(self._ids)
+        return self._strings, self._ids
+
+    def add(self, ingredient_id: uuid.UUID, text: str) -> None:
+        """Record an ingredient created after the snapshot was taken.
+
+        No-op when the corpus has not been built yet (a later build reads the row
+        straight from the DB) or when the id is already present. A row that a
+        fresh load would list twice (alias == name) is kept once here — same id,
+        so the resolved match is identical.
+        """
+        if self._strings is None or ingredient_id in self._seen_ids:
+            return
+        self._strings.append(_normalise(text))
+        self._ids.append(ingredient_id)
+        self._seen_ids.add(ingredient_id)
+
+
+def match_or_create(
+    db: Session,
+    name: str,
+    *,
+    llm: LLMClient | None = None,
+    corpus: FuzzyCorpus | None = None,
+) -> CanonicalIngredient:
+    """Return the best matching live ingredient for *name*, or create an unreviewed one.
+
+    Resolution order:
+    1. Exact / alias match via ``match()`` → return immediately.
+    2. Corpus of (normalised_string, ingredient_id) for all live ingredients.
+       Pass *corpus* (a ``FuzzyCorpus``) when resolving several names in one
+       operation so the underlying full-table read happens once instead of once
+       per name; omitting it builds a throwaway corpus for this call.
+    3. ``rapidfuzz`` ``WRatio ≥ 90`` hit → follow merge chain and return.
+    4. Top-5 candidates in the 70–90 band → if *llm* is provided, ask once:
+       valid index in range → follow merge chain and return.
+    5. ``create_unreviewed(db, name=name)`` — idempotent.
+    """
+    # Step 1: exact / alias match
+    exact = match(db, name)
+    if exact is not None:
+        return exact
+
+    norm_name = _normalise(name)
+
+    # Step 2: corpus (shared across the caller's names when one was passed in)
+    fuzzy = corpus if corpus is not None else FuzzyCorpus()
+    corpus_strings, corpus_ids = fuzzy.entries(db)
+
+    if not corpus_strings:
+        created = create_unreviewed(db, name=name)
+        fuzzy.add(created.id, created.name)
+        return created
 
     # Step 3: fuzzy ≥ 90 → direct link
-    best = process.extractOne(norm_name, corpus, scorer=fuzz.WRatio, score_cutoff=90)
+    best = process.extractOne(norm_name, corpus_strings, scorer=fuzz.WRatio, score_cutoff=90)
     if best is not None:
         _match_string, _score, corpus_idx = best
         ing_id = corpus_ids[corpus_idx]
@@ -312,7 +379,9 @@ def match_or_create(
             return ingredient
 
     # Step 4: collect 70–90 band candidates
-    band_results = process.extract(norm_name, corpus, scorer=fuzz.WRatio, limit=5, score_cutoff=70)
+    band_results = process.extract(
+        norm_name, corpus_strings, scorer=fuzz.WRatio, limit=5, score_cutoff=70
+    )
     band_candidates = [r for r in band_results if r[1] < 90]
 
     if band_candidates and llm is not None:
@@ -336,8 +405,11 @@ def match_or_create(
             if ingredient is not None:
                 return ingredient
 
-    # Step 5: fallthrough — create unreviewed (idempotent)
-    return create_unreviewed(db, name=name)
+    # Step 5: fallthrough — create unreviewed (idempotent). Keep the shared
+    # corpus in step with the DB so the caller's remaining names can match it.
+    created = create_unreviewed(db, name=name)
+    fuzzy.add(created.id, created.name)
+    return created
 
 
 def _follow_merge_chain(db: Session, ingredient_id: uuid.UUID) -> CanonicalIngredient | None:

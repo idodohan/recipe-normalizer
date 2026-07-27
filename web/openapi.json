@@ -1085,6 +1085,7 @@
             "type": "string"
           },
           "password": {
+            "maxLength": 200,
             "title": "Password",
             "type": "string"
           }

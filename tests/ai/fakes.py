@@ -101,6 +101,9 @@ class FakeStructuredLLM:
     def spent_usd(self) -> float:
         return self._spent_usd
 
+    def model_for(self, *, fast: bool = False) -> str:
+        return "fake-transform-model"
+
     def structured(
         self,
         *,

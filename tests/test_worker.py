@@ -8,6 +8,8 @@ committed rows afterwards (pattern from tests/test_get_db_integration.py).
 
 from __future__ import annotations
 
+import os
+import socket
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -15,6 +17,7 @@ from typing import Any
 
 import pytest
 from sqlalchemy import Engine, delete, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 import recipe_normalizer.db as db_module
@@ -45,11 +48,14 @@ from tests.extraction.conftest import StubLLM
 
 
 class FakeLLM(StubLLM):
-    """StubLLM (extract.normalize + catalog.match) plus the spent_usd surface."""
+    """StubLLM (extract.normalize + catalog.match) plus spent_usd / model_for."""
 
     def __init__(self, result: Any = None, spent: float = 0.0) -> None:
         super().__init__(result)
         self.spent_usd = spent
+
+    def model_for(self, *, fast: bool = False) -> str:
+        return "fake-fast-model" if fast else "fake-model"
 
 
 class CapBlownLLM:
@@ -148,12 +154,28 @@ def test_process_job_happy_path(
     # extraction_meta carries confidence/model/extracted_at
     assert job.extraction_meta is not None
     assert job.extraction_meta["confidence"] == 0.9
-    assert job.extraction_meta["model"] == settings.llm_model
+    assert job.extraction_meta["model"] == "fake-model"
     assert job.extraction_meta["extracted_at"]
     # cost from llm.spent_usd, lock cleared, raw text retained
     assert job.cost_usd == Decimal("0.0123")
     assert job.locked_at is None and job.locked_by is None
     assert store.exists(job.artifacts["raw_text_ref"])
+
+
+def test_extraction_meta_records_the_model_the_client_resolved(
+    db_session: Session, owner: User, store: LocalFileStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``settings.llm_model`` defaults to "" (provider-default models are
+    resolved inside LLMClient), so extraction provenance must come from
+    ``llm.model_for()`` — recording the setting would stamp every job model=""."""
+    monkeypatch.setattr(settings, "llm_model", "")
+    job = _text_job(db_session, owner)
+    _patch_llm(monkeypatch, FakeLLM(result=_flour_result()))
+
+    worker.process_job(db_session, job)
+
+    assert job.extraction_meta is not None
+    assert job.extraction_meta["model"] == "fake-model"
 
 
 def test_process_job_not_a_recipe(
@@ -485,6 +507,7 @@ def test_make_llm_for_job_stub_env(
     assert "1 cup all-purpose flour" in texts
     assert llm.classify_bool(feature="x", question="recipe?", content="y") is True
     assert llm.spent_usd == 0.0
+    assert llm.model_for() == "stub"  # provenance surface the pipeline records
 
 
 def test_process_job_with_stub_llm_end_to_end(
@@ -589,6 +612,9 @@ class CapOnCatalogMatchLLM:
     def __init__(self) -> None:
         self.features: list[str] = []
 
+    def model_for(self, *, fast: bool = False) -> str:
+        return "fake-model"
+
     def structured(self, *, feature: str, **kwargs: Any) -> Any:
         self.features.append(feature)
         if feature == "extract.normalize":
@@ -652,6 +678,89 @@ def test_cost_cap_mid_persist_commits_no_orphan_drafts(
             s.scalars(select(Recipe).where(Recipe.source_fingerprint == fingerprint)).first()
             is None
         )
+
+
+def test_stolen_claim_rolls_back_instead_of_committing_orphan_drafts(
+    committed_env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CRITICAL regression: when the CAS guard rejects the completion (the job
+    was stale-released and re-claimed by another worker), the drafts this
+    attempt persisted must be ROLLED BACK. Committing them would leave recipes
+    referenced by no Job (invisible/unreviewable) and burn the
+    (owner_id, source_fingerprint) unique index for the new owner's retry."""
+    factory, user_id = committed_env
+    fingerprint = f"fp-{uuid.uuid4().hex[:12]}"
+    with factory() as s:
+        job = Job(
+            user_id=user_id,
+            input_type=InputType.text,
+            payload={"text": "stub recipe text"},
+            source_fingerprint=fingerprint,
+            status=JobStatus.running,
+            locked_at=datetime.now(UTC),
+            locked_by="w2",  # stolen: another worker re-claimed after stale release
+        )
+        s.add(job)
+        s.commit()
+        job_id = job.id
+
+    worker._process_one(job_id, "w1")  # we still think we own it
+
+    with factory() as s:
+        fresh = s.get(Job, job_id)
+        assert fresh is not None
+        assert fresh.status == JobStatus.running  # untouched — w2 owns it now
+        assert fresh.locked_by == "w2"
+        assert fresh.produced_recipe_ids == []
+        # No orphan drafts committed...
+        assert s.scalars(select(Recipe).where(Recipe.owner_id == user_id)).all() == []
+        # ...and the fingerprint is not burned for w2's attempt.
+        assert (
+            s.scalars(select(Recipe).where(Recipe.source_fingerprint == fingerprint)).first()
+            is None
+        )
+
+
+def test_process_job_reports_lost_claim_to_the_caller(
+    committed_env: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """process_job returns False when the claim was lost (caller must roll back)
+    and True on a normal completion (caller commits)."""
+    factory, user_id = committed_env
+    with factory() as s:
+        stolen = Job(
+            user_id=user_id,
+            input_type=InputType.text,
+            payload={"text": "stub recipe text"},
+            source_fingerprint=f"fp-{uuid.uuid4().hex[:12]}",
+            status=JobStatus.running,
+            locked_at=datetime.now(UTC),
+            locked_by="w2",
+        )
+        s.add(stolen)
+        s.commit()
+        stolen_id = stolen.id
+
+    with factory() as s:
+        job = s.get(Job, stolen_id)
+        assert job is not None
+        assert worker.process_job(s, job, worker_id="w1") is False
+        s.rollback()
+
+    with factory() as s:
+        mine = Job(
+            user_id=user_id,
+            input_type=InputType.text,
+            payload={"text": "stub recipe text"},
+            source_fingerprint=f"fp-{uuid.uuid4().hex[:12]}",
+            status=JobStatus.running,
+            locked_at=datetime.now(UTC),
+            locked_by="w1",
+        )
+        s.add(mine)
+        s.commit()
+        assert worker.process_job(s, mine, worker_id="w1") is True
+        s.commit()
 
 
 def test_run_worker_crash_fails_job_in_fresh_session(
@@ -727,3 +836,119 @@ def test_crash_attempt_cost_reaches_job_row(
         assert fresh.status == JobStatus.queued  # retryable failure → backoff requeue
         assert fresh.attempts == 1
         assert fresh.cost_usd == Decimal("0.42")
+
+
+# ---------------------------------------------------------------------------
+# Poll-loop resilience / worker identity
+# ---------------------------------------------------------------------------
+
+
+def test_poll_loop_survives_transient_db_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One transient OperationalError must NOT kill the worker process: the
+    iteration is logged and the loop polls again."""
+    calls: list[str] = []
+
+    def flaky_claim(worker_id: str) -> uuid.UUID | None:
+        calls.append(worker_id)
+        if len(calls) == 1:
+            raise OperationalError("SELECT 1", {}, Exception("server closed the connection"))
+        raise SystemExit(0)  # stop the loop from the second iteration
+
+    monkeypatch.setattr(worker, "_claim_one", flaky_claim)
+
+    with pytest.raises(SystemExit):  # SystemExit still propagates
+        worker.run_worker(poll_interval=0.01)
+
+    assert len(calls) == 2  # survived the first failure and polled again
+
+
+def test_poll_loop_survives_processing_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A crash escaping _process_one is contained by the loop, not fatal."""
+    calls: list[str] = []
+
+    def claim(worker_id: str) -> uuid.UUID | None:
+        calls.append(worker_id)
+        if len(calls) > 2:
+            raise SystemExit(0)
+        return uuid.uuid4()
+
+    def boom(job_id: uuid.UUID, worker_id: str) -> None:
+        raise RuntimeError("session factory exploded")
+
+    monkeypatch.setattr(worker, "_claim_one", claim)
+    monkeypatch.setattr(worker, "_process_one", boom)
+
+    with pytest.raises(SystemExit):
+        worker.run_worker(poll_interval=0.01)
+
+    assert len(calls) == 3
+
+
+def test_poll_loop_propagates_keyboard_interrupt(monkeypatch: pytest.MonkeyPatch) -> None:
+    def interrupt(worker_id: str) -> uuid.UUID | None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(worker, "_claim_one", interrupt)
+
+    with pytest.raises(KeyboardInterrupt):
+        worker.run_worker(poll_interval=0.01)
+
+
+def test_poll_loop_gives_up_after_persistent_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A permanent fault (never recovers) must exit for orchestrator restart
+    rather than spin forever — after _MAX_CONSECUTIVE_FAILURES in a row."""
+    calls: list[str] = []
+
+    def always_broken(worker_id: str) -> uuid.UUID | None:
+        calls.append(worker_id)
+        raise OperationalError("SELECT 1", {}, Exception("db is gone"))
+
+    monkeypatch.setattr(worker, "_claim_one", always_broken)
+
+    with pytest.raises(OperationalError):
+        worker.run_worker(poll_interval=0.001)
+
+    assert len(calls) == worker._MAX_CONSECUTIVE_FAILURES
+
+
+def test_poll_loop_failure_counter_resets_on_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Intermittent failures interleaved with successes never trip the breaker."""
+    outcomes: list[bool] = []
+
+    def flaky(worker_id: str) -> uuid.UUID | None:
+        outcomes.append(True)
+        n = len(outcomes)
+        if n > worker._MAX_CONSECUTIVE_FAILURES * 2:
+            raise SystemExit(0)
+        if n % 2 == 1:  # fail on odd, succeed on even — never N in a row
+            raise OperationalError("SELECT 1", {}, Exception("blip"))
+        return None  # a clean empty poll resets the counter
+
+    monkeypatch.setattr(worker, "_claim_one", flaky)
+
+    with pytest.raises(SystemExit):  # reached the SystemExit, breaker never tripped
+        worker.run_worker(poll_interval=0.001)
+
+    assert len(outcomes) == worker._MAX_CONSECUTIVE_FAILURES * 2 + 1
+
+
+def test_worker_id_is_unique_per_process_and_fits_locked_by(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """In containers hostname is fixed and the worker is PID 1, so
+    ``host:pid`` alone would let a restarted worker reuse a crashed worker's
+    fencing token — the CAS guard could not tell them apart."""
+    first = worker._make_worker_id()
+    second = worker._make_worker_id()
+
+    assert first != second
+    assert first.split(":")[:2] == [socket.gethostname(), str(os.getpid())]
+    locked_by_len = Job.__table__.c.locked_by.type.length
+    assert len(first) <= locked_by_len
+
+
+def test_worker_id_truncates_a_long_hostname(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(worker.socket, "gethostname", lambda: "h" * 300)
+    worker_id = worker._make_worker_id()
+    assert len(worker_id) == Job.__table__.c.locked_by.type.length
+    assert worker_id.endswith(f":{os.getpid()}:{worker_id.rsplit(':', 1)[1]}")

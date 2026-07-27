@@ -132,7 +132,7 @@ def test_create_recipe_201(app_client: TestClient) -> None:
 
     # Flour: cup → g via gram_weight (120g), approx
     assert flour_line["is_approx"] is True
-    assert "~120 g (approx.)" in flour_line["display"]
+    assert "~120 g" in flour_line["display"]
 
     # Salt: passthrough (no quantity, no normalization)
     assert salt_line["normalized_amount"] is None

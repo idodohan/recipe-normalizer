@@ -71,7 +71,7 @@ def test_persist_single_recipe_draft(seeded: Session, owner: User) -> None:
     # Line is catalog-linked and normalized: 2 cups flour → 240 g approx
     line = out.groups[0].lines[0]
     assert line.canonical_ingredient_id is not None
-    assert line.display == "2 cups all-purpose flour → ~240 g (approx.)"
+    assert line.display == "2 cups all-purpose flour → ~240 g"
 
     # Fingerprint persisted on the draft
     row = seeded.get(Recipe, ids[0])

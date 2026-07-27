@@ -2,7 +2,7 @@
 
 Recipe Normalizer ingests recipes from anywhere — URLs, PDFs, images, pasted text, manual entry — and normalizes them into one unified structure with **dual quantities**: the original text is always preserved and displayed alongside a normalized weight/volume (grams for solids, ml for liquids), with approximations flagged. Users build a personal, filterable cookbook; scale recipes deterministically; share recipes and cookbooks; and ask AI questions grounded in their recipes. Scope covers all recipes: food, baking, cocktails, smoothies.
 
-**v1 status:** this repo currently ships the foundation — accounts, the global ingredient catalog with deterministic unit conversion, manual recipe entry, the cookbook with dual-quantity rendering, and scaling. Extraction (URL/PDF/image), search/collections/sharing, and AI features are the next plans (see [Roadmap](#roadmap)).
+**v1 status:** all six phases have shipped — accounts, the global ingredient catalog with deterministic unit conversion, ingestion from URL/PDF/image/text/manual with a review gate, the cookbook with dual-quantity rendering and scaling, search/collections/favorites, sharing (copy-on-share, shared cookbooks, public links), and the AI layer (recipe chat, cookbook Q&A, transformations, recommendations). See [Roadmap](#roadmap) for non-goals.
 
 ## Quickstart
 
@@ -10,10 +10,9 @@ Requires Docker.
 
 ```sh
 docker compose up -d --build
-docker compose exec api uv run python -m recipe_normalizer.catalog.seed_loader
 ```
 
-Open http://localhost:5173 — register an account, add a recipe, scale it. Migrations run automatically when the `api` container starts; the seed command loads ~240 canonical ingredients with density data.
+Open http://localhost:5173 — register an account, add a recipe, scale it. Migrations run and the ingredient catalog (~240 canonical ingredients with density data) is seeded automatically when the `api` container starts. For AI features and URL/PDF/image extraction, set an LLM key first (see [LLM providers](#llm-providers)): `OPENROUTER_API_KEY=sk-or-... docker compose up -d --build`.
 
 ## Architecture
 
@@ -26,8 +25,8 @@ Modular monolith: one repo, one FastAPI app, backend modules under `src/recipe_n
 | `cookbook` | recipes, ingredient lines, steps | Recipe CRUD, dual-quantity rendering, deterministic scaling. | shipped |
 | `ingestion` | inputs, jobs | Accept any input (URL / file / pasted text), extraction job lifecycle + review gate. | shipped |
 | `extraction` | (stateless) | The acquire+normalize pipeline; pluggable `Extractor` per source type, incl. tiered agentic web extraction. | shipped |
-| `sharing` | shares, shared cookbooks, public links | Copy-on-share, co-owned cookbooks, tokenized public links. | planned (Plan 3) |
-| `ai` | conversations, recommendations | Per-recipe chat, cookbook Q&A, transformations, recommendations. | planned (Plan 4) |
+| `sharing` | shares, shared cookbooks, public links | Copy-on-share, co-owned cookbooks, tokenized public links. | shipped |
+| `ai` | conversations, recommendations | Per-recipe chat, cookbook Q&A, transformations, recommendations. | shipped |
 
 Key invariants:
 
@@ -54,15 +53,41 @@ tiered acquire → normalize pipeline):
 
 ```sh
 uv run playwright install chromium    # one-time: tier-3 agentic browser (URL extraction)
-export ANTHROPIC_API_KEY=sk-ant-...   # LLM normalize / tier-2 judge / tier-3 browser
+export OPENROUTER_API_KEY=sk-or-...   # LLM normalize / tier-2 judge / tier-3 browser
 uv run python -m recipe_normalizer.worker
 ```
+
+### LLM providers
+
+Every LLM call flows through `src/recipe_normalizer/llm/` and supports two providers,
+selected by `RN_LLM_PROVIDER` (`auto` by default — picks whichever API key is present,
+preferring OpenRouter):
+
+- **OpenRouter** (default, free-tier friendly): set `OPENROUTER_API_KEY`
+  (free keys at <https://openrouter.ai/keys>). Default model is `openrouter/free`,
+  OpenRouter's auto-router over currently-free models (vision + tools + JSON schema),
+  so it keeps working as the free lineup rotates. Pin a specific model with
+  `RN_LLM_MODEL` / `RN_LLM_FAST_MODEL` (e.g. `google/gemma-4-31b-it:free`; note the
+  main model must support **image input** or scanned-PDF/photo extraction breaks —
+  text-only picks like `nvidia/nemotron-3-super-120b-a12b:free` only suit
+  `RN_LLM_FAST_MODEL`). Free-tier limits: ~50 requests/day (1000/day after a
+  one-time $10 credit purchase); expect occasional 429s — the client retries with backoff.
+  Cost tracking uses OpenRouter's own accounting ($0 for `:free` models).
+- **Anthropic**: set `ANTHROPIC_API_KEY` (and optionally `RN_LLM_PROVIDER=anthropic`).
+  Defaults to `claude-opus-4-8` with `claude-haiku-4-5` as the fast model — highest
+  extraction quality, pay-per-token.
 
 The worker runs as its own process (see the `worker` service in `docker-compose.yml`). Tier 3 drives a headless Chromium via Playwright; without `playwright install chromium` it is unavailable and URL jobs that need it fail gracefully with the tier-2 reason. The job-level LLM spend is bounded by `RN_JOB_COST_CAP_USD` (default $1.50).
 
 Ingestion quickstart: with the api and worker both running, open the **Inbox** in the web app and paste a recipe URL, drop a PDF/image, or paste text. Each submission becomes a job that the worker extracts in the background; finished jobs land in the inbox as `NEEDS REVIEW`, where the **Review** screen shows the source beside the editable draft. Accept moves the recipe into your cookbook. No API key? Run the worker with `RN_LLM_STUB=1` to exercise the full pipeline with a canned extraction (test/e2e only).
 
 Configuration is via `RN_`-prefixed env vars (`src/recipe_normalizer/config.py`); the defaults match the compose Postgres (`postgresql+psycopg://rn:rn@localhost:5432/rn`).
+
+Deployment notes:
+
+- **`RN_COOKIE_SECURE` must be `true` in any TLS deployment** — it defaults to `false` so plain-http local dev works, and compose passes it through (`RN_COOKIE_SECURE=true docker compose up -d`); leaving it false ships the 30-day session cookie without the `Secure` flag.
+- The api container runs uvicorn with `--proxy-headers` so the per-IP rate limits see the real client IP behind the nginx proxy. It relies on nginx being the only ingress — do not publish the api port publicly without re-scoping `--forwarded-allow-ips`.
+- **Admin is granted out-of-band only**, never at registration: `docker compose exec api uv run python -m recipe_normalizer.users.make_admin <email>` (the user must already exist).
 
 Frontend:
 
@@ -94,8 +119,8 @@ CI gates (all must pass): `ruff check`, `mypy`, `lint-imports` (module boundarie
 Planned phases:
 
 - **Plan 2 — extraction pipeline (shipped):** ingestion jobs + worker; text/paste → normalize → review screen; URL tiers 1–2 (structured data, readable HTML) + tier 3 agentic browser; PDF (text layer + scanned vision); images.
-- **Plan 3 — search, collections, sharing:** filters and full-text search, collections, copy-on-share, public links, shared cookbooks.
-- **Plan 4 — AI features:** per-recipe chat, cookbook Q&A, transformations, content-based recommendations.
+- **Plan 3 — search, collections, sharing (shipped):** filters and full-text search, collections, copy-on-share, public links, shared cookbooks.
+- **Plan 4 — AI features (shipped):** per-recipe chat, cookbook Q&A, transformations, content-based recommendations.
 
 ## Documents
 

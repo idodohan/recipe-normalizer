@@ -32,3 +32,14 @@ def test_unknown_model_falls_back_to_opus_pricing_with_warning(
         cost = cost_usd("mystery-model-9", 1000, 500)
     assert cost == pytest.approx(0.0175)
     assert any("mystery-model-9" in record.getMessage() for record in caplog.records)
+
+
+def test_free_openrouter_model_costs_zero() -> None:
+    assert cost_usd("openrouter/free", 1_000_000, 1_000_000) == 0.0
+    assert cost_usd("google/gemma-4-31b-it:free", 500_000, 500_000) == 0.0
+
+
+def test_unknown_paid_openrouter_slug_is_not_zero_rated() -> None:
+    """A paid slug with no provider-reported cost must fall back to opus, not $0,
+    so the cost cap still trips and spend isn't silently under-reported."""
+    assert cost_usd("anthropic/claude-opus-4.1", 1000, 500) == pytest.approx(0.0175)

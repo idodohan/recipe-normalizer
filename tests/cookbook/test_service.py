@@ -126,7 +126,7 @@ def test_create_recipe_happy_path(seeded: Session, owner: User) -> None:
     assert line.normalized_unit == "g"
     assert line.is_approx is True
     # Exact dual-quantity display string (spec §5 format)
-    assert line.display == "1 cup flour → ~120 g (approx.)"
+    assert line.display == "1 cup flour → ~120 g"
 
     # Steps
     assert len(out.steps) == 1
@@ -1689,3 +1689,66 @@ def test_copy_recipe_provenance_stored_verbatim(seeded: Session, owner: User) ->
     seeded.flush()
     out = cookbook_service.get_recipe(seeded, owner_id=recipient.id, recipe_id=copied.id)
     assert out.provenance == provenance
+
+
+# ---------------------------------------------------------------------------
+# Fuzzy corpus is hoisted per request, not rebuilt per ingredient line
+# ---------------------------------------------------------------------------
+
+
+def _fuzzy_lines(n: int) -> list[IngredientLineIn]:
+    """n lines that all miss the exact/alias index and hit the fuzzy path."""
+    return [
+        IngredientLineIn(original_text=f"a bit of zzq widget {i}", name=f"zzq widget {i}")
+        for i in range(n)
+    ]
+
+
+def test_create_recipe_loads_fuzzy_corpus_once(
+    seeded: Session, owner: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A multi-line recipe must materialise the catalog corpus at most once.
+
+    Every unmatched line used to reload the whole alias + canonical corpus and
+    re-run rapidfuzz over it, so a 40-line recipe meant ~40 full-catalog reads
+    inside a single request.
+    """
+    calls = 0
+    real_load = catalog_service._load_corpus
+
+    def counting_load(db: Session) -> Any:
+        nonlocal calls
+        calls += 1
+        return real_load(db)
+
+    monkeypatch.setattr(catalog_service, "_load_corpus", counting_load)
+
+    cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_simple_recipe_in(lines=_fuzzy_lines(6))
+    )
+    assert calls == 1
+
+
+def test_update_recipe_loads_fuzzy_corpus_once(
+    seeded: Session, owner: User, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_simple_recipe_in())
+
+    calls = 0
+    real_load = catalog_service._load_corpus
+
+    def counting_load(db: Session) -> Any:
+        nonlocal calls
+        calls += 1
+        return real_load(db)
+
+    monkeypatch.setattr(catalog_service, "_load_corpus", counting_load)
+
+    cookbook_service.update_recipe(
+        seeded,
+        recipe_id=created.id,
+        owner_id=owner.id,
+        editor_id=owner.id,
+        data=_simple_recipe_in(lines=_fuzzy_lines(5)),
+    )
+    assert calls == 1

@@ -11,11 +11,12 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
+import pypdf
 import pypdfium2 as pdfium
 import pytest
 from PIL import Image
 
-from recipe_normalizer.extraction import EXTRACTORS
+from recipe_normalizer.extraction import EXTRACTORS, pdf_plugin
 from recipe_normalizer.extraction.base import TierFailed
 from recipe_normalizer.extraction.pdf_plugin import PdfExtractor, is_meaningful_text
 from recipe_normalizer.filestore import LocalFileStore
@@ -113,6 +114,82 @@ def test_pdf_over_page_cap_fails_with_reason(store: LocalFileStore) -> None:
 
     assert "11" in exc_info.value.reason
     assert "10" in exc_info.value.reason
+
+
+# ---------------------------------------------------------------------------
+# Page / text caps enforced BEFORE the text layer is walked
+# ---------------------------------------------------------------------------
+
+
+def _blank_text_pdf(pages: int) -> bytes:
+    """A cheap multi-page PDF built with pypdf (no rasterization)."""
+    writer = pypdf.PdfWriter()
+    for _ in range(pages):
+        writer.add_blank_page(width=200, height=200)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue()
+
+
+def test_abusive_page_count_fails_before_walking_text_layer(
+    store: LocalFileStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A PDF past the (high) text-path ceiling must fail on the cheap page
+    count — never walking every page's text layer (which wedges the worker)."""
+    from recipe_normalizer.extraction import pdf_plugin
+
+    def boom(self: object, *args: object, **kwargs: object) -> str:
+        raise AssertionError("extract_text must not run on an over-ceiling PDF")
+
+    monkeypatch.setattr(pypdf.PageObject, "extract_text", boom)
+
+    over = pdf_plugin._MAX_TEXT_PAGES + 1
+    ref = store.save(_blank_text_pdf(over), suffix="pdf")
+    payload = {"file_ref": ref, "filename": "huge.pdf", "media_type": "application/pdf"}
+
+    with pytest.raises(TierFailed) as exc_info:
+        PdfExtractor().acquire(payload, llm=_UnusedLLM(), store=store)  # type: ignore[arg-type]
+
+    assert str(over) in exc_info.value.reason
+
+
+def test_multi_page_pdf_with_text_layer_is_not_rejected_by_the_render_cap(
+    store: LocalFileStore,
+) -> None:
+    """Regression: a normal >10-page PDF that has a usable text layer must
+    extract via the text path, not fail on the (low) rasterization cap."""
+    writer = pypdf.PdfWriter()
+    for _ in range(12):
+        writer.add_blank_page(width=200, height=200)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    # A 12-page PDF whose text layer we stub as meaningful must NOT raise.
+    from recipe_normalizer.extraction import pdf_plugin
+
+    monkeypatch_text = "Roast chicken\n2 cups flour\n1 tsp salt\nMix and bake."
+
+    import unittest.mock as mock
+
+    with mock.patch.object(pypdf.PageObject, "extract_text", return_value=monkeypatch_text):
+        text = pdf_plugin._extract_text(buffer.getvalue())
+    assert "Roast chicken" in text
+    assert text.count("Roast chicken") == 12  # all 12 pages read, none dropped
+
+
+def test_extracted_text_is_capped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Even within the page cap, accumulated text stops at the char cap."""
+    monkeypatch.setattr(pdf_plugin, "_MAX_TEXT_CHARS", 100)
+    monkeypatch.setattr(pypdf.PageObject, "extract_text", lambda self, *a, **kw: "x" * 90)  # noqa: ARG005
+
+    text = pdf_plugin._extract_text(_blank_text_pdf(9))
+
+    assert len(text) <= 100 + 9  # cap, plus at most one newline per joined page
+
+
+def test_text_under_the_cap_is_returned_whole(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pypdf.PageObject, "extract_text", lambda self, *a, **kw: "page text")  # noqa: ARG005
+
+    assert pdf_plugin._extract_text(_blank_text_pdf(3)) == "page text\npage text\npage text"
 
 
 # ---------------------------------------------------------------------------

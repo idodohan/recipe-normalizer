@@ -55,7 +55,15 @@ export function CookbookPage() {
 
   const urlQuery = get("q") ?? "";
   const [queryInput, setQueryInput] = useState(urlQuery);
-  const debouncedQuery = useDebouncedValue(queryInput, 300);
+  const debouncedInput = useDebouncedValue(queryInput, 300);
+  // `useDebouncedValue` has no synchronous reset, so emptying the input (the
+  // search box's own clear affordance, or `clearAll` below) would otherwise
+  // keep serving the pre-clear text for another 300ms — long enough for the
+  // URL-commit effect below to write the stale `q` straight back into the URL
+  // and for a throwaway fetch to fire under the old query key. An empty input
+  // is unambiguous, so short-circuit it: clearing takes effect immediately,
+  // while typing still debounces.
+  const debouncedQuery = queryInput === "" ? "" : debouncedInput;
 
   const cuisine = get("cuisine") ?? "";
   const dishType = get("dish_type") ?? "";
@@ -146,7 +154,6 @@ export function CookbookPage() {
   // from deps: it changes on every settled keystroke (handled by the
   // effect above), and reacting to it here too would immediately stomp the
   // text the user just typed before that effect's URL commit lands.
-  /* eslint-disable-next-line react-hooks/exhaustive-deps */
   useEffect(() => {
     if (urlQuery !== debouncedQuery) {
       // Reseeding local input state from the URL (an external system) on
@@ -155,11 +162,31 @@ export function CookbookPage() {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setQueryInput(urlQuery);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see the note above
   }, [urlQuery]);
 
   const items = recipes.data?.pages.flatMap((page) => page.items) ?? [];
   const total = recipes.data?.pages[0]?.total ?? 0;
   const showSkeleton = recipes.isPending || (isSettling && !recipes.isError);
+
+  // First run: a genuinely empty cookbook (no recipes, no filters engaged).
+  // The search box, nine filter controls, "ask your cookbook" panel and count
+  // line are all noise against zero recipes — hide them and show a single
+  // first-run surface that points at the import pipeline (the actual pitch)
+  // rather than the manual-entry form.
+  //
+  // Gate on settled, non-placeholder data: `total` comes from keepPreviousData,
+  // so during a refetch (e.g. clearing a zero-result filter back to "all") it
+  // still reads the previous 0 — without this guard the whole toolbar (and a
+  // search box mid-type) would flash out and be replaced by the first-run
+  // panel until the real result lands.
+  const isFirstRun =
+    !showSkeleton &&
+    !recipes.isError &&
+    !recipes.isFetching &&
+    !recipes.isPlaceholderData &&
+    total === 0 &&
+    !hasActiveFilters;
 
   return (
     <>
@@ -168,13 +195,30 @@ export function CookbookPage() {
         title="Cookbook"
         subtitle="Recipes you have saved and normalized."
         action={
-          <Button variant="secondary" onClick={() => navigate("/recipes/new")}>
-            Add recipe
-          </Button>
+          isFirstRun ? undefined : (
+            <Button variant="secondary" onClick={() => navigate("/inbox")}>
+              Add recipe
+            </Button>
+          )
         }
       />
 
-      <CookbookQaPanel />
+      {isFirstRun ? (
+        <EmptyState
+          title="Start your cookbook"
+          body="Paste a link, drop a PDF or photo, or type a recipe in — we normalize the ingredients into grams and millilitres so every recipe is ready to scale. Your imports land in the Inbox for a quick review first."
+          action={
+            <div className="cookbook-firstrun__actions">
+              <Button onClick={() => navigate("/inbox")}>Paste a link</Button>
+              <Button variant="secondary" onClick={() => navigate("/recipes/new")}>
+                Paste or type a recipe
+              </Button>
+            </div>
+          }
+        />
+      ) : (
+        <>
+          <CookbookQaPanel />
 
       <div className="cookbook-search">
         <input
@@ -340,6 +384,8 @@ export function CookbookPage() {
               </Button>
             </div>
           ) : null}
+            </>
+          )}
         </>
       )}
     </>

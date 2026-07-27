@@ -183,3 +183,33 @@ a.btn {
 .empty-state__action {
   margin-top: var(--space-5);
 }
+
+/* First-run cookbook: primary "Paste a link" + secondary "Add manually",
+   centered and wrapping on narrow screens. */
+.cookbook-firstrun__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3);
+}
+
+/* -- RouteErrorBoundary ---------------------------------------------- */
+
+/* Dev-only stack trace under the error block: monospace, quiet, and
+   scrollable so a long trace can't stretch the layout. */
+.route-error__detail {
+  max-width: 48rem;
+  max-height: 16rem;
+  overflow: auto;
+  margin: 0 auto var(--space-9);
+  padding: var(--space-4);
+  background-color: var(--color-surface-raised);
+  border: var(--hairline);
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, "SF Mono", menlo, monospace;
+  font-size: var(--text-micro);
+  line-height: 1.6;
+  color: var(--color-text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

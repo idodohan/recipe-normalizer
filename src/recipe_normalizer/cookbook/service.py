@@ -294,11 +294,14 @@ def _process_line(
     line_in: IngredientLineIn,
     *,
     llm: LLMClient | None = None,
+    corpus: catalog_service.FuzzyCorpus | None = None,
 ) -> dict[str, Any]:
     """Resolve catalog match + normalization for a single ingredient line.
 
     Returns a dict of column values (excluding group_id and order_index).
     Uses match_or_create for fuzzy + LLM-assisted matching when *llm* is provided.
+    *corpus* is the caller's shared fuzzy corpus, so a recipe's lines share one
+    catalog snapshot instead of each rebuilding it (see FuzzyCorpus).
     """
     canonical_ingredient_id: uuid.UUID | None = None
     normalized_amount: float | None = None
@@ -306,7 +309,7 @@ def _process_line(
     is_approx: bool = False
 
     if line_in.name:
-        ingredient = catalog_service.match_or_create(db, line_in.name, llm=llm)
+        ingredient = catalog_service.match_or_create(db, line_in.name, llm=llm, corpus=corpus)
         canonical_ingredient_id = ingredient.id
 
         # Attempt unit conversion when quantity + unit are present
@@ -342,7 +345,15 @@ def _apply_groups(
     Existing groups/lines are not touched here — caller must ensure a clean state
     (either new recipe or after removing old groups via delete-orphan cascade).
     Passes *llm* to _process_line for fuzzy + LLM-assisted catalog matching.
+
+    All lines share one ``FuzzyCorpus``: catalog matching only builds it when a
+    line misses the exact/alias index, and building it reads the whole alias +
+    canonical corpus, so per-line instances turned one recipe save into dozens of
+    full-catalog reads. It is created here (per call, never cached across
+    requests) so it stays a snapshot of this transaction.
     """
+    corpus = catalog_service.FuzzyCorpus()
+
     for g_idx, group_in in enumerate(data.groups):
         group = IngredientGroup(
             recipe_id=recipe.id,
@@ -353,7 +364,7 @@ def _apply_groups(
         db.flush()  # get group.id
 
         for l_idx, line_in in enumerate(group_in.lines):
-            line_data = _process_line(db, line_in, llm=llm)
+            line_data = _process_line(db, line_in, llm=llm, corpus=corpus)
             line = IngredientLine(
                 group_id=group.id,
                 order_index=l_idx,

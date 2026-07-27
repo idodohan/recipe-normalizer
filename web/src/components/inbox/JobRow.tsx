@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
+import { apiErrorMessage } from "../../api/errors";
+import { toast } from "../../hooks/useToast";
 import {
   INPUT_LABEL,
   STATUS_META,
@@ -25,6 +27,15 @@ export function JobRow({ job }: { job: Job }) {
       if (error) throw error;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["jobs"] }),
+    // A silent failure here reads as a successful retry — the row keeps its
+    // "failed" tag and the button just becomes clickable again.
+    onError: (error) => {
+      toast({
+        title: "Could not retry this job",
+        description: apiErrorMessage(error, "Please try again."),
+        variant: "error",
+      });
+    },
   });
 
   return (

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { Link } from "react-router-dom";
 import type { ChatMessageItem } from "./types";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 
@@ -19,14 +20,24 @@ type MessageListProps = {
  * chat-app gradients) lives in `ai-chat.css`.
  */
 export function MessageList({ messages, emptyHint, onRetry }: MessageListProps) {
-  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
 
+  // Scroll the transcript itself, not via `scrollIntoView` on a bottom
+  // sentinel: that scrolls EVERY scrollable ancestor including the document,
+  // so each new message yanked the whole page down to the panel.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: "end" });
+    const el = listRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
   return (
-    <div className="ai-msgs" role="log" aria-live="polite" aria-relevant="additions text">
+    <div
+      className="ai-msgs"
+      ref={listRef}
+      role="log"
+      aria-live="polite"
+      aria-relevant="additions text"
+    >
       {messages.length === 0 && emptyHint ? <p className="ai-msgs__empty">{emptyHint}</p> : null}
       <ul className="ai-msgs__list">
         {messages.map((message) => (
@@ -50,6 +61,20 @@ export function MessageList({ messages, emptyHint, onRetry }: MessageListProps) 
                 <p className="ai-msg__content">{message.content}</p>
               )}
             </div>
+            {message.sources && message.sources.length > 0 ? (
+              <div className="ai-msg__sources">
+                <span className="ai-msg__sources-label">Recipes referenced</span>
+                <ul className="ai-msg__sources-list">
+                  {message.sources.map((source) => (
+                    <li key={source.id}>
+                      <Link to={`/recipes/${source.id}`} className="chip chip--link">
+                        {source.title ?? "…"}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {message.failed ? (
               <p className="ai-msg__failed-note">
                 Not sent.
@@ -67,7 +92,6 @@ export function MessageList({ messages, emptyHint, onRetry }: MessageListProps) 
           </li>
         ))}
       </ul>
-      <div ref={bottomRef} aria-hidden="true" />
     </div>
   );
 }

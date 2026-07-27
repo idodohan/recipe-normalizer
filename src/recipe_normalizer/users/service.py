@@ -6,7 +6,6 @@ from sqlalchemy import delete, select
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
-from recipe_normalizer.config import settings
 from recipe_normalizer.errors import ApiError
 from recipe_normalizer.users.auth import (
     PasswordAuthProvider,
@@ -50,16 +49,20 @@ def register(
     password: str,
     display_name: str,
 ) -> User:
-    """Create a new user; raises AuthError on duplicate email."""
+    """Create a new user; raises AuthError on duplicate email.
+
+    Never grants admin. Registration is unauthenticated and proves nothing about
+    who owns an address, so an email-allow-list here would let anyone who knows
+    (or guesses) a listed address self-promote by signing up with it. Admin is
+    granted out-of-band only: ``python -m recipe_normalizer.users.make_admin
+    <email>``, which requires shell access and an already-existing user.
+    """
     normalized = email.strip().lower()
     existing = db.scalars(select(User).where(User.email == normalized)).first()
     if existing is not None:
         raise AuthError("An account with that email already exists.")
     password_hash = _provider.hash_password(password)
     user = User(email=normalized, password_hash=password_hash, display_name=display_name)
-    admin_emails = {e.strip().lower() for e in settings.admin_emails.split(",") if e.strip()}
-    if user.email.lower() in admin_emails:
-        user.is_admin = True
     db.add(user)
     db.flush()
     return user

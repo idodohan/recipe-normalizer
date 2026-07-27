@@ -14,9 +14,23 @@ _FALLBACK_MODEL = "claude-opus-4-8"
 
 
 def cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
-    """Compute the USD cost of a call. Unknown models fall back to opus pricing."""
+    """Compute the USD cost of a call from the static table.
+
+    This is the fallback path only — OpenRouter responses carry exact cost
+    accounting (``usage.cost_usd``) which LLMClient prefers. Here:
+    - ``:free`` models cost $0 by definition.
+    - Any other unknown model — including a *paid* OpenRouter slug whose
+      response omitted ``usage.cost`` — falls back to the conservative opus
+      price. Over-reporting a cheap model is a safe failure (it trips the cost
+      cap early); silently recording $0 for a real paid model would let spend
+      run unbounded, so we do NOT zero-rate unknown slugs just because they
+      contain "/".
+    """
     prices = PRICES_PER_MTOK.get(model)
     if prices is None:
+        # ":free" variants and the "openrouter/free" auto-router are free.
+        if model.endswith(":free") or model == "openrouter/free":
+            return 0.0
         logger.warning(
             "no pricing for model %r — falling back to %s pricing", model, _FALLBACK_MODEL
         )

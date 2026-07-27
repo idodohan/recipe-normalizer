@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { KeyboardEvent } from "react";
 import type { components } from "../../api/schema";
 import {
   buildRecipeIn,
@@ -109,10 +110,54 @@ export function useRecipeForm(initial: RecipeFormState): RecipeFormController {
     clearError: (key) =>
       setErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev)),
     validate: () => {
-      const result = validateDraft(state.title, state.groups);
+      const result = validateDraft(state);
       setErrors(result);
-      return !result.title && !result.ingredients;
+      return Object.values(result).every((message) => message === undefined);
     },
     build: () => buildRecipeIn(state),
   };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Form-level Enter handling                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The single-line text-entry input types, i.e. the ones where Enter means
+ * "I'm done with this field" rather than anything else. Textareas (Enter is
+ * a newline) and buttons/checkboxes/file inputs (Enter is their activation,
+ * and the reader is clearly not mid-sentence) are deliberately left out.
+ */
+const TEXT_ENTRY_TYPES = new Set([
+  "date",
+  "datetime-local",
+  "email",
+  "month",
+  "number",
+  "password",
+  "search",
+  "tel",
+  "text",
+  "time",
+  "url",
+  "week",
+]);
+
+/**
+ * Cancel implicit form submission on Enter — attach as the editor form's
+ * `onKeyDown`. Without it, Enter in any of the editor's ~dozen single-line
+ * inputs saves the recipe mid-edit (and navigates away). Saving stays an
+ * explicit click on the submit button.
+ *
+ * This runs while the event bubbles up from the focused field, so per-field
+ * Enter behaviour still fires first — the "as written" ingredient line still
+ * opens the next line, and VocabMultiSelect still adds the typed term.
+ * Cancelling the default afterwards only removes the submit.
+ */
+export function blockImplicitSubmit(event: KeyboardEvent<HTMLFormElement>): void {
+  if (event.key !== "Enter") return;
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) return;
+  if (!TEXT_ENTRY_TYPES.has(target.type)) return;
+  event.preventDefault();
 }

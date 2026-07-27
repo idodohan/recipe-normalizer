@@ -36,6 +36,42 @@ export function EditorSection({
   );
 }
 
+/**
+ * One of the three duration fields. They differ only in label and which
+ * state key they write, and each needs the same error wiring, so they share
+ * one component rather than three near-identical blocks.
+ */
+function MinutesField({
+  label,
+  field,
+  form,
+}: {
+  label: string;
+  field: "prepMin" | "cookMin" | "totalMin";
+  form: RecipeFormController;
+}) {
+  const error = form.errors[field];
+  return (
+    <Field label={label} error={error}>
+      {(props) => (
+        <Input
+          {...props}
+          className="input--num"
+          type="text"
+          inputMode="numeric"
+          invalid={Boolean(error)}
+          value={form[field]}
+          placeholder="—"
+          onChange={(event) => {
+            form.set(field, event.target.value);
+            form.clearError(field);
+          }}
+        />
+      )}
+    </Field>
+  );
+}
+
 export function RecipeFormFields({
   form,
   vocab,
@@ -87,18 +123,20 @@ export function RecipeFormFields({
 
         <div className="editor__essentials-row">
           <div className="editor__servings">
-            <Field label="Serves">
+            <Field label="Serves" error={form.errors.servingsAmount}>
               {(props) => (
                 <Input
                   {...props}
                   className="input--num"
                   type="text"
-                  inputMode="numeric"
+                  inputMode="decimal"
+                  invalid={Boolean(form.errors.servingsAmount)}
                   value={form.servingsAmount}
                   placeholder="4"
-                  onChange={(event) =>
-                    form.set("servingsAmount", event.target.value)
-                  }
+                  onChange={(event) => {
+                    form.set("servingsAmount", event.target.value);
+                    form.clearError("servingsAmount");
+                  }}
                 />
               )}
             </Field>
@@ -117,45 +155,9 @@ export function RecipeFormFields({
             </Field>
           </div>
           <div className="editor__times">
-            <Field label="Prep min">
-              {(props) => (
-                <Input
-                  {...props}
-                  className="input--num"
-                  type="number"
-                  min={0}
-                  value={form.prepMin}
-                  placeholder="—"
-                  onChange={(event) => form.set("prepMin", event.target.value)}
-                />
-              )}
-            </Field>
-            <Field label="Cook min">
-              {(props) => (
-                <Input
-                  {...props}
-                  className="input--num"
-                  type="number"
-                  min={0}
-                  value={form.cookMin}
-                  placeholder="—"
-                  onChange={(event) => form.set("cookMin", event.target.value)}
-                />
-              )}
-            </Field>
-            <Field label="Total min">
-              {(props) => (
-                <Input
-                  {...props}
-                  className="input--num"
-                  type="number"
-                  min={0}
-                  value={form.totalMin}
-                  placeholder="—"
-                  onChange={(event) => form.set("totalMin", event.target.value)}
-                />
-              )}
-            </Field>
+            <MinutesField label="Prep min" field="prepMin" form={form} />
+            <MinutesField label="Cook min" field="cookMin" form={form} />
+            <MinutesField label="Total min" field="totalMin" form={form} />
           </div>
         </div>
       </EditorSection>

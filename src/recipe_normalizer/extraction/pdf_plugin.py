@@ -35,7 +35,16 @@ _MIN_TEXT_CHARS = 200
 # Above this fraction of replacement/control characters the "text" is garbage.
 _MAX_GARBLED_RATIO = 0.1
 _RENDER_DPI = 144
+# Rasterizing pages to images (scanned-PDF vision path) is expensive, so it is
+# capped low. Reading the text layer is cheap, so it gets a much higher ceiling
+# — a normal multi-page cookbook PDF must not be rejected just because it has
+# more than 10 pages; only a genuinely abusive page count is refused.
 _MAX_PAGES = 10
+_MAX_TEXT_PAGES = 2_000
+# Text-layer bomb guard: a page can carry an unbounded amount of text even
+# within the page cap, so accumulation stops here (a real recipe PDF is orders
+# of magnitude smaller).
+_MAX_TEXT_CHARS = 500_000
 # Decompression-bomb guard: skip rasterizing any single page whose rendered
 # area (at _RENDER_DPI) would exceed this many pixels.
 _MAX_PAGE_PIXELS = 50_000_000
@@ -54,9 +63,35 @@ def is_meaningful_text(text: str) -> bool:
     return bad / len(stripped) <= _MAX_GARBLED_RATIO
 
 
+def _page_cap_failure(page_count: int) -> TierFailed:
+    return TierFailed(f"PDF has {page_count} pages; only the first {_MAX_PAGES} can be processed")
+
+
 def _extract_text(data: bytes) -> str:
+    """Read the text layer, refusing only genuinely abusive page counts.
+
+    The page count is checked FIRST (it is cheap — pypdf reads the page tree,
+    not the pages) so a 100k-page document fails immediately instead of walking
+    every page's text layer. The threshold here is the high text-path ceiling,
+    NOT the low render cap: a normal multi-page recipe PDF must extract fine.
+    Accumulated text is capped too: one page can hold an unbounded amount.
+    """
     reader = pypdf.PdfReader(io.BytesIO(data))
-    return "\n".join(page.extract_text() or "" for page in reader.pages)
+    page_count = len(reader.pages)
+    if page_count > _MAX_TEXT_PAGES:
+        raise TierFailed(
+            f"PDF has {page_count} pages; only the first {_MAX_TEXT_PAGES} can be read"
+        )
+    chunks: list[str] = []
+    remaining = _MAX_TEXT_CHARS
+    for page in reader.pages:
+        chunk = (page.extract_text() or "")[:remaining]
+        chunks.append(chunk)
+        remaining -= len(chunk)
+        if remaining <= 0:
+            logger.warning("PDF text layer exceeds %d chars; truncating", _MAX_TEXT_CHARS)
+            break
+    return "\n".join(chunks)
 
 
 def _render_pages(data: bytes) -> list[bytes]:
@@ -65,9 +100,7 @@ def _render_pages(data: bytes) -> list[bytes]:
     try:
         page_count = len(document)
         if page_count > _MAX_PAGES:
-            raise TierFailed(
-                f"PDF has {page_count} pages; only the first {_MAX_PAGES} can be processed"
-            )
+            raise _page_cap_failure(page_count)
         pngs: list[bytes] = []
         for index in range(page_count):
             page = document[index]

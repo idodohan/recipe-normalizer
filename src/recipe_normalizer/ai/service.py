@@ -731,7 +731,7 @@ def transform_recipe(
         "at": at,
     }
     extraction_meta: dict[str, Any] = {
-        "model": settings.llm_model,
+        "model": llm.model_for(),
         "confidence": result.confidence,
         "transformed_from": str(recipe_id),
         "instruction": instruction,
@@ -850,6 +850,9 @@ class _StubAiLLMClient:
     def spent_usd(self) -> float:
         return 0.0
 
+    def model_for(self, *, fast: bool = False) -> str:
+        return "stub"
+
     def chat(
         self,
         *,
@@ -915,7 +918,7 @@ def make_ai_llm(db: Session, *, user_id: uuid.UUID, feature: str) -> LLMClient:
     `RN_LLM_STUB=1` (env) swaps in `_StubAiLLMClient` — TEST/E2E ONLY, mirrors
     `worker.make_llm_for_job`'s convention exactly (same env var, same
     warning) so e2e runs can exercise recipe chat (and, in later tasks,
-    cookbook Q&A / transformations) without an ANTHROPIC_API_KEY.
+    cookbook Q&A / transformations) without an LLM API key.
 
     Otherwise builds a real `LLMClient` capped at
     `settings.ai_request_cost_cap_usd` per request, with usage recorded to

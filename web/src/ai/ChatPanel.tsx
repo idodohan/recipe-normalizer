@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { MessageList } from "./MessageList";
 import { ChatInput } from "./ChatInput";
 import type { ChatMessageItem } from "./types";
@@ -17,15 +16,16 @@ type ChatPanelProps = {
   emptyHint?: string;
   /** Inline status/error line above the input (e.g. "conversation full"). */
   statusMessage?: string | null;
-  /** Rendered above the transcript — e.g. cookbook Q&A's "sources" chips row (Task 5). */
-  children?: ReactNode;
 };
 
 /**
- * Editorial chat surface shared by per-recipe chat (RecipeChatPanel) and,
- * later, cookbook Q&A (Task 5) — everything data-fetching/mutation-shaped
+ * Editorial chat surface shared by per-recipe chat (RecipeChatPanel) and
+ * cookbook Q&A (CookbookQaPanel) — everything data-fetching/mutation-shaped
  * lives in the feature-specific wrapper; this component is pure
- * presentation over a message list + input.
+ * presentation over a message list + input. Per-answer extras (cookbook
+ * Q&A's referenced-recipe chips) ride on the messages themselves
+ * (`ChatMessageItem.sources`) rather than a panel-level slot, so they render
+ * with the turn they belong to.
  */
 export function ChatPanel({
   messages,
@@ -39,11 +39,9 @@ export function ChatPanel({
   inputPlaceholder,
   emptyHint,
   statusMessage,
-  children,
 }: ChatPanelProps) {
   return (
     <div className="ai-panel">
-      {children}
       <MessageList messages={messages} emptyHint={emptyHint} onRetry={onRetry} />
       {statusMessage ? (
         <p className="ai-panel__status" role="alert">

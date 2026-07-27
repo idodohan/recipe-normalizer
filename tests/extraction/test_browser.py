@@ -83,6 +83,22 @@ class FakeClickTarget:
         if self._fail:
             raise RuntimeError(f"no element for {self._target!r}")
         self._page.calls.append((f"click_{self._kind}", self._target))
+        if self._page.click_navigates_to is not None:
+            self._page.url = self._page.click_navigates_to
+
+
+class FakeRoute:
+    """Stands in for a playwright Route handed to the route-guard handler."""
+
+    def __init__(self, url: str) -> None:
+        self.request = SimpleNamespace(url=url)
+        self.action: str | None = None
+
+    def continue_(self) -> None:
+        self.action = "continue"
+
+    def abort(self) -> None:
+        self.action = "abort"
 
 
 class FakeKeyboard:
@@ -104,22 +120,43 @@ class FakeMouse:
 class FakePage:
     """Records every call; ``content()`` walks through *htmls* (sticky last)."""
 
-    def __init__(self, htmls: list[str] | None = None, *, fail_text_click: bool = False) -> None:
+    def __init__(
+        self,
+        htmls: list[str] | None = None,
+        *,
+        fail_text_click: bool = False,
+        click_navigates_to: str | None = None,
+        goto_error: Exception | None = None,
+    ) -> None:
         self.htmls = htmls or [RECIPE_HTML]
         self.fail_text_click = fail_text_click
+        self.click_navigates_to = click_navigates_to
+        self.goto_error = goto_error
         self.calls: list[tuple[Any, ...]] = []
         self.keyboard = FakeKeyboard(self)
         self.mouse = FakeMouse(self)
+        self.url = "about:blank"
+        self.handlers: list[Any] = []
         self._content_idx = 0
+
+    def route(self, pattern: str, handler: Any) -> None:
+        self.calls.append(("route", pattern))
+        self.handlers.append(handler)
 
     def goto(self, url: str, **kwargs: Any) -> None:
         self.calls.append(("goto", url, kwargs))
+        # Playwright raises a generic error (e.g. net::ERR_FAILED) when the
+        # route guard aborts the main-frame navigation.
+        if self.goto_error is not None:
+            raise self.goto_error
+        self.url = url
 
     def screenshot(self, *, type: str = "png") -> bytes:  # noqa: A002 - playwright's name
         self.calls.append(("screenshot", type))
         return TINY_PNG
 
     def content(self) -> str:
+        self.calls.append(("content",))
         html = self.htmls[min(self._content_idx, len(self.htmls) - 1)]
         self._content_idx += 1
         return html
@@ -476,6 +513,225 @@ def test_rejects_unsafe_url_before_navigating(store: LocalFileStore) -> None:
 
     assert exc_info.value.screenshot_ref is None
     assert not any(call[0] == "goto" for call in page.calls)
+
+
+# ---------------------------------------------------------------------------
+# SSRF guard — per-request route interception (H1)
+# ---------------------------------------------------------------------------
+
+
+def _dns_map(mapping: dict[str, str]) -> Any:
+    """getaddrinfo stub resolving each host per *mapping* (default: public)."""
+
+    def fake(host: str, port: object, *args: object, **kwargs: object) -> object:
+        return [(2, 1, 6, "", (mapping.get(host, "93.184.216.34"), 0))]
+
+    return fake
+
+
+def test_route_guard_is_installed_before_navigation(store: LocalFileStore) -> None:
+    page = FakePage([RECIPE_HTML])
+    llm = ScriptedLLM(HAPPY_SCRIPT)
+
+    browse_for_recipe(
+        "https://x.test/r",
+        llm=llm,  # type: ignore[arg-type]
+        store=store,
+        page_factory=_factory_for(page),
+    )
+
+    kinds = [call[0] for call in page.calls]
+    assert "route" in kinds
+    assert kinds.index("route") < kinds.index("goto")
+    assert page.calls[kinds.index("route")][1] == "**/*"
+    assert len(page.handlers) == 1
+
+
+def test_goto_failure_after_guard_block_surfaces_as_tierfailed(store: LocalFileStore) -> None:
+    """A route-guard abort of the main navigation makes page.goto raise a raw
+    Playwright error; it must be caught and reported as TierFailed (not leaked
+    to the worker as an opaque, retryable exception), attributed to the block."""
+    page = FakePage([RECIPE_HTML], goto_error=RuntimeError("net::ERR_FAILED"))
+    # Simulate the guard having blocked the navigation by recording it.
+    original_route = page.route
+
+    def route_and_block(pattern: str, handler: Any) -> None:
+        original_route(pattern, handler)
+        with patch("socket.getaddrinfo", _dns_map({"169.254.169.254": "169.254.169.254"})):
+            handler(FakeRoute("http://169.254.169.254/latest/meta-data/"))
+
+    page.route = route_and_block  # type: ignore[method-assign]
+
+    with pytest.raises(TierFailed) as exc_info:
+        browse_for_recipe(
+            "https://x.test/r",
+            llm=ScriptedLLM(HAPPY_SCRIPT),  # type: ignore[arg-type]
+            store=store,
+            page_factory=_factory_for(page),
+        )
+    assert "blocked unsafe URL" in exc_info.value.reason
+
+
+def test_goto_failure_without_a_block_is_a_clean_tierfailed(store: LocalFileStore) -> None:
+    """An ordinary navigation failure (timeout, DNS) also becomes TierFailed,
+    not an opaque browser error."""
+    page = FakePage([RECIPE_HTML], goto_error=RuntimeError("net::ERR_TIMED_OUT"))
+    with pytest.raises(TierFailed) as exc_info:
+        browse_for_recipe(
+            "https://x.test/r",
+            llm=ScriptedLLM(HAPPY_SCRIPT),  # type: ignore[arg-type]
+            store=store,
+            page_factory=_factory_for(page),
+        )
+    assert "page failed to load" in exc_info.value.reason
+
+
+def test_route_guard_continues_public_requests(store: LocalFileStore) -> None:
+    page = FakePage([RECIPE_HTML])
+    browse_for_recipe(
+        "https://x.test/r",
+        llm=ScriptedLLM(HAPPY_SCRIPT),  # type: ignore[arg-type]
+        store=store,
+        page_factory=_factory_for(page),
+    )
+
+    route = FakeRoute("https://cdn.x.test/style.css")
+    page.handlers[0](route)
+    assert route.action == "continue"
+
+
+def test_route_guard_aborts_link_local_metadata_request(store: LocalFileStore) -> None:
+    """The cloud-metadata endpoint must never be reachable from the tier-3 page."""
+    page = FakePage([RECIPE_HTML])
+    browse_for_recipe(
+        "https://x.test/r",
+        llm=ScriptedLLM(HAPPY_SCRIPT),  # type: ignore[arg-type]
+        store=store,
+        page_factory=_factory_for(page),
+    )
+
+    with patch("socket.getaddrinfo", _dns_map({"169.254.169.254": "169.254.169.254"})):
+        route = FakeRoute("http://169.254.169.254/latest/meta-data/iam/security-credentials/")
+        page.handlers[0](route)
+    assert route.action == "abort"
+
+
+def test_route_guard_aborts_private_and_non_http_requests(store: LocalFileStore) -> None:
+    page = FakePage([RECIPE_HTML])
+    browse_for_recipe(
+        "https://x.test/r",
+        llm=ScriptedLLM(HAPPY_SCRIPT),  # type: ignore[arg-type]
+        store=store,
+        page_factory=_factory_for(page),
+    )
+    handler = page.handlers[0]
+
+    with patch("socket.getaddrinfo", _dns_map({"intranet.example": "10.0.0.5"})):
+        private = FakeRoute("http://intranet.example/admin")
+        handler(private)
+    assert private.action == "abort"
+
+    local_file = FakeRoute("file:///etc/passwd")
+    handler(local_file)
+    assert local_file.action == "abort"
+
+
+def test_route_guard_allows_inert_schemes_without_dns(store: LocalFileStore) -> None:
+    """data:/blob: cannot egress anywhere, so inline assets must still load."""
+    page = FakePage([RECIPE_HTML])
+    browse_for_recipe(
+        "https://x.test/r",
+        llm=ScriptedLLM(HAPPY_SCRIPT),  # type: ignore[arg-type]
+        store=store,
+        page_factory=_factory_for(page),
+    )
+
+    def boom(host: str, port: object, *args: object, **kwargs: object) -> object:
+        raise AssertionError("inert schemes must not be resolved")
+
+    with patch("socket.getaddrinfo", boom):
+        for url in ("data:image/png;base64,AAAA", "blob:https://x.test/abc", "about:blank"):
+            route = FakeRoute(url)
+            page.handlers[0](route)
+            assert route.action == "continue", url
+
+
+def test_route_guard_resolves_each_origin_once(store: LocalFileStore) -> None:
+    page = FakePage([RECIPE_HTML])
+    browse_for_recipe(
+        "https://x.test/r",
+        llm=ScriptedLLM(HAPPY_SCRIPT),  # type: ignore[arg-type]
+        store=store,
+        page_factory=_factory_for(page),
+    )
+
+    hosts: list[str] = []
+
+    def counting(host: str, port: object, *args: object, **kwargs: object) -> object:
+        hosts.append(host)
+        return [(2, 1, 6, "", ("93.184.216.34", 0))]
+
+    with patch("socket.getaddrinfo", counting):
+        for path in ("a.css", "b.css", "c.png"):
+            page.handlers[0](FakeRoute(f"https://cdn.x.test/{path}"))
+    assert hosts == ["cdn.x.test"]  # memoized per origin
+
+
+def test_route_guard_handler_never_leaves_a_request_hanging(store: LocalFileStore) -> None:
+    """A broken route object must be aborted, not raised through into the page."""
+    page = FakePage([RECIPE_HTML])
+    browse_for_recipe(
+        "https://x.test/r",
+        llm=ScriptedLLM(HAPPY_SCRIPT),  # type: ignore[arg-type]
+        store=store,
+        page_factory=_factory_for(page),
+    )
+
+    class ExplodingRoute(FakeRoute):
+        def continue_(self) -> None:
+            raise RuntimeError("target page closed")
+
+    route = ExplodingRoute("https://cdn.x.test/style.css")
+    page.handlers[0](route)  # must not raise
+    assert route.action == "abort"
+
+
+def test_navigation_to_private_url_after_click_is_blocked(store: LocalFileStore) -> None:
+    """An in-page click that lands on a private address aborts the tier."""
+    page = FakePage(
+        [RECIPE_HTML],
+        click_navigates_to="http://169.254.169.254/latest/meta-data/",
+    )
+    llm = ScriptedLLM([("click", {"target": "Jump to Recipe"}), ("capture_content", {})])
+
+    with (
+        patch("socket.getaddrinfo", _dns_map({"169.254.169.254": "169.254.169.254"})),
+        pytest.raises(TierFailed, match="blocked unsafe URL"),
+    ):
+        browse_for_recipe(
+            "https://x.test/r",
+            llm=llm,  # type: ignore[arg-type]
+            store=store,
+            page_factory=_factory_for(page),
+        )
+
+    # The page content was never captured/exfiltrated after the bad navigation.
+    assert not any(call[0] == "content" for call in page.calls)
+    assert len(llm.results) == 0
+
+
+def test_navigation_guard_allows_public_click_navigation(store: LocalFileStore) -> None:
+    page = FakePage([RECIPE_HTML], click_navigates_to="https://x.test/r#recipe")
+    llm = ScriptedLLM([("click", {"target": "Jump to Recipe"}), ("capture_content", {})])
+
+    acquired = browse_for_recipe(
+        "https://x.test/r",
+        llm=llm,  # type: ignore[arg-type]
+        store=store,
+        page_factory=_factory_for(page),
+    )
+
+    assert acquired.text is not None and "all-purpose flour" in acquired.text
 
 
 # ---------------------------------------------------------------------------

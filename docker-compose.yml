@@ -18,17 +18,46 @@ services:
     environment:
       RN_DATABASE_URL: postgresql+psycopg://rn:rn@postgres:5432/rn
       RN_FILE_STORE_ROOT: /data/filestore
+      # Session cookie Secure flag. Defaults false so plain-http local dev works;
+      # any TLS deployment MUST run with RN_COOKIE_SECURE=true (see README).
+      RN_COOKIE_SECURE: ${RN_COOKIE_SECURE:-false}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes: ["filestore:/data/filestore"]
     depends_on:
       postgres: { condition: service_healthy }
-    command: sh -c "uv run alembic upgrade head && uv run uvicorn recipe_normalizer.main:app --host 0.0.0.0 --port 8000"
+    # --proxy-headers: the web/nginx container is the only ingress and it sets
+    # X-Forwarded-For (docker/nginx.conf); without this every request would
+    # carry nginx's container IP and the per-IP auth/ingest rate limiters would
+    # share a single bucket across all users. --forwarded-allow-ips="*" is safe
+    # here because the api port is only reachable on the private compose network
+    # (plus the local 8000 mapping below) — never expose it publicly as-is.
+    # seed_loader is idempotent (skips existing names) so running it on every
+    # start is safe — without it the catalog is empty and dual quantities
+    # silently never render.
+    command: sh -c "uv run alembic upgrade head && uv run python -m recipe_normalizer.catalog.seed_loader && uv run uvicorn recipe_normalizer.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'"
     ports: ["8000:8000"]
+    restart: unless-stopped
+    # python-based check (no curl dependency in the image). start_period is
+    # generous because the container runs migrations + catalog seed before
+    # uvicorn binds.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health').status==200 else 1)\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
 
   worker:
     build: { context: ., dockerfile: docker/api.Dockerfile }
     environment:
       RN_DATABASE_URL: postgresql+psycopg://rn:rn@postgres:5432/rn
       RN_FILE_STORE_ROOT: /data/filestore
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes: ["filestore:/data/filestore"]
     depends_on:
@@ -39,7 +68,10 @@ services:
   web:
     build: { context: ., dockerfile: docker/web.Dockerfile }
     ports: ["5173:80"]
-    depends_on: [api]
+    # Wait for the API to pass its healthcheck before nginx starts proxying,
+    # so a fresh `up` never briefly serves 502s from /api/.
+    depends_on:
+      api: { condition: service_healthy }
 
 volumes:
   pgdata:

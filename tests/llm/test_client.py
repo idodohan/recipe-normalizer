@@ -34,7 +34,7 @@ class Extraction(BaseModel):
 def test_structured_happy_path_returns_parsed_model_and_records_usage() -> None:
     stub = StubAnthropicClient(create_results=[text_response('{"title": "Soup"}')])
     recorder = RecorderSpy()
-    client = LLMClient(recorder=recorder, anthropic_client=stub)
+    client = LLMClient(recorder=recorder, chat_client=stub)
 
     result = client.structured(feature="extract", output_model=Extraction, content="some recipe")
 
@@ -58,7 +58,7 @@ def test_structured_happy_path_returns_parsed_model_and_records_usage() -> None:
 
 def test_structured_schema_is_strict() -> None:
     stub = StubAnthropicClient(create_results=[text_response('{"title": "x"}')])
-    client = LLMClient(anthropic_client=stub)
+    client = LLMClient(chat_client=stub)
 
     client.structured(feature="extract", output_model=Extraction, content="c")
 
@@ -68,7 +68,7 @@ def test_structured_schema_is_strict() -> None:
 
 def test_structured_passes_system_and_list_content() -> None:
     stub = StubAnthropicClient(create_results=[text_response('{"title": "x"}')])
-    client = LLMClient(anthropic_client=stub)
+    client = LLMClient(chat_client=stub)
     blocks: list[dict[str, Any]] = [{"type": "text", "text": "hi"}]
 
     client.structured(
@@ -84,7 +84,7 @@ def test_structured_model_resolution_explicit_beats_fast() -> None:
     stub = StubAnthropicClient(
         create_results=[text_response('{"title": "a"}'), text_response('{"title": "b"}')]
     )
-    client = LLMClient(anthropic_client=stub)
+    client = LLMClient(chat_client=stub)
 
     client.structured(
         feature="f", output_model=Extraction, content="c", model="claude-sonnet-4-6", fast=True
@@ -103,7 +103,7 @@ def test_structured_repair_retry_succeeds_and_records_both_calls() -> None:
         ]
     )
     recorder = RecorderSpy()
-    client = LLMClient(recorder=recorder, anthropic_client=stub)
+    client = LLMClient(recorder=recorder, chat_client=stub)
 
     result = client.structured(feature="extract", output_model=Extraction, content="raw text")
 
@@ -127,7 +127,7 @@ def test_structured_repair_retry_on_malformed_json() -> None:
             text_response('{"title": "Fixed"}'),
         ]
     )
-    client = LLMClient(anthropic_client=stub)
+    client = LLMClient(chat_client=stub)
 
     result = client.structured(feature="extract", output_model=Extraction, content="raw")
 
@@ -140,7 +140,7 @@ def test_structured_double_failure_raises_llm_error_and_bills_both_attempts() ->
         create_results=[text_response("garbage"), text_response("more garbage")]
     )
     recorder = RecorderSpy()
-    client = LLMClient(recorder=recorder, anthropic_client=stub)
+    client = LLMClient(recorder=recorder, chat_client=stub)
 
     with pytest.raises(LLMError):
         client.structured(feature="extract", output_model=Extraction, content="raw")
@@ -156,7 +156,7 @@ def test_structured_refusal_raises_llm_error_after_recording_usage() -> None:
     # check runs before any validation is attempted.
     stub = StubAnthropicClient(create_results=[message_response([], "refusal")])
     recorder = RecorderSpy()
-    client = LLMClient(recorder=recorder, anthropic_client=stub)
+    client = LLMClient(recorder=recorder, chat_client=stub)
 
     with pytest.raises(LLMError, match="refused"):
         client.structured(feature="extract", output_model=Extraction, content="raw")
@@ -166,7 +166,7 @@ def test_structured_refusal_raises_llm_error_after_recording_usage() -> None:
 
 def test_structured_missing_text_block_raises() -> None:
     stub = StubAnthropicClient(create_results=[message_response([], "end_turn")])
-    client = LLMClient(anthropic_client=stub)
+    client = LLMClient(chat_client=stub)
 
     with pytest.raises(LLMError, match="text block"):
         client.structured(feature="extract", output_model=Extraction, content="raw")
@@ -174,7 +174,7 @@ def test_structured_missing_text_block_raises() -> None:
 
 def test_structured_recorder_errors_do_not_crash_the_call() -> None:
     stub = StubAnthropicClient(create_results=[text_response('{"title": "ok"}')])
-    client = LLMClient(recorder=ExplodingRecorder(), anthropic_client=stub)
+    client = LLMClient(recorder=ExplodingRecorder(), chat_client=stub)
 
     result = client.structured(feature="extract", output_model=Extraction, content="raw")
 
@@ -188,7 +188,7 @@ def test_structured_recorder_errors_do_not_crash_the_call() -> None:
 def test_chat_happy_path_returns_text_and_records_usage() -> None:
     stub = StubAnthropicClient(create_results=[text_response("Bake at 350F for 30 minutes.")])
     recorder = RecorderSpy()
-    client = LLMClient(recorder=recorder, anthropic_client=stub)
+    client = LLMClient(recorder=recorder, chat_client=stub)
 
     result = client.chat(
         feature="ai.recipe_chat",
@@ -210,7 +210,7 @@ def test_chat_happy_path_returns_text_and_records_usage() -> None:
 
 def test_chat_respects_max_tokens_and_model_overrides() -> None:
     stub = StubAnthropicClient(create_results=[text_response("ok")])
-    client = LLMClient(anthropic_client=stub)
+    client = LLMClient(chat_client=stub)
 
     client.chat(
         feature="f",
@@ -227,7 +227,7 @@ def test_chat_respects_max_tokens_and_model_overrides() -> None:
 
 def test_chat_fast_routes_to_fast_model() -> None:
     stub = StubAnthropicClient(create_results=[text_response("ok")])
-    client = LLMClient(anthropic_client=stub)
+    client = LLMClient(chat_client=stub)
 
     client.chat(feature="f", system="s", messages=[{"role": "user", "content": "hi"}], fast=True)
 
@@ -237,7 +237,7 @@ def test_chat_fast_routes_to_fast_model() -> None:
 def test_chat_refusal_raises_llm_error_after_recording_usage() -> None:
     stub = StubAnthropicClient(create_results=[message_response([], "refusal")])
     recorder = RecorderSpy()
-    client = LLMClient(recorder=recorder, anthropic_client=stub)
+    client = LLMClient(recorder=recorder, chat_client=stub)
 
     with pytest.raises(LLMError, match="refused"):
         client.chat(feature="f", system="s", messages=[{"role": "user", "content": "hi"}])
@@ -247,7 +247,7 @@ def test_chat_refusal_raises_llm_error_after_recording_usage() -> None:
 
 def test_chat_missing_text_block_raises() -> None:
     stub = StubAnthropicClient(create_results=[message_response([], "end_turn")])
-    client = LLMClient(anthropic_client=stub)
+    client = LLMClient(chat_client=stub)
 
     with pytest.raises(LLMError, match="text block"):
         client.chat(feature="f", system="s", messages=[{"role": "user", "content": "hi"}])
@@ -260,7 +260,7 @@ def test_chat_natural_language_non_answer_is_not_an_error() -> None:
     stub = StubAnthropicClient(
         create_results=[text_response("This recipe doesn't say what temperature to use.")]
     )
-    client = LLMClient(anthropic_client=stub)
+    client = LLMClient(chat_client=stub)
 
     result = client.chat(feature="f", system="s", messages=[{"role": "user", "content": "temp?"}])
 
@@ -269,7 +269,7 @@ def test_chat_natural_language_non_answer_is_not_an_error() -> None:
 
 def test_chat_checks_cost_cap_before_calling() -> None:
     stub = StubAnthropicClient(create_results=[text_response("a"), text_response("b")])
-    client = LLMClient(anthropic_client=stub, cost_cap_usd=0.015)
+    client = LLMClient(chat_client=stub, cost_cap_usd=0.015)
 
     client.chat(feature="f", system="s", messages=[{"role": "user", "content": "hi"}])
     with pytest.raises(CostCapExceeded):
@@ -283,7 +283,7 @@ def test_chat_checks_cost_cap_before_calling() -> None:
 
 def test_classify_bool_routes_to_fast_model_and_returns_answer() -> None:
     stub = StubAnthropicClient(create_results=[text_response('{"answer": true}')])
-    client = LLMClient(anthropic_client=stub)
+    client = LLMClient(chat_client=stub)
 
     answer = client.classify_bool(
         feature="moderation", question="Is water wet?", content="Water makes things wet."
@@ -300,14 +300,14 @@ def test_classify_bool_routes_to_fast_model_and_returns_answer() -> None:
 
 def test_classify_bool_returns_false() -> None:
     stub = StubAnthropicClient(create_results=[text_response('{"answer": false}')])
-    client = LLMClient(anthropic_client=stub)
+    client = LLMClient(chat_client=stub)
 
     assert client.classify_bool(feature="f", question="q?", content="c") is False
 
 
 def test_classify_bool_truncates_long_content() -> None:
     stub = StubAnthropicClient(create_results=[text_response('{"answer": true}')])
-    client = LLMClient(anthropic_client=stub)
+    client = LLMClient(chat_client=stub)
 
     client.classify_bool(feature="f", question="q?", content="x" * 50, max_chars=10)
 
@@ -318,7 +318,7 @@ def test_classify_bool_truncates_long_content() -> None:
 
 def test_classify_bool_does_not_truncate_short_content() -> None:
     stub = StubAnthropicClient(create_results=[text_response('{"answer": true}')])
-    client = LLMClient(anthropic_client=stub)
+    client = LLMClient(chat_client=stub)
 
     client.classify_bool(feature="f", question="q?", content="short", max_chars=10)
 
@@ -336,7 +336,7 @@ def test_cost_cap_raises_before_hitting_the_api() -> None:
     stub = StubAnthropicClient(
         create_results=[text_response('{"title": "a"}'), text_response('{"title": "b"}')]
     )
-    client = LLMClient(anthropic_client=stub, cost_cap_usd=0.015)
+    client = LLMClient(chat_client=stub, cost_cap_usd=0.015)
 
     client.structured(feature="f", output_model=Extraction, content="c")
     with pytest.raises(CostCapExceeded):
@@ -352,7 +352,7 @@ def test_cost_cap_allows_calls_under_the_cap() -> None:
     stub = StubAnthropicClient(
         create_results=[text_response('{"title": "a"}'), text_response('{"title": "b"}')]
     )
-    client = LLMClient(anthropic_client=stub, cost_cap_usd=0.02)
+    client = LLMClient(chat_client=stub, cost_cap_usd=0.02)
 
     client.structured(feature="f", output_model=Extraction, content="c")
     client.structured(feature="f", output_model=Extraction, content="c")
@@ -366,7 +366,7 @@ def test_cost_cap_applies_to_tool_loop_rounds() -> None:
     stub = StubAnthropicClient(
         create_results=[message_response([tool_use_block("t1")], "tool_use")]
     )
-    client = LLMClient(anthropic_client=stub, cost_cap_usd=0.01)
+    client = LLMClient(chat_client=stub, cost_cap_usd=0.01)
 
     with pytest.raises(CostCapExceeded):
         client.tool_loop(
@@ -389,7 +389,7 @@ def test_already_spent_counts_toward_cap() -> None:
 
 def test_no_cost_cap_means_unlimited() -> None:
     stub = StubAnthropicClient(create_results=[text_response('{"title": "a"}')])
-    client = LLMClient(anthropic_client=stub)
+    client = LLMClient(chat_client=stub)
     client.structured(feature="f", output_model=Extraction, content="c")
     assert client.spent_usd > 0  # no cap configured, no exception
 
@@ -421,7 +421,7 @@ def test_tool_loop_executes_tools_and_returns_final_message() -> None:
         ]
     )
     recorder = RecorderSpy()
-    client = LLMClient(recorder=recorder, anthropic_client=stub)
+    client = LLMClient(recorder=recorder, chat_client=stub)
     executed: list[tuple[str, dict[str, Any]]] = []
 
     def execute(name: str, args: dict[str, Any]) -> str:
@@ -465,7 +465,7 @@ def test_tool_loop_handles_multiple_tool_use_blocks_in_one_response() -> None:
             message_response([text_block("done")], "end_turn"),
         ]
     )
-    client = LLMClient(anthropic_client=stub)
+    client = LLMClient(chat_client=stub)
     executed: list[tuple[str, dict[str, Any]]] = []
 
     def execute(name: str, args: dict[str, Any]) -> str:
@@ -492,7 +492,7 @@ def test_tool_loop_execute_exception_becomes_is_error_tool_result() -> None:
             message_response([text_block()], "end_turn"),
         ]
     )
-    client = LLMClient(anthropic_client=stub)
+    client = LLMClient(chat_client=stub)
 
     def execute(name: str, args: dict[str, Any]) -> str:
         raise RuntimeError("boom: lookup failed")
@@ -511,7 +511,7 @@ def test_tool_loop_budget_exceeded_after_max_iterations() -> None:
         create_results=[message_response([tool_use_block("t1")], "tool_use"), last]
     )
     recorder = RecorderSpy()
-    client = LLMClient(recorder=recorder, anthropic_client=stub)
+    client = LLMClient(recorder=recorder, chat_client=stub)
 
     with pytest.raises(BudgetExceeded) as exc_info:
         client.tool_loop(**_loop_kwargs(lambda name, args: "ok", max_iterations=2))
@@ -531,7 +531,7 @@ def test_tool_loop_budget_exceeded_after_max_iterations() -> None:
 )
 def test_tool_loop_bad_stop_reasons_raise(stop_reason: str, match: str) -> None:
     stub = StubAnthropicClient(create_results=[message_response([], stop_reason)])
-    client = LLMClient(anthropic_client=stub)
+    client = LLMClient(chat_client=stub)
 
     with pytest.raises(LLMError, match=match):
         client.tool_loop(**_loop_kwargs(lambda name, args: "ok"))
@@ -540,7 +540,7 @@ def test_tool_loop_bad_stop_reasons_raise(stop_reason: str, match: str) -> None:
 def test_tool_loop_records_usage_even_on_error_stop() -> None:
     recorder = RecorderSpy()
     stub = StubAnthropicClient(create_results=[message_response([], "max_tokens")])
-    client = LLMClient(recorder=recorder, anthropic_client=stub)
+    client = LLMClient(recorder=recorder, chat_client=stub)
 
     with pytest.raises(LLMError):
         client.tool_loop(**_loop_kwargs(lambda name, args: "ok"))
@@ -551,7 +551,7 @@ def test_tool_loop_records_usage_even_on_error_stop() -> None:
 # --- no-network guard (tests/llm/conftest.py) ---------------------------------
 
 
-def test_constructing_a_real_anthropic_client_is_blocked_in_tests() -> None:
+def test_constructing_a_real_chat_client_is_blocked_in_tests() -> None:
     client = LLMClient()  # no stub injected -> would lazily build the real client
     with pytest.raises(AssertionError, match="inject a StubAnthropicClient"):
         client.classify_bool(feature="f", question="q?", content="c")

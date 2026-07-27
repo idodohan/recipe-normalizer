@@ -30,7 +30,10 @@
   font-family: var(--font-body);
   font-size: var(--text-small);
   color: var(--color-text);
-  box-shadow: none;
+  /* A toast floats over arbitrary page content and self-dismisses; the ink
+     top-rule alone didn't separate it from the page (esp. over list rows).
+     Elevation is warranted here — this is the deliberate float, see --shadow-pop. */
+  box-shadow: var(--shadow-pop);
 
   opacity: 0;
   transform: translateY(var(--space-3));

@@ -48,7 +48,7 @@
   background-color: var(--color-surface-raised);
   border: var(--hairline-strong);
   border-radius: var(--radius-md);
-  box-shadow: 0 8px 24px rgba(28, 25, 23, 0.14);
+  box-shadow: var(--shadow-pop);
   padding: var(--space-4);
 }
 

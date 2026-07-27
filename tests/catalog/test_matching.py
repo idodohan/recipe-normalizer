@@ -190,6 +190,46 @@ def test_match_or_create_idempotent_new(seeded: Session) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Shared fuzzy corpus (hoisted across many lines of one recipe)
+# ---------------------------------------------------------------------------
+
+
+def test_shared_corpus_loads_once_and_sees_new_ingredients(
+    seeded: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller-supplied FuzzyCorpus is materialised once and stays correct.
+
+    Loading the corpus reads every alias + canonical name with no LIMIT, so a
+    multi-line recipe must not redo it per line. Behaviour must be unchanged:
+    an ingredient created by an earlier line is still fuzzy-matchable by a
+    later one, exactly as a fresh per-call load would be.
+    """
+    calls = 0
+    real_load = service._load_corpus
+
+    def counting_load(db: Session) -> tuple[list[str], list[object]]:
+        nonlocal calls
+        calls += 1
+        return real_load(db)  # type: ignore[return-value]
+
+    monkeypatch.setattr(service, "_load_corpus", counting_load)
+
+    corpus = service.FuzzyCorpus()
+    first = service.match_or_create(seeded, "dragon fruit syrup", corpus=corpus)
+    second = service.match_or_create(seeded, "dragon fruit syrups", corpus=corpus)
+
+    assert calls == 1
+    # The row created for line 1 is visible to line 2's fuzzy pass.
+    assert second.id == first.id
+
+
+def test_no_corpus_argument_still_matches(seeded: Session) -> None:
+    """Omitting the corpus keeps the old per-call behaviour."""
+    result = service.match_or_create(seeded, "all purpose flour")
+    assert result.name == "all-purpose flour"
+
+
+# ---------------------------------------------------------------------------
 # LLM prompt shape: content and system are properly formed
 # ---------------------------------------------------------------------------
 

@@ -40,6 +40,10 @@ __all__ = [
 MAX_ATTEMPTS = 3
 _BACKOFF_BASE_SECONDS = 30
 _ERROR_MAX_LEN = 2000
+# jobs.reason is String(1000) — an LLM-authored "why not a recipe" can be
+# longer, and an over-long value fails the flush (StringDataRightTruncation),
+# poisoning the session mid-transition.
+_REASON_MAX_LEN = 1000
 _DEFAULT_FALLBACK_REASON = "extraction failed"
 
 
@@ -122,10 +126,15 @@ def complete_needs_review(
     artifacts: dict[str, Any],
     cost_usd: Decimal,
     expected_locked_by: str | None = None,
-) -> None:
-    """Extraction succeeded: drafts created, job awaits user review."""
+) -> bool:
+    """Extraction succeeded: drafts created, job awaits user review.
+
+    Returns False (having changed nothing) when the CAS guard rejects the
+    transition — the caller MUST roll back whatever it staged for this job,
+    see :func:`_cas_guard`.
+    """
     if not _cas_guard(db, job, expected_locked_by):
-        return
+        return False
     job.status = JobStatus.needs_review
     job.extraction_meta = dict(extraction_meta)
     job.produced_recipe_ids = list(produced_ids)
@@ -133,6 +142,7 @@ def complete_needs_review(
     _add_cost(job, cost_usd)
     _clear_lock(job)
     db.flush()
+    return True
 
 
 def complete_not_a_recipe(
@@ -143,16 +153,21 @@ def complete_not_a_recipe(
     artifacts: dict[str, Any],
     cost_usd: Decimal,
     expected_locked_by: str | None = None,
-) -> None:
-    """Extraction ran but the content is not a recipe (terminal, retryable by user)."""
+) -> bool:
+    """Extraction ran but the content is not a recipe (terminal, retryable by user).
+
+    Returns False (having changed nothing) when the CAS guard rejects the
+    transition — see :func:`complete_needs_review`.
+    """
     if not _cas_guard(db, job, expected_locked_by):
-        return
+        return False
     job.status = JobStatus.not_a_recipe
-    job.reason = reason
+    job.reason = reason[:_REASON_MAX_LEN]
     _merge_artifacts(job, artifacts)
     _add_cost(job, cost_usd)
     _clear_lock(job)
     db.flush()
+    return True
 
 
 def fail(
@@ -164,15 +179,18 @@ def fail(
     cost_usd: Decimal | None = None,
     retryable: bool = True,
     expected_locked_by: str | None = None,
-) -> None:
+) -> bool:
     """Record a failed attempt: requeue with exponential backoff or fail terminally.
 
     Backoff: 30s * 2**(attempts-1) → 30s after the first failure, 60s after the
     second; the third failure is terminal. ``retryable=False`` (e.g.
     CostCapExceeded, duplicate recipe) fails immediately regardless of attempts.
+
+    Returns False (having changed nothing) when the CAS guard rejects the
+    transition — see :func:`complete_needs_review`.
     """
     if not _cas_guard(db, job, expected_locked_by):
-        return
+        return False
     job.attempts += 1
     _merge_artifacts(job, artifacts)
     _add_cost(job, cost_usd)
@@ -189,6 +207,7 @@ def fail(
             job.reason = _DEFAULT_FALLBACK_REASON
         job.next_attempt_at = None
     db.flush()
+    return True
 
 
 def release_stale(db: Session, *, older_than_minutes: int = 10) -> int:

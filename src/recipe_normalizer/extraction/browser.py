@@ -13,10 +13,17 @@ NO network / NO real browser in tests: ``page_factory`` and ``clock`` are
 injectable, and the LLM tool loop is the seam from llm.client.
 
 SSRF guard: the initial navigation is checked with netguard.assert_public_url
-before ``page.goto``. Per-request interception of in-page navigation/redirects
-driven by the browser itself is out of scope (documented residual risk) —
-tier 3 only runs after tiers 1/2 already fetched the same URL through
-netguard-validated ``default_fetch``.
+before ``page.goto``, AND a ``page.route("**/*")`` guard is installed first so
+HTTP(S) requests the browser makes — document redirects, subresources, and
+anything the model's ``click`` tool navigates to — are resolved through the same
+netguard check and aborted when not globally routable. Chromium follows
+redirects on its own, so without that guard a page could bounce the browser to
+169.254.169.254 and have ``capture_content`` exfiltrate cloud credentials. The
+context is created with ``service_workers="block"`` because a service worker's
+fetches would bypass ``page.route``; WebSocket handshakes are out of scope for
+route interception (no request type we act on rides them). The current page URL
+is re-checked before every tool action as a backstop, and a navigation that
+lands somewhere non-public aborts the tier with no screenshot.
 """
 
 from __future__ import annotations
@@ -28,6 +35,7 @@ import re
 import time
 from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 import trafilatura
 
@@ -169,6 +177,90 @@ class _BudgetExhausted(BaseException):  # noqa: N818 - internal control signal
         self.detail = detail
 
 
+class _UnsafeNavigation(BaseException):  # noqa: N818 - internal control signal
+    def __init__(self, url: str) -> None:
+        super().__init__(f"page navigated to a non-public URL ({url})")
+        self.url = url
+
+
+# ---------------------------------------------------------------------------
+# SSRF guard — every request the browser makes goes through netguard
+# ---------------------------------------------------------------------------
+
+# Schemes that cannot reach the network at all; blocking them would only break
+# inline assets on legitimate pages.
+_INERT_SCHEMES = frozenset({"data", "blob", "about"})
+
+
+def _request_allowed(url: str, cache: dict[str, bool]) -> bool:
+    """Allow/deny one browser request, memoized per origin.
+
+    ``assert_public_url`` only depends on scheme + host, so the (DNS-resolving)
+    decision is cached per origin — a page pulls dozens of subresources from a
+    handful of hosts.
+    """
+    parsed = urlparse(url)
+    scheme = parsed.scheme.lower()
+    if scheme in _INERT_SCHEMES:
+        return True
+    origin = f"{scheme}://{(parsed.hostname or '').lower()}"
+    cached = cache.get(origin)
+    if cached is not None:
+        return cached
+    try:
+        assert_public_url(url)
+    except UnsafeUrlError as exc:
+        logger.warning("tier-3 blocked request to %s: %s", url, exc)
+        allowed = False
+    else:
+        allowed = True
+    cache[origin] = allowed
+    return allowed
+
+
+def _install_route_guard(page: Any) -> list[str]:
+    """Abort every request whose host is not globally routable.
+
+    Returns a list that accumulates the URLs blocked by the guard, so a caller
+    whose ``page.goto`` fails can tell an SSRF abort (a blocked navigation
+    surfaces as a generic ``net::ERR_FAILED`` from Playwright, not our own
+    exception type) from an ordinary load failure.
+    """
+    cache: dict[str, bool] = {}
+    blocked: list[str] = []
+
+    def handler(route: Any) -> None:
+        url = ""
+        try:
+            url = route.request.url
+            if _request_allowed(url, cache):
+                route.continue_()
+                return
+            blocked.append(url)
+            route.abort()
+        except Exception:
+            # A handler that raises leaves the request hanging until the page
+            # times out — always resolve it, denying by default.
+            logger.warning("tier-3 route guard failed for %s", url, exc_info=True)
+            blocked.append(url or "<unknown>")
+            with contextlib.suppress(Exception):
+                route.abort()
+
+    page.route("**/*", handler)
+    return blocked
+
+
+def _assert_current_url_public(page: Any) -> None:
+    """Backstop for navigation the route guard cannot veto (history, fragments)."""
+    url = str(page.url or "")
+    if not url or urlparse(url).scheme.lower() in _INERT_SCHEMES:
+        return
+    try:
+        assert_public_url(url)
+    except UnsafeUrlError as exc:
+        raise _UnsafeNavigation(url) from exc
+
+
 def _default_page_factory() -> AbstractContextManager[Any]:
     """Real headless-Chromium context manager (lazy playwright import)."""
 
@@ -179,7 +271,15 @@ def _default_page_factory() -> AbstractContextManager[Any]:
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True)
             try:
-                page = browser.new_page(viewport=_VIEWPORT, user_agent=_USER_AGENT)
+                # service_workers="block": a service worker's fetches bypass
+                # page.route, so blocking them entirely keeps the SSRF guard
+                # comprehensive for the request types we can intercept.
+                context = browser.new_context(
+                    viewport=_VIEWPORT,
+                    user_agent=_USER_AGENT,
+                    service_workers="block",
+                )
+                page = context.new_page()
                 yield page
             finally:
                 browser.close()
@@ -206,7 +306,20 @@ def browse_for_recipe(
             assert_public_url(url)
         except UnsafeUrlError as exc:
             raise TierFailed(f"blocked unsafe URL: {exc}") from exc
-        page.goto(url, wait_until="domcontentloaded", timeout=20_000)
+        blocked = _install_route_guard(page)  # must precede any navigation
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=20_000)
+            _assert_current_url_public(page)
+        except _UnsafeNavigation as exc:
+            raise TierFailed(f"blocked unsafe URL: {exc}") from exc
+        except Exception as exc:
+            # A route-guard abort of the main navigation surfaces here as a
+            # generic Playwright error (net::ERR_FAILED), not _UnsafeNavigation.
+            # Attribute it correctly and, either way, fail the tier cleanly
+            # instead of leaking an opaque browser error to the worker.
+            if blocked:
+                raise TierFailed(f"blocked unsafe URL: {blocked[0]}") from exc
+            raise TierFailed(f"page failed to load: {exc}") from exc
         opening = page.screenshot(type="png")
         start = clock()
         initial_content: list[dict[str, Any]] = [
@@ -227,6 +340,10 @@ def browse_for_recipe(
             )
         except _Captured as captured:
             return _on_capture(page, store, actions_log, captured.text)
+        except _UnsafeNavigation as exc:
+            # No screenshot/artifacts: whatever the page holds now came from a
+            # host netguard rejects, and must not be retained or shown.
+            raise TierFailed(f"blocked unsafe URL: {exc}") from exc
         except _BudgetExhausted as exc:
             raise _fail(
                 page, store, actions_log, f"browser budget exhausted ({exc.detail})"
@@ -250,6 +367,9 @@ def _make_execute(
     def execute(name: str, tool_input: dict[str, Any]) -> str | list[dict[str, Any]]:
         if clock() - start > time_budget_s:
             raise _BudgetExhausted("wall-clock time limit reached")
+        # The page may have navigated on its own (JS, meta refresh) since the
+        # last action — never act on a page that is no longer public.
+        _assert_current_url_public(page)
 
         if name == "screenshot":
             shot = page.screenshot(type="png")
@@ -262,6 +382,7 @@ def _make_execute(
                 page.get_by_text(target).first.click(timeout=_CLICK_TIMEOUT_MS)
             except Exception:
                 page.locator(target).first.click(timeout=_CLICK_TIMEOUT_MS)
+            _assert_current_url_public(page)  # the click may have navigated
             _log(actions_log, name, tool_input)
             return f"clicked {target!r}"
 

@@ -9,13 +9,15 @@ explicitly, one phase per session:
    (one commit), ``claim_next`` (commit immediately so the FOR UPDATE row
    lock is released quickly);
 2. processing session: re-fetch the job, ``process_job`` (flush-only),
-   commit on success;
+   commit on success — and ROLL BACK when ``process_job`` returns False,
+   i.e. the job was stolen (stale-released + re-claimed) mid-attempt;
 3. failure session: if processing raised, the broken session is rolled back
    and closed, and ``queue.fail`` runs in a NEW session so the failure
    bookkeeping is isolated from whatever poisoned the first one.
 
-SIGTERM/SIGINT request a graceful stop: the current job finishes, then the
-loop exits.
+The poll loop is crash-tolerant: a transient error in claim/processing is
+logged and the loop continues; only SIGTERM/SIGINT (graceful stop: the current
+job finishes, then the loop exits), KeyboardInterrupt and SystemExit end it.
 """
 
 from __future__ import annotations
@@ -77,6 +79,13 @@ __all__ = ["JobProcessingError", "main", "make_llm_for_job", "process_job", "run
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+
+# Max length of the worker fencing token — must fit jobs.locked_by (String(100)).
+_WORKER_ID_MAX_LEN = 100
+
+# Consecutive failed poll iterations before the worker gives up and exits for the
+# orchestrator to restart (distinguishes a transient blip from a permanent fault).
+_MAX_CONSECUTIVE_FAILURES = 10
 
 
 class JobProcessingError(Exception):
@@ -157,15 +166,18 @@ class _StubLLMClient:
     It fabricates a fixed "Stub Recipe" NormalizeResult for ANY input, answers
     every yes/no classification with True, makes zero API calls, spends $0,
     and records no usage. It exists so end-to-end worker runs (CI, compose
-    smoke tests) can exercise the full pipeline without an ANTHROPIC_API_KEY.
+    smoke tests) can exercise the full pipeline without an LLM API key.
 
     Satisfies the LLMClient surface used by the pipeline:
-    structured / classify_bool / tool_loop / spent_usd.
+    structured / classify_bool / tool_loop / spent_usd / model_for.
     """
 
     @property
     def spent_usd(self) -> float:
         return 0.0
+
+    def model_for(self, *, fast: bool = False) -> str:
+        return "stub"
 
     def structured(
         self,
@@ -268,8 +280,16 @@ def _save_source_image(acquired: Acquired, store: FileStore) -> str | None:
     return store.save(data, suffix=_IMAGE_SUFFIX.get(media_type, "bin"))
 
 
-def process_job(db: Session, job: Job, *, worker_id: str | None = None) -> None:
+def process_job(db: Session, job: Job, *, worker_id: str | None = None) -> bool:
     """Run the full extraction pipeline for one claimed job.
+
+    Returns True when the job's terminal transition was applied and the caller
+    should COMMIT; False when the compare-and-set guard rejected it (the job
+    was stale-released and re-claimed by another worker while we were working)
+    — the caller must then ROLL BACK, or the drafts this attempt persisted
+    would be committed with no Job referencing them (invisible/unreviewable)
+    and would burn the (owner_id, source_fingerprint) unique index for the new
+    owner's attempt.
 
     Flush-only — the CALLER commits. Known pipeline failures (TierFailed,
     CostCapExceeded, DuplicateRecipeError, missing extractor) are recorded via
@@ -293,15 +313,17 @@ def process_job(db: Session, job: Job, *, worker_id: str | None = None) -> None:
     )
 
     if not (job.artifacts or {}).get("raw_text_ref") and input_type not in EXTRACTORS:
-        queue.fail(
-            db,
+        return _finish(
             job,
-            error=f"no extractor for input type {input_type!r}",
-            retryable=False,
-            expected_locked_by=worker_id,
+            started,
+            queue.fail(
+                db,
+                job,
+                error=f"no extractor for input type {input_type!r}",
+                retryable=False,
+                expected_locked_by=worker_id,
+            ),
         )
-        _log_transition(job, started)
-        return
 
     llm = make_llm_for_job(db, job)
     store = get_file_store()
@@ -333,21 +355,25 @@ def process_job(db: Session, job: Job, *, worker_id: str | None = None) -> None:
             result = normalize(acquired, llm=llm)
 
         if not result.is_recipe:
-            queue.complete_not_a_recipe(
-                db,
+            return _finish(
                 job,
-                reason=result.reason or "not a recipe",
-                artifacts=dict(acquired.artifacts),
-                cost_usd=_attempt_cost(),
-                expected_locked_by=worker_id,
+                started,
+                queue.complete_not_a_recipe(
+                    db,
+                    job,
+                    reason=result.reason or "not a recipe",
+                    artifacts=dict(acquired.artifacts),
+                    cost_usd=_attempt_cost(),
+                    expected_locked_by=worker_id,
+                ),
             )
-            _log_transition(job, started)
-            return
 
         extraction_meta: dict[str, Any] = {
             **acquired.meta,  # tier_used, actions_log, ...
             "confidence": result.confidence,
-            "model": settings.llm_model,
+            # settings.llm_model is "" when provider defaults are in play —
+            # ask the client which model it actually used.
+            "model": llm.model_for(),
             "extracted_at": datetime.now(UTC).isoformat(),
         }
         with db.begin_nested():  # savepoint: all drafts or none
@@ -362,7 +388,7 @@ def process_job(db: Session, job: Job, *, worker_id: str | None = None) -> None:
                 extraction_meta=extraction_meta,
                 image_ref=image_ref,
             )
-        queue.complete_needs_review(
+        applied = queue.complete_needs_review(
             db,
             job,
             extraction_meta=extraction_meta,
@@ -377,7 +403,7 @@ def process_job(db: Session, job: Job, *, worker_id: str | None = None) -> None:
         artifacts: dict[str, Any] = dict(exc.artifacts or {})
         if exc.screenshot_ref:
             artifacts.setdefault("screenshot_ref", exc.screenshot_ref)
-        queue.fail(
+        applied = queue.fail(
             db,
             job,
             error=exc.reason,
@@ -387,7 +413,7 @@ def process_job(db: Session, job: Job, *, worker_id: str | None = None) -> None:
             expected_locked_by=worker_id,
         )
     except CostCapExceeded as exc:
-        queue.fail(
+        applied = queue.fail(
             db,
             job,
             error=str(exc),
@@ -396,7 +422,7 @@ def process_job(db: Session, job: Job, *, worker_id: str | None = None) -> None:
             expected_locked_by=worker_id,
         )
     except DuplicateRecipeError as exc:
-        queue.fail(
+        applied = queue.fail(
             db,
             job,
             error=f"duplicate of existing recipe {exc.existing_id}",
@@ -410,7 +436,17 @@ def process_job(db: Session, job: Job, *, worker_id: str | None = None) -> None:
         # so it isn't lost when the processing session rolls back. Same formula
         # as every handled outcome above — _attempt_cost() closes over prior_spend.
         raise JobProcessingError(exc, _attempt_cost()) from exc
-    _log_transition(job, started)
+    return _finish(job, started, applied)
+
+
+def _finish(job: Job, started: float, applied: bool) -> bool:
+    """Log the outcome and hand the commit/rollback decision back to the caller."""
+    if applied:
+        _log_transition(job, started)
+    else:
+        # queue._cas_guard already logged the mismatch in detail.
+        logger.warning("job=%s claim lost — this attempt's work must be rolled back", job.id)
+    return applied
 
 
 def _log_transition(job: Job, started: float) -> None:
@@ -458,13 +494,15 @@ def _fail_in_fresh_session(
             job = db.get(Job, job_id)
             if job is None:
                 return
-            queue.fail(
+            if not queue.fail(
                 db,
                 job,
                 error=f"{type(exc).__name__}: {exc}",
                 cost_usd=cost_usd,
                 expected_locked_by=worker_id,
-            )
+            ):
+                db.rollback()  # another worker owns the job now — leave it alone
+                return
             db.commit()
             logger.info("job=%s status=%s after crash", job_id, job.status.value)
     except Exception:
@@ -479,8 +517,13 @@ def _process_one(job_id: uuid.UUID, worker_id: str) -> None:
         if job is None:
             logger.warning("job=%s vanished between claim and processing", job_id)
             return
-        process_job(session, job, worker_id=worker_id)
-        session.commit()
+        if process_job(session, job, worker_id=worker_id):
+            session.commit()
+        else:
+            # CAS guard rejected the transition: the job belongs to another
+            # worker now, so everything this attempt staged (drafts included)
+            # must go — committing would leave orphan, unreviewable recipes.
+            session.rollback()
     except Exception as exc:
         session.rollback()
         logger.exception("job=%s crashed during processing", job_id)
@@ -493,15 +536,33 @@ def _process_one(job_id: uuid.UUID, worker_id: str) -> None:
         session.close()
 
 
+def _make_worker_id() -> str:
+    """Fencing token identifying this worker PROCESS.
+
+    ``host:pid`` alone is not unique in a container: the hostname is fixed and
+    the worker is PID 1, so a restarted worker would reuse the crashed one's
+    token and ``queue._cas_guard`` could not tell them apart. The uuid4 suffix
+    makes every process distinct; the hostname is truncated so the id always
+    fits ``jobs.locked_by`` (String(100)).
+    """
+    suffix = f":{os.getpid()}:{uuid.uuid4().hex[:8]}"
+    hostname = socket.gethostname()[: _WORKER_ID_MAX_LEN - len(suffix)]
+    return f"{hostname}{suffix}"
+
+
 def run_worker(*, poll_interval: float = 2.0, once: bool = False) -> None:
     """Poll the queue and process jobs until SIGTERM/SIGINT.
 
     ``once=True`` polls a single time, processes at most one job, and returns
     (for tests and e2e smoke runs). On SIGTERM/SIGINT the current job is
     finished before exiting.
+
+    Each iteration is exception-guarded: a transient failure (dropped DB
+    connection, failover) is logged and polling continues, so one bad poll
+    never takes the worker process down.
     """
     stop = threading.Event()
-    worker_id = f"{socket.gethostname()}:{os.getpid()}"
+    worker_id = _make_worker_id()
 
     def _request_stop(signum: int, frame: FrameType | None) -> None:
         logger.info("worker=%s received signal %d — finishing current job", worker_id, signum)
@@ -511,11 +572,35 @@ def run_worker(*, poll_interval: float = 2.0, once: bool = False) -> None:
         sig: signal.signal(sig, _request_stop) for sig in (signal.SIGTERM, signal.SIGINT)
     }
     logger.info("worker=%s started (poll_interval=%.1fs, once=%s)", worker_id, poll_interval, once)
+    consecutive_failures = 0
     try:
         while not stop.is_set():
-            job_id = _claim_one(worker_id)
-            if job_id is not None:
-                _process_one(job_id, worker_id)
+            try:
+                job_id = _claim_one(worker_id)
+                if job_id is not None:
+                    _process_one(job_id, worker_id)
+                consecutive_failures = 0
+            except Exception:
+                # A transient DB hiccup (dropped connection, failover) must not
+                # kill the worker — log it and poll again. KeyboardInterrupt/
+                # SystemExit still propagate. But a PERSISTENT failure (DB gone,
+                # misconfigured provider) should not spin silently forever: after
+                # _MAX_CONSECUTIVE_FAILURES in a row, re-raise so the orchestrator
+                # restarts the process with its own backoff.
+                consecutive_failures += 1
+                logger.exception(
+                    "worker=%s poll iteration failed (%d in a row)",
+                    worker_id,
+                    consecutive_failures,
+                )
+                if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                    logger.error(
+                        "worker=%s exiting after %d consecutive failures",
+                        worker_id,
+                        consecutive_failures,
+                    )
+                    raise
+                job_id = None
             if once:
                 return
             if job_id is None:

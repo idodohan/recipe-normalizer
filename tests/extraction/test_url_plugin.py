@@ -8,6 +8,7 @@ tier 3 is faked via the ``_load_browse`` lazy-import seam.
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 from pathlib import Path
@@ -25,6 +26,7 @@ from recipe_normalizer.extraction.url_plugin import (
     FetchResult,
     UrlExtractor,
     default_fetch,
+    default_fetch_bytes,
 )
 from recipe_normalizer.filestore import LocalFileStore
 from recipe_normalizer.llm.client import LLMError
@@ -472,6 +474,181 @@ def test_default_fetch_success_builds_fetch_result() -> None:
     assert fetched.html == "<html></html>"
     assert fetched.content_type == "text/html; charset=utf-8"
     assert fetched.url == "https://ok.test/page"
+
+
+# ---------------------------------------------------------------------------
+# Body-size / wall-clock caps (decompression bombs, slowloris)
+# ---------------------------------------------------------------------------
+
+
+def _chunked(chunk: bytes, times: int) -> Any:
+    """A lazily-produced response body — nothing is materialized up front."""
+
+    def gen() -> Any:
+        for _ in range(times):
+            yield chunk
+
+    return gen()
+
+
+def _html_headers(**extra: str) -> dict[str, str]:
+    return {"content-type": "text/html; charset=utf-8", **extra}
+
+
+def test_default_fetch_rejects_oversized_body() -> None:
+    """A body far past the cap must abort mid-stream, not be buffered whole."""
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            headers=_html_headers(),
+            content=_chunked(b"x" * 64 * 1024, 200),  # 12.5 MB
+        )
+    )
+    with (
+        patch("socket.getaddrinfo", _fake_public_getaddrinfo),
+        pytest.raises(TierFailed) as exc_info,
+    ):
+        default_fetch("https://big.test/", client=httpx.Client(transport=transport))
+    assert "too large" in exc_info.value.reason
+
+
+def test_default_fetch_rejects_gzip_bomb() -> None:
+    """The cap applies to DECOMPRESSED bytes: a tiny gzip payload that inflates
+    past the cap must be rejected."""
+    bomb = gzip.compress(b"\0" * (16 * 1024 * 1024))
+    assert len(bomb) < 100_000  # tiny on the wire
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200, headers=_html_headers(**{"content-encoding": "gzip"}), content=bomb
+        )
+    )
+    with (
+        patch("socket.getaddrinfo", _fake_public_getaddrinfo),
+        pytest.raises(TierFailed) as exc_info,
+    ):
+        default_fetch("https://bomb.test/", client=httpx.Client(transport=transport))
+    assert "too large" in exc_info.value.reason
+
+
+def test_default_fetch_rejects_declared_oversized_content_length() -> None:
+    """A honest Content-Length past the cap is refused before reading anything."""
+    body = b"<html>small</html>"
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200, headers=_html_headers(**{"content-length": str(99 * 1024 * 1024)}), content=body
+        )
+    )
+    with (
+        patch("socket.getaddrinfo", _fake_public_getaddrinfo),
+        pytest.raises(TierFailed) as exc_info,
+    ):
+        default_fetch("https://liar.test/", client=httpx.Client(transport=transport))
+    assert "too large" in exc_info.value.reason
+
+
+def test_default_fetch_rejects_non_html_before_reading_the_body() -> None:
+    """Content-type is judged from headers; a huge non-HTML body is never read."""
+
+    def poisoned() -> Any:
+        raise AssertionError("the body must not be read for a non-HTML response")
+        yield b""  # pragma: no cover - unreachable, makes this a generator
+
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200, headers={"content-type": "application/zip"}, content=poisoned()
+        )
+    )
+    with (
+        patch("socket.getaddrinfo", _fake_public_getaddrinfo),
+        pytest.raises(TierFailed) as exc_info,
+    ):
+        default_fetch("https://zip.test/", client=httpx.Client(transport=transport))
+    assert "not an HTML page" in exc_info.value.reason
+
+
+def test_default_fetch_enforces_wall_clock_deadline() -> None:
+    """A slowloris trickle is killed by the whole-fetch deadline, not the
+    per-operation timeout."""
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200, headers=_html_headers(), content=_chunked(b"x" * 32 * 1024, 8)
+        )
+    )
+    ticks = iter([0.0, 1.0, 2.0])
+
+    def clock() -> float:
+        return next(ticks, 10_000.0)  # time runs away mid-read
+
+    with (
+        patch("socket.getaddrinfo", _fake_public_getaddrinfo),
+        pytest.raises(TierFailed) as exc_info,
+    ):
+        default_fetch("https://slow.test/", client=httpx.Client(transport=transport), clock=clock)
+    assert "too long" in exc_info.value.reason
+
+
+def test_deadline_fires_on_a_sub_buffer_slowloris_trickle() -> None:
+    """The exact attack the fixed-size chunker missed: a body far smaller than
+    one read buffer, trickled in tiny pieces. The un-sized iter_bytes yields per
+    chunk so the wall-clock check runs mid-stream instead of only at EOF."""
+    # 200 chunks × 50 bytes = 10 KB total — well under any read-buffer size.
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200, headers=_html_headers(), content=_chunked(b"x" * 50, 200)
+        )
+    )
+    # Clock jumps past the 60s deadline after a few chunks — long before EOF.
+    ticks = iter([0.0, 1.0, 2.0, 100.0])
+
+    def clock() -> float:
+        return next(ticks, 100_000.0)
+
+    with (
+        patch("socket.getaddrinfo", _fake_public_getaddrinfo),
+        pytest.raises(TierFailed) as exc_info,
+    ):
+        default_fetch("https://slow.test/", client=httpx.Client(transport=transport), clock=clock)
+    assert "too long" in exc_info.value.reason
+
+
+def test_default_fetch_bytes_rejects_oversized_image() -> None:
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            headers={"content-type": "image/jpeg"},
+            content=_chunked(b"x" * 64 * 1024, 300),  # ~19 MB
+        )
+    )
+    with (
+        patch("socket.getaddrinfo", _fake_public_getaddrinfo),
+        pytest.raises(TierFailed) as exc_info,
+    ):
+        default_fetch_bytes("https://img.test/hero.jpg", client=httpx.Client(transport=transport))
+    assert "too large" in exc_info.value.reason
+
+
+def test_default_fetch_bytes_returns_data_and_media_type() -> None:
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200, headers={"content-type": "image/jpeg; charset=binary"}, content=b"jpegdata"
+        )
+    )
+    with patch("socket.getaddrinfo", _fake_public_getaddrinfo):
+        data, media_type = default_fetch_bytes(
+            "https://img.test/hero.jpg", client=httpx.Client(transport=transport)
+        )
+    assert data == b"jpegdata"
+    assert media_type == "image/jpeg"
+
+
+def test_default_fetch_accepts_a_body_under_the_cap() -> None:
+    body = "<html>" + ("ok" * 1000) + "</html>"
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, headers=_html_headers(), text=body)
+    )
+    with patch("socket.getaddrinfo", _fake_public_getaddrinfo):
+        fetched = default_fetch("https://ok.test/", client=httpx.Client(transport=transport))
+    assert fetched.html == body
 
 
 def test_raw_html_artifact_saved_even_when_tiers_fail(

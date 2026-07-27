@@ -64,21 +64,50 @@ export function moveItem<T>(items: T[], index: number, delta: -1 | 1): T[] {
 export type DraftErrors = {
   title?: string;
   ingredients?: string;
+  servingsAmount?: string;
+  prepMin?: string;
+  cookMin?: string;
+  totalMin?: string;
 };
 
-export function validateDraft(
-  title: string,
-  groups: GroupDraft[],
-): DraftErrors {
+/** The slice of the form state `validateDraft` reads. */
+type ValidateInput = {
+  title: string;
+  groups: GroupDraft[];
+  servingsAmount: string;
+  prepMin: string;
+  cookMin: string;
+  totalMin: string;
+};
+
+// Kept short: these sit under narrow grid columns, where a longer sentence
+// wraps to four ragged lines.
+const MINUTES_ERROR = "Whole minutes, 0 or more.";
+const SERVINGS_ERROR = "A number above zero.";
+
+const MINUTE_FIELDS = ["prepMin", "cookMin", "totalMin"] as const;
+
+export function validateDraft(input: ValidateInput): DraftErrors {
   const errors: DraftErrors = {};
-  if (!title.trim()) {
+  if (!input.title.trim()) {
     errors.title = "Give the recipe a title.";
   }
-  const hasLine = groups.some((group) =>
+  const hasLine = input.groups.some((group) =>
     group.lines.some((line) => line.original_text.trim().length > 0),
   );
   if (!hasLine) {
     errors.ingredients = "Add at least one ingredient line.";
+  }
+  // Numbers are validated here rather than left to the API: unparseable
+  // input used to serialize as null (silently dropping what was typed) and
+  // out-of-range input used to come back as a generic 422 banner.
+  for (const field of MINUTE_FIELDS) {
+    if (parseMinutes(input[field]) === undefined) {
+      errors[field] = MINUTES_ERROR;
+    }
+  }
+  if (parseServings(input.servingsAmount) === undefined) {
+    errors.servingsAmount = SERVINGS_ERROR;
   }
   return errors;
 }
@@ -111,11 +140,34 @@ export function parseQuantity(raw: string): number | null {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
-function parseIntOrNull(raw: string): number | null {
+/**
+ * Parse a duration field (prep/cook/total). The API takes an integer >= 0,
+ * so "2.5", "-5" and "four" are all rejected here instead of 422-ing (or
+ * vanishing) server-side.
+ *
+ * Three-valued on purpose: `null` is an empty field ("unset"), `undefined`
+ * is "typed something that isn't a duration" — the case `validateDraft`
+ * turns into a field-level error.
+ */
+export function parseMinutes(raw: string): number | null | undefined {
   const text = raw.trim();
   if (!text) return null;
-  const asNumber = Number(text);
-  return Number.isFinite(asNumber) ? asNumber : null;
+  if (!/^\d+$/.test(text)) return undefined;
+  const value = Number(text);
+  return Number.isSafeInteger(value) ? value : undefined;
+}
+
+/**
+ * Parse the servings amount. The API takes a number > 0 — decimals are fine
+ * here (half a loaf), unlike the whole-minute durations. Same three-valued
+ * contract as `parseMinutes`.
+ */
+export function parseServings(raw: string): number | null | undefined {
+  const text = raw.trim();
+  if (!text) return null;
+  if (!/^\d*\.?\d+$/.test(text)) return undefined;
+  const value = Number(text);
+  return Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
 function orNull(raw: string): string | null {
@@ -161,7 +213,10 @@ export function buildRecipeIn(input: BuildInput): RecipeIn {
     .filter((text) => text.length > 0)
     .map((text) => ({ original_text: text }));
 
-  const servingsAmount = parseIntOrNull(input.servingsAmount);
+  // `?? null` on the numbers: invalid input is caught by `validateDraft`
+  // before any caller builds a payload, so reaching here it can only be an
+  // empty field.
+  const servingsAmount = parseServings(input.servingsAmount) ?? null;
   const servingsUnit = orNull(input.servingsUnit);
   const servings =
     servingsAmount !== null || servingsUnit !== null
@@ -173,9 +228,9 @@ export function buildRecipeIn(input: BuildInput): RecipeIn {
     description: orNull(input.description),
     language: "en",
     servings,
-    prep_min: parseIntOrNull(input.prepMin),
-    cook_min: parseIntOrNull(input.cookMin),
-    total_min: parseIntOrNull(input.totalMin),
+    prep_min: parseMinutes(input.prepMin) ?? null,
+    cook_min: parseMinutes(input.cookMin) ?? null,
+    total_min: parseMinutes(input.totalMin) ?? null,
     cuisines: input.cuisines,
     dish_types: input.dishTypes,
     tags: input.tags,

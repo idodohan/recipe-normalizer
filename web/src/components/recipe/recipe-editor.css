@@ -545,3 +545,91 @@
     flex: 1;
   }
 }
+
+/* -- Paste-first create ---------------------------------------------- */
+/*  The primary "add a recipe" path: hand the pipeline text, get a       */
+/*  normalized draft. The field-by-field form is the fallback below.     */
+
+.paste-create {
+  padding-top: var(--space-2);
+}
+
+.paste-create__label {
+  display: block;
+  font-family: var(--font-display);
+  font-size: var(--text-heading);
+  margin-bottom: var(--space-2);
+}
+
+.paste-create__hint {
+  max-width: 52ch;
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+  line-height: var(--leading-body);
+  margin-bottom: var(--space-4);
+}
+
+.paste-create__textarea {
+  width: 100%;
+  min-height: 14rem;
+  padding: var(--space-4);
+  background: var(--color-surface-raised);
+  border: var(--hairline-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  resize: vertical;
+}
+
+.paste-create__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+/* -- Manual-entry disclosure ----------------------------------------- */
+
+.manual-entry {
+  margin-top: var(--space-7);
+  border-top: var(--hairline);
+  padding-top: var(--space-5);
+}
+
+.manual-entry__summary {
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: var(--text-body);
+  color: var(--color-accent);
+  list-style: none;
+}
+
+.manual-entry__summary::-webkit-details-marker {
+  display: none;
+}
+
+.manual-entry__summary::before {
+  content: "＋ ";
+  font-style: normal;
+}
+
+.manual-entry[open] .manual-entry__summary::before {
+  content: "－ ";
+}
+
+.manual-entry[open] .manual-entry__summary {
+  margin-bottom: var(--space-5);
+}
+
+@media (max-width: 640px) {
+  .paste-create__actions {
+    flex-wrap: wrap;
+  }
+
+  .paste-create__actions .btn {
+    flex: 1;
+  }
+}

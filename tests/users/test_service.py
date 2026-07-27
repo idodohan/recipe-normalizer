@@ -1,6 +1,5 @@
 import pytest
 
-from recipe_normalizer.config import settings
 from recipe_normalizer.users import service
 from recipe_normalizer.users.service import AuthError
 
@@ -41,20 +40,26 @@ def test_logout_invalidates_token(db_session):
     assert service.get_user_by_token(db_session, token) is None
 
 
-def test_register_admin_email_is_admin(db_session, monkeypatch):
-    monkeypatch.setattr(settings, "admin_emails", "boss@example.com")
+def test_register_never_grants_admin(db_session):
+    """Self-registration must never yield an admin.
+
+    Registration used to promote any email listed in RN_ADMIN_EMAILS, so anyone
+    who knew (or guessed) a listed address could self-promote by signing up with
+    it — no ownership proof required. Admin is now granted only out-of-band, via
+    ``python -m recipe_normalizer.users.make_admin <email>``.
+    """
     user = service.register(
         db_session, email="boss@example.com", password="hunter22", display_name="Boss"
     )
-    assert user.is_admin is True
-
-
-def test_register_non_admin_email_is_not_admin(db_session, monkeypatch):
-    monkeypatch.setattr(settings, "admin_emails", "boss@example.com")
-    user = service.register(
-        db_session, email="worker@example.com", password="hunter22", display_name="Worker"
-    )
     assert user.is_admin is False
+
+
+def test_admin_email_allowlist_setting_is_gone():
+    """The RN_ADMIN_EMAILS setting itself is removed — it only ever fed the
+    register-time self-promotion path."""
+    from recipe_normalizer.config import Settings
+
+    assert "admin_emails" not in Settings.model_fields
 
 
 def test_expired_session_rejected(db_session):

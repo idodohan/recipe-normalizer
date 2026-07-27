@@ -14,6 +14,7 @@ import "./styles/tokens.css";
 import "./styles/base.css";
 import "./components/ui.css";
 
+import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
 import { Toaster } from "./components/Toaster";
 import { AuthenticatedApp } from "./layouts/AuthenticatedApp";
 import { CatalogPage } from "./pages/CatalogPage";
@@ -33,25 +34,41 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
 });
 
+// Every top-level route carries an `errorElement`: a throw during render
+// bubbles to the nearest one, and with none anywhere the reader just gets a
+// white screen. Inside the shell the boundary sits on a pathless wrapper
+// route around the pages, so a page that throws is replaced *in the shell's
+// outlet* — the nav and sign-out stay usable — while a failure in the shell
+// itself falls through to the boundary on "/".
 const router = createBrowserRouter([
-  { path: "/login", element: <LoginPage /> },
-  { path: "/register", element: <RegisterPage /> },
+  { path: "/login", element: <LoginPage />, errorElement: <RouteErrorBoundary /> },
+  { path: "/register", element: <RegisterPage />, errorElement: <RouteErrorBoundary /> },
   // Unauthenticated public-link view — a sibling of /login, NOT nested under
   // AuthenticatedApp: no session is required (or checked) to view it.
-  { path: "/p/:token", element: <PublicRecipePage /> },
+  {
+    path: "/p/:token",
+    element: <PublicRecipePage />,
+    errorElement: <RouteErrorBoundary />,
+  },
   {
     path: "/",
     element: <AuthenticatedApp />,
+    errorElement: <RouteErrorBoundary />,
     children: [
-      { index: true, element: <CookbookPage /> },
-      { path: "inbox", element: <InboxPage /> },
-      { path: "jobs/:id/review", element: <ReviewPage /> },
-      { path: "recipes/new", element: <RecipeEditorPage /> },
-      { path: "recipes/:id/edit", element: <RecipeEditPage /> },
-      { path: "recipes/:id", element: <RecipeDetailPage /> },
-      { path: "catalog", element: <CatalogPage /> },
-      { path: "shares", element: <SharesPage /> },
-      { path: "shares/:id", element: <SharedCookbookPage /> },
+      {
+        errorElement: <RouteErrorBoundary />,
+        children: [
+          { index: true, element: <CookbookPage /> },
+          { path: "inbox", element: <InboxPage /> },
+          { path: "jobs/:id/review", element: <ReviewPage /> },
+          { path: "recipes/new", element: <RecipeEditorPage /> },
+          { path: "recipes/:id/edit", element: <RecipeEditPage /> },
+          { path: "recipes/:id", element: <RecipeDetailPage /> },
+          { path: "catalog", element: <CatalogPage /> },
+          { path: "shares", element: <SharesPage /> },
+          { path: "shares/:id", element: <SharedCookbookPage /> },
+        ],
+      },
     ],
   },
   { path: "*", element: <Navigate to="/" replace /> },

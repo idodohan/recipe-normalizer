@@ -2,6 +2,12 @@ import uuid
 
 from pydantic import BaseModel, EmailStr, Field
 
+# Both auth endpoints feed the password straight into argon2 (64 MiB memory
+# cost per verify — login runs one even for unknown emails, by design, to keep
+# the timing constant). An unbounded field would therefore be a cheap
+# CPU/memory amplifier, so cap it: a 422 costs nothing, an argon2 pass doesn't.
+_MAX_PASSWORD_LEN = 200
+
 
 class RegisterIn(BaseModel):
     email: EmailStr
@@ -11,7 +17,7 @@ class RegisterIn(BaseModel):
 
 class LoginIn(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(max_length=_MAX_PASSWORD_LEN)
 
 
 class UserOut(BaseModel):

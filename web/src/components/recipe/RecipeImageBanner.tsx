@@ -7,6 +7,12 @@ import { toast } from "../../hooks/useToast";
 type RecipeImageBannerProps = {
   recipeId: string;
   imageUrl: string | null;
+  /**
+   * Whether to render the add/replace/remove controls. Setting the image is
+   * owner-only on the backend, so a shared-cookbook member viewing (or
+   * editing) the recipe still sees the photo but none of the affordances.
+   */
+  canManage: boolean;
 };
 
 /**
@@ -19,7 +25,11 @@ type RecipeImageBannerProps = {
  * a clean multipart body type) — same approach as SubmitPanel's file slot.
  * Remove uses the typed DELETE since it has no body.
  */
-export function RecipeImageBanner({ recipeId, imageUrl }: RecipeImageBannerProps) {
+export function RecipeImageBanner({
+  recipeId,
+  imageUrl,
+  canManage,
+}: RecipeImageBannerProps) {
   const queryClient = useQueryClient();
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -94,7 +104,10 @@ export function RecipeImageBanner({ recipeId, imageUrl }: RecipeImageBannerProps
     />
   );
 
+  // Nothing to show a non-owner when there's no photo — the empty slot is
+  // only there to hold the "Add photo" button.
   if (!imageUrl) {
+    if (!canManage) return null;
     return (
       <div className="rd__image-empty">
         <button
@@ -114,25 +127,29 @@ export function RecipeImageBanner({ recipeId, imageUrl }: RecipeImageBannerProps
     <div className="rd__image">
       <img className="rd__image-img" src={imageUrl} alt="" loading="lazy" />
       <div className="rd__image-scrim" aria-hidden="true" />
-      <div className="rd__image-controls">
-        <button
-          type="button"
-          className="btn btn--secondary btn--sm"
-          disabled={busy}
-          onClick={pickFile}
-        >
-          {upload.isPending ? "Uploading…" : "Replace photo"}
-        </button>
-        <button
-          type="button"
-          className="btn btn--secondary btn--sm rd__image-remove"
-          disabled={busy}
-          onClick={() => remove.mutate()}
-        >
-          {remove.isPending ? "Removing…" : "Remove"}
-        </button>
-      </div>
-      {fileField}
+      {canManage ? (
+        <>
+          <div className="rd__image-controls">
+            <button
+              type="button"
+              className="btn btn--secondary btn--sm"
+              disabled={busy}
+              onClick={pickFile}
+            >
+              {upload.isPending ? "Uploading…" : "Replace photo"}
+            </button>
+            <button
+              type="button"
+              className="btn btn--secondary btn--sm rd__image-remove"
+              disabled={busy}
+              onClick={() => remove.mutate()}
+            >
+              {remove.isPending ? "Removing…" : "Remove"}
+            </button>
+          </div>
+          {fileField}
+        </>
+      ) : null}
     </div>
   );
 }

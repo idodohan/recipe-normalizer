@@ -7,6 +7,10 @@
 /* ------------------------------------------------------------------ */
 
 .dialog {
+  /* base.css's `* { margin: 0 }` reset wipes the UA's `dialog { margin: auto }`,
+     which is what centers a top-layer modal — without this the dialog renders
+     pinned to the viewport's top-left corner. */
+  margin: auto;
   padding: 0;
   border: none;
   border-radius: var(--radius-md);

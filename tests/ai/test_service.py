@@ -573,7 +573,7 @@ def test_chat_turn_records_llm_usage(db_session: Session, owner: User) -> None:
     conversation = _recipe_chat_conversation(db_session, owner.id)
     stub_anthropic = StubAnthropicClient(create_results=[text_response("Answer.")])
     llm = LLMClient(
-        recorder=DbUsageRecorder(db_session, user_id=owner.id), anthropic_client=stub_anthropic
+        recorder=DbUsageRecorder(db_session, user_id=owner.id), chat_client=stub_anthropic
     )
 
     ai_service.chat_turn(
@@ -664,7 +664,7 @@ def test_cookbook_qa_turn_executes_search_scoped_to_user_with_parsed_filters(
         {"cuisine": "Italian", "max_total_min": 30},
         "You should try Pasta Bolognese — it's Italian and ready in 25 minutes.",
     )
-    llm = LLMClient(anthropic_client=stub)
+    llm = LLMClient(chat_client=stub)
 
     result = ai_service.cookbook_qa_turn(
         db_session, user_id=owner.id, content="Quick Italian dishes?", llm=llm
@@ -692,7 +692,7 @@ def test_cookbook_qa_turn_zero_results_still_answers(db_session: Session, owner:
     stub = _tool_use_then_answer(
         {"cuisine": "Klingon"}, "I couldn't find any matching recipes in your cookbook."
     )
-    llm = LLMClient(anthropic_client=stub)
+    llm = LLMClient(chat_client=stub)
 
     result = ai_service.cookbook_qa_turn(
         db_session, user_id=owner.id, content="Any Klingon recipes?", llm=llm
@@ -715,7 +715,7 @@ def test_cookbook_qa_turn_search_results_are_compact_not_full_recipes(
         ingredient_names=["ground beef", "tomato", "pasta", "onion", "garlic", "basil", "salt"],
     )
     stub = _tool_use_then_answer({"cuisine": "Italian"}, "Try Pasta Bolognese.")
-    llm = LLMClient(anthropic_client=stub)
+    llm = LLMClient(chat_client=stub)
 
     ai_service.cookbook_qa_turn(db_session, user_id=owner.id, content="Italian?", llm=llm)
 
@@ -753,7 +753,7 @@ def test_cookbook_qa_turn_cost_cap_abort_persists_nothing(db_session: Session, o
     # First round's default-usage cost (~$0.0175 at opus pricing) already
     # exceeds this cap, so the SECOND create() call is blocked before it
     # happens — the loop aborts mid-way, having executed one search.
-    llm = LLMClient(anthropic_client=stub, cost_cap_usd=0.01)
+    llm = LLMClient(chat_client=stub, cost_cap_usd=0.01)
 
     with pytest.raises(ApiError) as exc_info:
         ai_service.cookbook_qa_turn(
@@ -780,7 +780,7 @@ def test_cookbook_qa_turn_tool_budget_exceeded_maps_to_503_and_persists_nothing(
             for i in range(ai_service._COOKBOOK_QA_MAX_ITERATIONS)
         ]
     )
-    llm = LLMClient(anthropic_client=stub)
+    llm = LLMClient(chat_client=stub)
 
     with pytest.raises(ApiError) as exc_info:
         ai_service.cookbook_qa_turn(db_session, user_id=owner.id, content="hi", llm=llm)
@@ -797,7 +797,7 @@ def test_cookbook_qa_turn_appends_to_existing_conversation(
         db_session, user_id=owner.id, recipe_id=None, kind=ConversationKind.cookbook_qa
     )
     stub = _tool_use_then_answer({}, "First answer.")
-    llm = LLMClient(anthropic_client=stub)
+    llm = LLMClient(chat_client=stub)
 
     result = ai_service.cookbook_qa_turn(
         db_session,
@@ -819,7 +819,7 @@ def test_cookbook_qa_turn_rejects_recipe_chat_conversation(
 ) -> None:
     conversation = _recipe_chat_conversation(db_session, owner.id)
     stub = StubAnthropicClient(create_results=[])
-    llm = LLMClient(anthropic_client=stub)
+    llm = LLMClient(chat_client=stub)
 
     with pytest.raises(ApiError) as exc_info:
         ai_service.cookbook_qa_turn(
@@ -842,7 +842,7 @@ def test_cookbook_qa_turn_wrong_owner_raises_404(
         db_session, user_id=owner.id, recipe_id=None, kind=ConversationKind.cookbook_qa
     )
     stub = StubAnthropicClient(create_results=[])
-    llm = LLMClient(anthropic_client=stub)
+    llm = LLMClient(chat_client=stub)
 
     with pytest.raises(ApiError) as exc_info:
         ai_service.cookbook_qa_turn(

@@ -229,6 +229,12 @@ export function RecipeDetailPage() {
   const total = formatMinutes(data.total_min);
   const quietTags = [...data.cuisines, ...data.tags];
 
+  // Which affordances a shared-cookbook member gets is decided by the
+  // backend's access widening (cookbook/service.py `user_recipe_access`):
+  // reading and *editing* a shared recipe are widened to members, everything
+  // else — delete, the photo, favourites, notes, collections — stays
+  // owner-only and 404s for a member. Those five are hidden rather than
+  // disabled: a control a member can never use shouldn't be in their way.
   const isOwner = Boolean(user && user.id === data.owner_id);
   const provenance = formatProvenance(data.provenance);
 
@@ -248,11 +254,16 @@ export function RecipeDetailPage() {
           ← Cookbook
         </Link>
         <div className="rd__toolbar-actions">
-          <CollectionsControl recipeId={id!} collectionIds={data.collection_ids} />
           {isOwner ? (
-            <Button variant="secondary" onClick={() => setShareOpen(true)}>
-              Share
-            </Button>
+            <>
+              <CollectionsControl
+                recipeId={id!}
+                collectionIds={data.collection_ids}
+              />
+              <Button variant="secondary" onClick={() => setShareOpen(true)}>
+                Share
+              </Button>
+            </>
           ) : null}
           {/* Anyone who can read the recipe can transform it — same access
               check the backend uses for chat/Q&A — so this isn't gated to
@@ -260,13 +271,17 @@ export function RecipeDetailPage() {
           <Button variant="secondary" onClick={() => setTransformOpen(true)}>
             Transform
           </Button>
+          {/* Editing is widened to shared-cookbook members, so it isn't
+              gated — deleting is not. */}
           <Button variant="secondary" onClick={() => navigate(`/recipes/${id}/edit`)}>
             Edit
           </Button>
-          <DeleteControl
-            onConfirm={() => remove.mutate()}
-            deleting={remove.isPending}
-          />
+          {isOwner ? (
+            <DeleteControl
+              onConfirm={() => remove.mutate()}
+              deleting={remove.isPending}
+            />
+          ) : null}
         </div>
       </div>
 
@@ -286,7 +301,11 @@ export function RecipeDetailPage() {
         </p>
       ) : null}
 
-      <RecipeImageBanner recipeId={id!} imageUrl={data.image_ref ?? null} />
+      <RecipeImageBanner
+        recipeId={id!}
+        imageUrl={data.image_ref ?? null}
+        canManage={isOwner}
+      />
 
       <header className="rd__header">
         <div className="rd__heading-row">
@@ -296,11 +315,13 @@ export function RecipeDetailPage() {
             </p>
             <h1 className="rd__title">{data.title}</h1>
           </div>
-          <FavoriteButton
-            recipeId={id!}
-            isFavorite={data.is_favorite}
-            className="rd__favorite"
-          />
+          {isOwner ? (
+            <FavoriteButton
+              recipeId={id!}
+              isFavorite={data.is_favorite}
+              className="rd__favorite"
+            />
+          ) : null}
         </div>
         {data.description ? <p className="rd__desc">{data.description}</p> : null}
         {provenance ? (
@@ -380,7 +401,7 @@ export function RecipeDetailPage() {
         </section>
       </div>
 
-      <NotesSection recipeId={id!} notes={data.notes ?? null} />
+      {isOwner ? <NotesSection recipeId={id!} notes={data.notes ?? null} /> : null}
 
       <RecipeChatPanel key={id} recipeId={id!} recipeTitle={data.title} />
 

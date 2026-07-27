@@ -2,16 +2,24 @@
 
 Model ids, retries, timeouts, structured output, vision, tool loops, and
 token/cost logging all live here. Everything outside this package talks to
-LLMClient; only tests in tests/llm stub the anthropic SDK directly.
+LLMClient; only tests in tests/llm stub the provider client directly.
+
+Providers (RN_LLM_PROVIDER): "openrouter" (default when OPENROUTER_API_KEY is
+set — free-tier friendly), "anthropic" (ANTHROPIC_API_KEY), or "auto" (pick
+from whichever key is present, preferring OpenRouter). Both providers speak
+the same anthropic-shaped ``messages.create`` protocol; see
+:mod:`recipe_normalizer.llm.openrouter` for the adapter.
 """
 
 from __future__ import annotations
 
 import base64
 import logging
+import os
 import uuid
 from collections.abc import Callable
 from decimal import Decimal
+from functools import lru_cache
 from typing import Any, Protocol, TypeVar, cast
 
 from pydantic import BaseModel, ValidationError
@@ -70,7 +78,7 @@ class DbUsageRecorder:
                 feature=feature,
                 user_id=self._user_id,
                 job_id=self._job_id,
-                model=model,
+                model=model[:200],  # column bound; never poison the session over a long slug
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 cost_usd=Decimal(str(round(cost, 6))),
@@ -101,6 +109,62 @@ _REPAIR_TEMPLATE = (
     "Return ONLY corrected JSON matching the schema."
 )
 
+#: (default model, fast model) per provider when RN_LLM_MODEL / RN_LLM_FAST_MODEL are unset.
+#: ``openrouter/free`` is OpenRouter's auto-router over currently-free models
+#: (vision + tools + json_schema) — rotation-proof as the free lineup changes.
+_PROVIDER_DEFAULT_MODELS: dict[str, tuple[str, str]] = {
+    "anthropic": ("claude-opus-4-8", "claude-haiku-4-5"),
+    "openrouter": ("openrouter/free", "openrouter/free"),
+}
+
+
+def resolve_provider() -> str:
+    """Resolve the configured provider; "auto" prefers OpenRouter when its key is set."""
+    provider = settings.llm_provider
+    if provider not in ("auto", "anthropic", "openrouter"):
+        raise ValueError(
+            f"unknown RN_LLM_PROVIDER: {provider!r} (expected auto, anthropic, or openrouter)"
+        )
+    if provider != "auto":
+        return provider
+    if os.environ.get("OPENROUTER_API_KEY"):
+        return "openrouter"
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "anthropic"
+    return "openrouter"
+
+
+@lru_cache(maxsize=8)
+def _provider_client_cached(provider: str, api_key: str) -> Any:
+    """One shared client (and connection pool) per (provider, api_key) per process.
+
+    LLMClient is constructed per request/per job; without memoization each
+    one would open a fresh httpx pool that is never closed (fd leak) and pay
+    TLS handshakes on every call. Mirrors filestore._make_store.
+
+    Keyed on the api_key too so an in-process key rotation yields a fresh
+    client instead of reusing one that now 401s.
+    """
+    if provider == "anthropic":
+        import anthropic
+
+        return anthropic.Anthropic(
+            max_retries=settings.llm_max_retries,
+            timeout=settings.llm_timeout_s,
+        )
+    from recipe_normalizer.llm.openrouter import OpenRouterClient
+
+    return OpenRouterClient(
+        api_key=api_key,
+        max_retries=settings.llm_max_retries,
+        timeout=settings.llm_timeout_s,
+    )
+
+
+def _provider_client(provider: str) -> Any:
+    api_key = os.environ.get("OPENROUTER_API_KEY", "") if provider == "openrouter" else ""
+    return _provider_client_cached(provider, api_key)
+
 
 class LLMClient:
     def __init__(
@@ -108,12 +172,12 @@ class LLMClient:
         *,
         recorder: UsageRecorder | None = None,
         cost_cap_usd: float | None = None,
-        anthropic_client: Any | None = None,
+        chat_client: Any | None = None,
         already_spent_usd: float = 0.0,
     ) -> None:
         self._recorder = recorder
         self._cost_cap_usd = cost_cap_usd
-        self._anthropic_client = anthropic_client
+        self._chat_client = chat_client
         self._spent_usd = already_spent_usd
 
     @property
@@ -123,20 +187,27 @@ class LLMClient:
     # -- internals -------------------------------------------------------------
 
     def _client(self) -> Any:
-        """Return the injected client, or lazily construct the real one."""
-        if self._anthropic_client is None:
-            import anthropic
+        """Return the injected client, or the process-shared provider client."""
+        if self._chat_client is None:
+            self._chat_client = _provider_client(resolve_provider())
+        return self._chat_client
 
-            self._anthropic_client = anthropic.Anthropic(
-                max_retries=settings.llm_max_retries,
-                timeout=settings.llm_timeout_s,
-            )
-        return self._anthropic_client
+    def model_for(self, *, fast: bool = False) -> str:
+        """The model id calls will actually use — for provenance/metadata.
+
+        Callers must record this rather than reading ``settings.llm_model``
+        directly, which is empty when provider defaults are in play.
+        """
+        return self._resolve_model(None, fast)
 
     def _resolve_model(self, model: str | None, fast: bool) -> str:
         if model is not None:
             return model
-        return settings.llm_fast_model if fast else settings.llm_model
+        configured = settings.llm_fast_model if fast else settings.llm_model
+        if configured:
+            return configured
+        defaults = _PROVIDER_DEFAULT_MODELS[resolve_provider()]
+        return defaults[1] if fast else defaults[0]
 
     def _check_cost_cap(self) -> None:
         if self._cost_cap_usd is not None and self._spent_usd >= self._cost_cap_usd:
@@ -145,7 +216,11 @@ class LLMClient:
             )
 
     def _record_usage(self, feature: str, model: str, usage: Any) -> None:
-        cost = cost_usd(model, usage.input_tokens, usage.output_tokens)
+        # Prefer the provider's own cost accounting (OpenRouter reports exact
+        # spend, $0 for :free models); fall back to the static pricing table.
+        cost = getattr(usage, "cost_usd", None)
+        if cost is None:
+            cost = cost_usd(model, usage.input_tokens, usage.output_tokens)
         self._spent_usd += cost
         if self._recorder is None:
             return
@@ -292,7 +367,7 @@ class LLMClient:
         max_tokens: int = 8000,
     ) -> Any:
         """Run a manual tool-use loop; returns the final Message at end_turn."""
-        model = settings.llm_model
+        model = self._resolve_model(None, fast=False)
         messages: list[dict[str, Any]] = [{"role": "user", "content": initial_content}]
         response: Any = None
 

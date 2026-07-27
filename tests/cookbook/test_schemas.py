@@ -64,7 +64,7 @@ def test_build_display_approx() -> None:
         normalized_unit="g",
         is_approx=True,
     )
-    assert result == "1 cup flour → ~120 g (approx.)"
+    assert result == "1 cup flour → ~120 g"
 
 
 def test_build_display_exact() -> None:
@@ -285,7 +285,7 @@ def test_recipe_out_display_strings() -> None:
     assert len(lines) == 2
 
     # line1: approx conversion
-    assert lines[0].display == "1 cup flour → ~120 g (approx.)"
+    assert lines[0].display == "1 cup flour → ~120 g"
     # line2: exact conversion
     assert lines[1].display == "1 oz gin → 29.57 ml"
 
@@ -417,7 +417,7 @@ def test_recipe_out_from_persisted_orm_recipe(db_session: Session) -> None:
     assert out.groups[0].lines[0].quantity == 1.0  # Decimal -> float
 
     # display rule applied per-line
-    assert out.groups[0].lines[0].display == "1 cup flour → ~120 g (approx.)"
+    assert out.groups[0].lines[0].display == "1 cup flour → ~120 g"
     assert out.groups[0].lines[1].display == "salt to taste"
     assert out.groups[1].lines[0].display == "1 oz gin → 29.57 ml"
 

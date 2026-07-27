@@ -161,25 +161,33 @@ def _build_scaled_display(
     *,
     quantity_display: str,
     unit: str | None,
+    name: str | None,
     normalized_amount: float | None,
     normalized_unit: str | None,
     is_approx: bool,
 ) -> str:
     """Reconstruct the display string for a scaled line.
 
-    Rules:
-    - quantity + unit + normalized → ``"{qd} {unit} → {~?}{amt} {nu}{ (approx.)?}"``
-    - quantity + unit, no normalized  → ``"{qd} {unit}"``
-    - quantity only (no unit)         → ``"{qd}"``
+    The scaled row must be self-sufficient: it names the ingredient (from the
+    canonical match, when present) so a doubled recipe reads "2 cup flour",
+    never a bare "2 cup" / "4" with the identity demoted to the provenance
+    line beneath. The tilde already marks an approximation, so we don't also
+    append "(approx.)".
+
+    Rules (``name`` appended when present):
+    - quantity + unit + normalized → ``"{qd} {unit} {name} → {~?}{amt} {nu}"``
+    - quantity + unit, no normalized  → ``"{qd} {unit} {name}"``
+    - quantity only (no unit)         → ``"{qd} {name}"``
     """
     left = f"{quantity_display} {unit}" if unit is not None else quantity_display
+    if name:
+        left = f"{left} {name}"
 
     if normalized_amount is None:
         return left
 
     prefix = "~" if is_approx else ""
-    suffix = " (approx.)" if is_approx else ""
-    return f"{left} → {prefix}{format_amount(normalized_amount)} {normalized_unit}{suffix}"
+    return f"{left} → {prefix}{format_amount(normalized_amount)} {normalized_unit}"
 
 
 def _scale_line(line_out: IngredientLineOut, factor: float) -> ScaledLineOut:
@@ -223,6 +231,7 @@ def _scale_line(line_out: IngredientLineOut, factor: float) -> ScaledLineOut:
     display = _build_scaled_display(
         quantity_display=quantity_display,
         unit=unit,
+        name=line_out.name,
         normalized_amount=scaled_normalized,
         normalized_unit=normalized_unit,
         is_approx=is_approx,

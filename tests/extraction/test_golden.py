@@ -49,6 +49,9 @@ class GoldenStubLLM:
     def __init__(self, stub: dict[str, Any]) -> None:
         self._stub = stub
 
+    def model_for(self, *, fast: bool = False) -> str:
+        return "stub"
+
     def structured(
         self,
         *,

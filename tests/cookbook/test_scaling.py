@@ -32,6 +32,7 @@ def _make_line(
     original_text: str,
     quantity: float | None = None,
     unit: str | None = None,
+    name: str | None = None,
     normalized_amount: float | None = None,
     normalized_unit: str | None = None,
     is_approx: bool = False,
@@ -43,6 +44,7 @@ def _make_line(
         original_text=original_text,
         quantity=quantity,
         unit=unit,
+        canonical_name=name,
         canonical_ingredient_id=None,
         normalized_amount=normalized_amount,
         normalized_unit=normalized_unit,
@@ -77,6 +79,7 @@ def _make_recipe(
                     original_text=ln.original_text,
                     quantity=Decimal(str(ln.quantity)) if ln.quantity is not None else None,
                     unit=ln.unit,
+                    canonical_name=ln.name,
                     canonical_ingredient_id=ln.canonical_ingredient_id,
                     normalized_amount=ln.normalized_amount,
                     normalized_unit=ln.normalized_unit,
@@ -201,11 +204,16 @@ def test_format_quantity(value: float, expected: str) -> None:
 
 
 def test_scale_recipe_quantity_and_normalized() -> None:
-    """factor 2: quantity 1.125 cup + normalized 135g → '2¼ cup → ~270 g (approx.)'"""
+    """factor 2: quantity 1.125 cup + normalized 135g → '2¼ cup all-purpose flour → ~270 g'.
+
+    The scaled row carries the canonical ingredient name so it is self-sufficient,
+    and the ~ marks the approximation without a redundant "(approx.)" suffix.
+    """
     line = _make_line(
         original_text="1⅛ cups flour",
         quantity=1.125,
         unit="cup",
+        name="all-purpose flour",
         normalized_amount=135.0,
         normalized_unit="g",
         is_approx=True,
@@ -217,10 +225,29 @@ def test_scale_recipe_quantity_and_normalized() -> None:
     assert scaled_line.quantity_display == "2¼"
     assert scaled_line.unit == "cup"
     assert scaled_line.normalized_amount == 270.0
-    assert scaled_line.display == "2¼ cup → ~270 g (approx.)"
+    assert scaled_line.display == "2¼ cup all-purpose flour → ~270 g"
     # original_text preserved unchanged
     assert scaled_line.original_text == "1⅛ cups flour"
     assert scaled_line.passes_through is False
+
+
+def test_scale_recipe_names_the_ingredient_even_without_a_unit() -> None:
+    """P0 regression: a doubled unitless line reads '4 egg', never a bare '4'."""
+    line = _make_line(original_text="2 eggs", quantity=2.0, unit=None, name="egg")
+    recipe = _make_recipe([_make_group([line])])
+    result = scale_recipe(recipe, factor=2.0)
+
+    scaled_line = result.groups[0].lines[0]
+    assert scaled_line.display == "4 egg"
+
+
+def test_scale_recipe_unmatched_line_falls_back_to_quantity_only() -> None:
+    """No canonical name (unmatched line): scaled display is quantity+unit as before."""
+    line = _make_line(original_text="2 knobs butter", quantity=2.0, unit="knob", name=None)
+    recipe = _make_recipe([_make_group([line])])
+    result = scale_recipe(recipe, factor=1.5)
+
+    assert result.groups[0].lines[0].display == "3 knob"
 
 
 def test_scale_recipe_unconvertible_passthrough() -> None:
