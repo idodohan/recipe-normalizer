@@ -531,8 +531,98 @@ def test_redact_path_no_match_if_not_public_api() -> None:
     assert _redact_path("/api/publicnot/abc") == "/api/publicnot/abc"
 
 
+def test_redact_path_cookbooks_token() -> None:
+    """_redact_path redacts /api/public/cookbooks/{token} to .../cookbooks/<token>.
+
+    Without the cookbooks-specific branch, the generic "redact the first
+    segment" rule would treat the literal "cookbooks" as the token and leave
+    the real token exposed right after it — this pins that it doesn't.
+    """
+    from recipe_normalizer.main import _redact_path
+
+    assert _redact_path("/api/public/cookbooks/realtoken123") == "/api/public/cookbooks/<token>"
+
+
 def test_redact_path_no_token_segment() -> None:
     """_redact_path leaves /api/public/ (no token) unchanged."""
     from recipe_normalizer.main import _redact_path
 
     assert _redact_path("/api/public/") == "/api/public/"
+
+
+# ---------------------------------------------------------------------------
+# Anonymous GET /api/public/cookbooks/{token} (Task 6)
+# ---------------------------------------------------------------------------
+
+
+def test_public_cookbook_happy_path(app_client: TestClient) -> None:
+    """A public cookbook is readable anonymously and never leaks owner_id/email."""
+    create_resp = app_client.post(
+        "/api/cookbooks", json={"name": "Public Cookbook", "description": "For anyone"}
+    )
+    assert create_resp.status_code == 201
+    cookbook = create_resp.json()
+
+    recipe_resp = app_client.post(
+        "/api/recipes", params={"cookbook_id": cookbook["id"]}, json=RECIPE_PAYLOAD
+    )
+    assert recipe_resp.status_code == 201
+
+    patch_resp = app_client.patch(f"/api/cookbooks/{cookbook['id']}", json={"visibility": "public"})
+    assert patch_resp.status_code == 200
+    token = patch_resp.json()["public_token"]
+    assert token
+
+    # A fresh, cookie-less TestClient sharing the same app/db — anonymous.
+    anon = TestClient(app_client.app, raise_server_exceptions=False)
+    resp = anon.get(f"/api/public/cookbooks/{token}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["name"] == "Public Cookbook"
+    assert body["description"] == "For anyone"
+    assert len(body["recipes"]) == 1
+    assert body["recipes"][0]["title"] == "Test Cocktail Bread"
+
+    # Strict allowlist: no owner id, email, public_token, or ingestion internals.
+    raw = resp.text
+    assert "owner_id" not in raw
+    assert "integration_test@example.com" not in raw
+    assert "public_token" not in raw
+    assert "extraction_meta" not in raw
+    assert "notes" not in raw
+
+
+def test_public_cookbook_unlisted_also_readable(app_client: TestClient) -> None:
+    create_resp = app_client.post("/api/cookbooks", json={"name": "Unlisted Cookbook"})
+    cookbook = create_resp.json()
+    patch_resp = app_client.patch(
+        f"/api/cookbooks/{cookbook['id']}", json={"visibility": "unlisted"}
+    )
+    token = patch_resp.json()["public_token"]
+
+    anon = TestClient(app_client.app, raise_server_exceptions=False)
+    resp = anon.get(f"/api/public/cookbooks/{token}")
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Unlisted Cookbook"
+
+
+def test_public_cookbook_private_id_as_token_returns_404(app_client: TestClient) -> None:
+    """A private cookbook's own id, passed as if it were a token, 404s.
+
+    Private cookbooks never have a public_token set, so the id can't
+    coincidentally resolve to a real token — this pins that a caller can't
+    probe cookbook ids this way.
+    """
+    create_resp = app_client.post("/api/cookbooks", json={"name": "Private Cookbook"})
+    cookbook = create_resp.json()
+    assert cookbook["visibility"] == "private"
+
+    anon = TestClient(app_client.app, raise_server_exceptions=False)
+    resp = anon.get(f"/api/public/cookbooks/{cookbook['id']}")
+    assert resp.status_code == 404
+
+
+def test_public_cookbook_unknown_token_returns_404(app_client: TestClient) -> None:
+    anon = TestClient(app_client.app, raise_server_exceptions=False)
+    resp = anon.get("/api/public/cookbooks/totally-bogus-token-xyz")
+    assert resp.status_code == 404

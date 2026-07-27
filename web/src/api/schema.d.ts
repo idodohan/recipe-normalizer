@@ -271,6 +271,129 @@ export interface paths {
         patch: operations["rename_collection_api_collections__collection_id__patch"];
         trace?: never;
     };
+    "/api/cookbooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Cookbooks
+         * @description List every cookbook the caller has a claim on: owned + member-of.
+         *
+         *     Ensures the caller's default cookbook exists first (a brand-new user who
+         *     hasn't created a recipe yet would otherwise see an empty list). Ordering:
+         *     owned cookbooks before shared ones — already the order
+         *     ``service.list_my_cookbooks`` returns, since it appends owned rows before
+         *     member rows — then alphabetically by name (case-insensitive) within each
+         *     group; the service does not sort, so that secondary sort happens here.
+         */
+        get: operations["list_cookbooks_api_cookbooks_get"];
+        put?: never;
+        /** Create Cookbook */
+        post: operations["create_cookbook_api_cookbooks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cookbooks/{cookbook_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Cookbook
+         * @description Fetch a cookbook + its recipes. Viewer+ access required (404 otherwise).
+         */
+        get: operations["get_cookbook_api_cookbooks__cookbook_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Cookbook
+         * @description Delete a cookbook. Owner-only; 409 if it's the default cookbook.
+         */
+        delete: operations["delete_cookbook_api_cookbooks__cookbook_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Cookbook
+         * @description Patch name/description/visibility. Owner-only — each service call enforces it.
+         */
+        patch: operations["update_cookbook_api_cookbooks__cookbook_id__patch"];
+        trace?: never;
+    };
+    "/api/cookbooks/{cookbook_id}/leave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Leave Cookbook
+         * @description Remove the caller's own membership row. Idempotent; never checks access
+         *     level — any signed-in caller may always remove their own membership.
+         */
+        post: operations["leave_cookbook_api_cookbooks__cookbook_id__leave_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cookbooks/{cookbook_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Invite Member
+         * @description Invite a user by email. Owner-only. 404 if no account has that email,
+         *     422 if inviting the owner's own email; re-inviting an existing member
+         *     upserts their role — all enforced by ``service.invite_cookbook_member``.
+         */
+        post: operations["invite_member_api_cookbooks__cookbook_id__members_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cookbooks/{cookbook_id}/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove Member
+         * @description Remove a member. Owner-only; idempotent — a no-op if not a member.
+         */
+        delete: operations["remove_member_api_cookbooks__cookbook_id__members__user_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Member Role
+         * @description Change a member's role. Owner-only; 404 if user_id isn't a member.
+         */
+        patch: operations["update_member_role_api_cookbooks__cookbook_id__members__user_id__patch"];
+        trace?: never;
+    };
     "/api/files/{ref}": {
         parameters: {
             query?: never;
@@ -464,6 +587,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/public/cookbooks/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Public Cookbook
+         * @description Anonymous read of a public/unlisted cookbook — no session required.
+         *
+         *     Mirrors ``sharing.router``'s public recipe route: token-only lookup,
+         *     rate-limited by IP, and never carries a ``get_current_user``
+         *     dependency. Recipes are fetched via ``cookbook_service.get_recipe_unscoped``
+         *     — the same trusted-internal-caller path ``sharing.service`` uses for its
+         *     own public-link resolution — since this route has already established
+         *     the caller's right to see every recipe under this cookbook via the
+         *     token check above.
+         */
+        get: operations["get_public_cookbook_api_public_cookbooks__token__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/public/{token}": {
         parameters: {
             query?: never;
@@ -535,7 +686,12 @@ export interface paths {
         /** List Recipes */
         get: operations["list_recipes_api_recipes_get"];
         put?: never;
-        /** Create Recipe */
+        /**
+         * Create Recipe
+         * @description Create a recipe. ``cookbook_id`` (query param) is optional — when given,
+         *     the caller must have editor+ access to that cookbook (404 otherwise);
+         *     when omitted, the recipe lands in the caller's own default cookbook.
+         */
         post: operations["create_recipe_api_recipes_post"];
         delete?: never;
         options?: never;
@@ -989,6 +1145,150 @@ export interface components {
             user_id: string;
         };
         /**
+         * CookbookDetailOut
+         * @description GET /api/cookbooks/{id} — the cookbook plus its recipes (access-checked).
+         */
+        CookbookDetailOut: {
+            /** Cover Image Ref */
+            cover_image_ref?: string | null;
+            /** Description */
+            description?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Is Default */
+            is_default: boolean;
+            /** Name */
+            name: string;
+            /** Public Token */
+            public_token?: string | null;
+            /** Recipe Count */
+            recipe_count: number;
+            /**
+             * Recipes
+             * @default []
+             */
+            recipes: components["schemas"]["RecipeSummary"][];
+            /** Role */
+            role: string;
+            /** Visibility */
+            visibility: string;
+        };
+        /**
+         * CookbookIn
+         * @description Body for POST /api/cookbooks.
+         */
+        CookbookIn: {
+            /** Description */
+            description?: string | null;
+            /** Name */
+            name: string;
+        };
+        /**
+         * CookbookMemberIn
+         * @description Body for POST /api/cookbooks/{id}/members.
+         */
+        CookbookMemberIn: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "editor" | "viewer";
+        };
+        /**
+         * CookbookMemberOut
+         * @description A single cookbook membership row, as returned by the invite/role-change routes.
+         */
+        CookbookMemberOut: {
+            /** Added By */
+            added_by?: string | null;
+            /**
+             * Cookbook Id
+             * Format: uuid
+             */
+            cookbook_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Role */
+            role: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+        };
+        /**
+         * CookbookMemberRoleIn
+         * @description Body for PATCH /api/cookbooks/{id}/members/{user_id}.
+         */
+        CookbookMemberRoleIn: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "editor" | "viewer";
+        };
+        /**
+         * CookbookOut
+         * @description CookbookSummary + ``public_token`` — the create/detail/PATCH response shape.
+         *
+         *     ``public_token`` is None for a private cookbook, and the minted token for
+         *     an unlisted/public one (see ``cookbook.service.set_cookbook_visibility``).
+         *     Deliberately NOT part of ``CookbookSummary``/the ``GET /api/cookbooks``
+         *     list response — the brief only calls for it on create/detail/PATCH.
+         */
+        CookbookOut: {
+            /** Cover Image Ref */
+            cover_image_ref?: string | null;
+            /** Description */
+            description?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Is Default */
+            is_default: boolean;
+            /** Name */
+            name: string;
+            /** Public Token */
+            public_token?: string | null;
+            /** Recipe Count */
+            recipe_count: number;
+            /** Role */
+            role: string;
+            /** Visibility */
+            visibility: string;
+        };
+        /**
+         * CookbookPatchIn
+         * @description Body for PATCH /api/cookbooks/{id} — every field optional (partial patch).
+         *
+         *     The router distinguishes "field absent" from "explicitly provided" via
+         *     ``model_fields_set`` (same convention as ``RecipePersonalPatch``), so a
+         *     caller can clear ``description`` with an explicit ``null`` without
+         *     touching name/visibility. ``name``/``visibility`` have no meaningful
+         *     null value, so those are only applied when both present AND non-null.
+         */
+        CookbookPatchIn: {
+            /** Description */
+            description?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Visibility */
+            visibility?: ("private" | "unlisted" | "public") | null;
+        };
+        /**
          * CookbookQaCreateIn
          * @description Body for POST /api/ai/cookbook-qa.
          */
@@ -1020,6 +1320,35 @@ export interface components {
              * @default []
              */
             referenced_recipe_ids: string[];
+        };
+        /**
+         * CookbookSummary
+         * @description Row shape for listing a user's cookbooks (owned + member-of).
+         *
+         *     ``role`` is ``"owner"`` for cookbooks the caller owns outright, or the
+         *     resolved ``CookbookRole`` value ("editor"/"viewer") for cookbooks the
+         *     caller is merely a member of — see cookbook.service.list_my_cookbooks.
+         */
+        CookbookSummary: {
+            /** Cover Image Ref */
+            cover_image_ref?: string | null;
+            /** Description */
+            description?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Is Default */
+            is_default: boolean;
+            /** Name */
+            name: string;
+            /** Recipe Count */
+            recipe_count: number;
+            /** Role */
+            role: string;
+            /** Visibility */
+            visibility: string;
         };
         /**
          * CreatePublicLinkIn
@@ -1357,6 +1686,123 @@ export interface components {
          */
         PreferredMeasure: "mass" | "volume";
         /**
+         * PublicCookbookOut
+         * @description Cookbook payload for the anonymous ``GET /api/public/cookbooks/{token}`` route.
+         *
+         *     Deliberately an ALLOWLIST, mirroring ``PublicRecipeOut``'s discipline:
+         *     no ``id``, no ``owner_id``, no member rows/emails, no ``public_token`` —
+         *     only what an anonymous visitor holding a valid unlisted/public link needs
+         *     to browse the cookbook. Recipes reuse ``PublicRecipeOut``'s allowlist via
+         *     ``PublicCookbookRecipeOut`` (owner_id stripped — see its docstring), so a
+         *     cookbook's recipes never carry more than a shared recipe link would.
+         *
+         *     Lives here (not in cookbook/schemas.py) because it composes
+         *     ``PublicRecipeOut``, and ``cookbook`` may never import from ``sharing``
+         *     (see .importlinter's cookbook-cannot-import-sharing contract) — main.py
+         *     has no such restriction, and this is the one call site that needs both.
+         */
+        PublicCookbookOut: {
+            /** Cover Image Url */
+            cover_image_url?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Recipes
+             * @default []
+             */
+            recipes: components["schemas"]["PublicCookbookRecipeOut"][];
+        };
+        /**
+         * PublicCookbookRecipeOut
+         * @description ``PublicRecipeOut``, minus ``owner_id``, for recipes nested in a public cookbook.
+         *
+         *     ``PublicRecipeOut`` (the per-recipe public-link allowlist) DOES carry
+         *     ``owner_id`` — acceptable there since a bare, unguessable UUID isn't PII
+         *     on its own, and that route's threat model already accepted it. This
+         *     endpoint's contract is stricter ("MUST NOT leak owner_id"), so this
+         *     subclass re-declares the field ``exclude=True`` to drop it from
+         *     serialization while still reusing every other field/validator (and
+         *     ``from_recipe_out``) from the base class verbatim — no duplication of
+         *     the allowlist itself.
+         */
+        PublicCookbookRecipeOut: {
+            /** Cook Min */
+            cook_min?: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Cuisines
+             * @default []
+             */
+            cuisines: string[];
+            /** Derived From */
+            derived_from?: string | null;
+            /** Description */
+            description?: string | null;
+            /**
+             * Dish Types
+             * @default []
+             */
+            dish_types: string[];
+            /**
+             * Groups
+             * @default []
+             */
+            groups: components["schemas"]["IngredientGroupOut"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Image Url */
+            image_url?: string | null;
+            /**
+             * Is Verified
+             * @default false
+             */
+            is_verified: boolean;
+            /**
+             * Language
+             * @default en
+             */
+            language: string;
+            /** Last Edited At */
+            last_edited_at?: string | null;
+            /** Last Edited By */
+            last_edited_by?: string | null;
+            /** Prep Min */
+            prep_min?: number | null;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version: number;
+            servings?: components["schemas"]["ServingsOut"] | null;
+            /** Source */
+            source?: string | null;
+            /** Source Type */
+            source_type: string;
+            /**
+             * Steps
+             * @default []
+             */
+            steps: components["schemas"]["StepOut"][];
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
+            /** Title */
+            title: string;
+            /** Total Min */
+            total_min?: number | null;
+        };
+        /**
          * PublicLinkOut
          * @description One of the current user's public links (authenticated management view).
          */
@@ -1545,6 +1991,8 @@ export interface components {
             collection_ids: string[];
             /** Cook Min */
             cook_min?: number | null;
+            /** Cookbook Id */
+            cookbook_id?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -2622,6 +3070,284 @@ export interface operations {
             };
         };
     };
+    list_cookbooks_api_cookbooks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CookbookSummary"][];
+                };
+            };
+        };
+    };
+    create_cookbook_api_cookbooks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CookbookIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CookbookOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_cookbook_api_cookbooks__cookbook_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cookbook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CookbookDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_cookbook_api_cookbooks__cookbook_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cookbook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_cookbook_api_cookbooks__cookbook_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cookbook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CookbookPatchIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CookbookOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    leave_cookbook_api_cookbooks__cookbook_id__leave_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cookbook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    invite_member_api_cookbooks__cookbook_id__members_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cookbook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CookbookMemberIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CookbookMemberOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_member_api_cookbooks__cookbook_id__members__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cookbook_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_member_role_api_cookbooks__cookbook_id__members__user_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cookbook_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CookbookMemberRoleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CookbookMemberOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     serve_file_api_files__ref__get: {
         parameters: {
             query?: never;
@@ -2960,6 +3686,37 @@ export interface operations {
             };
         };
     };
+    get_public_cookbook_api_public_cookbooks__token__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicCookbookOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_public_recipe_api_public__token__get: {
         parameters: {
             query?: never;
@@ -3099,7 +3856,9 @@ export interface operations {
     };
     create_recipe_api_recipes_post: {
         parameters: {
-            query?: never;
+            query?: {
+                cookbook_id?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;

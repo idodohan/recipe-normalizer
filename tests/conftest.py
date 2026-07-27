@@ -62,6 +62,7 @@ def _reset_rate_limiters() -> Iterator[None]:
         _transform_limit,
     )
     from recipe_normalizer.ingestion.router import _ingest_limit
+    from recipe_normalizer.main import _public_cookbook_limit
     from recipe_normalizer.sharing.router import _public_limit, _share_limit
     from recipe_normalizer.users.router import _login_limit, _register_limit
 
@@ -74,6 +75,7 @@ def _reset_rate_limiters() -> Iterator[None]:
     _ingest_limit.limiter.reset()  # type: ignore[attr-defined]
     _share_limit.limiter.reset()  # type: ignore[attr-defined]
     _public_limit.limiter.reset()  # type: ignore[attr-defined]
+    _public_cookbook_limit.limiter.reset()  # type: ignore[attr-defined]
     yield
     _login_limit.limiter.reset()  # type: ignore[attr-defined]
     _register_limit.limiter.reset()  # type: ignore[attr-defined]
@@ -84,6 +86,7 @@ def _reset_rate_limiters() -> Iterator[None]:
     _ingest_limit.limiter.reset()  # type: ignore[attr-defined]
     _share_limit.limiter.reset()  # type: ignore[attr-defined]
     _public_limit.limiter.reset()  # type: ignore[attr-defined]
+    _public_cookbook_limit.limiter.reset()  # type: ignore[attr-defined]
 
 
 @pytest.fixture()

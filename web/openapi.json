@@ -280,6 +280,321 @@
         "title": "ConversationOut",
         "type": "object"
       },
+      "CookbookDetailOut": {
+        "description": "GET /api/cookbooks/{id} \u2014 the cookbook plus its recipes (access-checked).",
+        "properties": {
+          "cover_image_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Image Ref"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "public_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Token"
+          },
+          "recipe_count": {
+            "title": "Recipe Count",
+            "type": "integer"
+          },
+          "recipes": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/RecipeSummary"
+            },
+            "title": "Recipes",
+            "type": "array"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "visibility",
+          "role",
+          "recipe_count",
+          "is_default"
+        ],
+        "title": "CookbookDetailOut",
+        "type": "object"
+      },
+      "CookbookIn": {
+        "description": "Body for POST /api/cookbooks.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CookbookIn",
+        "type": "object"
+      },
+      "CookbookMemberIn": {
+        "description": "Body for POST /api/cookbooks/{id}/members.",
+        "properties": {
+          "email": {
+            "format": "email",
+            "maxLength": 320,
+            "title": "Email",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "editor",
+              "viewer"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "role"
+        ],
+        "title": "CookbookMemberIn",
+        "type": "object"
+      },
+      "CookbookMemberOut": {
+        "description": "A single cookbook membership row, as returned by the invite/role-change routes.",
+        "properties": {
+          "added_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Added By"
+          },
+          "cookbook_id": {
+            "format": "uuid",
+            "title": "Cookbook Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cookbook_id",
+          "user_id",
+          "role",
+          "created_at"
+        ],
+        "title": "CookbookMemberOut",
+        "type": "object"
+      },
+      "CookbookMemberRoleIn": {
+        "description": "Body for PATCH /api/cookbooks/{id}/members/{user_id}.",
+        "properties": {
+          "role": {
+            "enum": [
+              "editor",
+              "viewer"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role"
+        ],
+        "title": "CookbookMemberRoleIn",
+        "type": "object"
+      },
+      "CookbookOut": {
+        "description": "CookbookSummary + ``public_token`` \u2014 the create/detail/PATCH response shape.\n\n``public_token`` is None for a private cookbook, and the minted token for\nan unlisted/public one (see ``cookbook.service.set_cookbook_visibility``).\nDeliberately NOT part of ``CookbookSummary``/the ``GET /api/cookbooks``\nlist response \u2014 the brief only calls for it on create/detail/PATCH.",
+        "properties": {
+          "cover_image_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Image Ref"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "public_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Token"
+          },
+          "recipe_count": {
+            "title": "Recipe Count",
+            "type": "integer"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "visibility",
+          "role",
+          "recipe_count",
+          "is_default"
+        ],
+        "title": "CookbookOut",
+        "type": "object"
+      },
+      "CookbookPatchIn": {
+        "description": "Body for PATCH /api/cookbooks/{id} \u2014 every field optional (partial patch).\n\nThe router distinguishes \"field absent\" from \"explicitly provided\" via\n``model_fields_set`` (same convention as ``RecipePersonalPatch``), so a\ncaller can clear ``description`` with an explicit ``null`` without\ntouching name/visibility. ``name``/``visibility`` have no meaningful\nnull value, so those are only applied when both present AND non-null.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "visibility": {
+            "anyOf": [
+              {
+                "enum": [
+                  "private",
+                  "unlisted",
+                  "public"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Visibility"
+          }
+        },
+        "title": "CookbookPatchIn",
+        "type": "object"
+      },
       "CookbookQaCreateIn": {
         "description": "Body for POST /api/ai/cookbook-qa.",
         "properties": {
@@ -334,6 +649,68 @@
           "message"
         ],
         "title": "CookbookQaOut",
+        "type": "object"
+      },
+      "CookbookSummary": {
+        "description": "Row shape for listing a user's cookbooks (owned + member-of).\n\n``role`` is ``\"owner\"`` for cookbooks the caller owns outright, or the\nresolved ``CookbookRole`` value (\"editor\"/\"viewer\") for cookbooks the\ncaller is merely a member of \u2014 see cookbook.service.list_my_cookbooks.",
+        "properties": {
+          "cover_image_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Image Ref"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "recipe_count": {
+            "title": "Recipe Count",
+            "type": "integer"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "visibility",
+          "role",
+          "recipe_count",
+          "is_default"
+        ],
+        "title": "CookbookSummary",
         "type": "object"
       },
       "CreatePublicLinkIn": {
@@ -1172,6 +1549,248 @@
         "title": "PreferredMeasure",
         "type": "string"
       },
+      "PublicCookbookOut": {
+        "description": "Cookbook payload for the anonymous ``GET /api/public/cookbooks/{token}`` route.\n\nDeliberately an ALLOWLIST, mirroring ``PublicRecipeOut``'s discipline:\nno ``id``, no ``owner_id``, no member rows/emails, no ``public_token`` \u2014\nonly what an anonymous visitor holding a valid unlisted/public link needs\nto browse the cookbook. Recipes reuse ``PublicRecipeOut``'s allowlist via\n``PublicCookbookRecipeOut`` (owner_id stripped \u2014 see its docstring), so a\ncookbook's recipes never carry more than a shared recipe link would.\n\nLives here (not in cookbook/schemas.py) because it composes\n``PublicRecipeOut``, and ``cookbook`` may never import from ``sharing``\n(see .importlinter's cookbook-cannot-import-sharing contract) \u2014 main.py\nhas no such restriction, and this is the one call site that needs both.",
+        "properties": {
+          "cover_image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Image Url"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "recipes": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PublicCookbookRecipeOut"
+            },
+            "title": "Recipes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "PublicCookbookOut",
+        "type": "object"
+      },
+      "PublicCookbookRecipeOut": {
+        "description": "``PublicRecipeOut``, minus ``owner_id``, for recipes nested in a public cookbook.\n\n``PublicRecipeOut`` (the per-recipe public-link allowlist) DOES carry\n``owner_id`` \u2014 acceptable there since a bare, unguessable UUID isn't PII\non its own, and that route's threat model already accepted it. This\nendpoint's contract is stricter (\"MUST NOT leak owner_id\"), so this\nsubclass re-declares the field ``exclude=True`` to drop it from\nserialization while still reusing every other field/validator (and\n``from_recipe_out``) from the base class verbatim \u2014 no duplication of\nthe allowlist itself.",
+        "properties": {
+          "cook_min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cook Min"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "cuisines": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Cuisines",
+            "type": "array"
+          },
+          "derived_from": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Derived From"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "dish_types": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Dish Types",
+            "type": "array"
+          },
+          "groups": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/IngredientGroupOut"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "is_verified": {
+            "default": false,
+            "title": "Is Verified",
+            "type": "boolean"
+          },
+          "language": {
+            "default": "en",
+            "title": "Language",
+            "type": "string"
+          },
+          "last_edited_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Edited At"
+          },
+          "last_edited_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Edited By"
+          },
+          "prep_min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prep Min"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "servings": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServingsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "steps": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/StepOut"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "tags": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "total_min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Min"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "source_type",
+          "created_at"
+        ],
+        "title": "PublicCookbookRecipeOut",
+        "type": "object"
+      },
       "PublicLinkOut": {
         "description": "One of the current user's public links (authenticated management view).",
         "properties": {
@@ -1564,6 +2183,18 @@
               }
             ],
             "title": "Cook Min"
+          },
+          "cookbook_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cookbook Id"
           },
           "created_at": {
             "format": "date-time",
@@ -3423,6 +4054,402 @@
         ]
       }
     },
+    "/api/cookbooks": {
+      "get": {
+        "description": "List every cookbook the caller has a claim on: owned + member-of.\n\nEnsures the caller's default cookbook exists first (a brand-new user who\nhasn't created a recipe yet would otherwise see an empty list). Ordering:\nowned cookbooks before shared ones \u2014 already the order\n``service.list_my_cookbooks`` returns, since it appends owned rows before\nmember rows \u2014 then alphabetically by name (case-insensitive) within each\ngroup; the service does not sort, so that secondary sort happens here.",
+        "operationId": "list_cookbooks_api_cookbooks_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CookbookSummary"
+                  },
+                  "title": "Response List Cookbooks Api Cookbooks Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Cookbooks",
+        "tags": [
+          "cookbooks"
+        ]
+      },
+      "post": {
+        "operationId": "create_cookbook_api_cookbooks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CookbookIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CookbookOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Cookbook",
+        "tags": [
+          "cookbooks"
+        ]
+      }
+    },
+    "/api/cookbooks/{cookbook_id}": {
+      "delete": {
+        "description": "Delete a cookbook. Owner-only; 409 if it's the default cookbook.",
+        "operationId": "delete_cookbook_api_cookbooks__cookbook_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cookbook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Cookbook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Cookbook",
+        "tags": [
+          "cookbooks"
+        ]
+      },
+      "get": {
+        "description": "Fetch a cookbook + its recipes. Viewer+ access required (404 otherwise).",
+        "operationId": "get_cookbook_api_cookbooks__cookbook_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cookbook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Cookbook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CookbookDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Cookbook",
+        "tags": [
+          "cookbooks"
+        ]
+      },
+      "patch": {
+        "description": "Patch name/description/visibility. Owner-only \u2014 each service call enforces it.",
+        "operationId": "update_cookbook_api_cookbooks__cookbook_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cookbook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Cookbook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CookbookPatchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CookbookOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Cookbook",
+        "tags": [
+          "cookbooks"
+        ]
+      }
+    },
+    "/api/cookbooks/{cookbook_id}/leave": {
+      "post": {
+        "description": "Remove the caller's own membership row. Idempotent; never checks access\nlevel \u2014 any signed-in caller may always remove their own membership.",
+        "operationId": "leave_cookbook_api_cookbooks__cookbook_id__leave_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cookbook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Cookbook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Leave Cookbook",
+        "tags": [
+          "cookbooks"
+        ]
+      }
+    },
+    "/api/cookbooks/{cookbook_id}/members": {
+      "post": {
+        "description": "Invite a user by email. Owner-only. 404 if no account has that email,\n422 if inviting the owner's own email; re-inviting an existing member\nupserts their role \u2014 all enforced by ``service.invite_cookbook_member``.",
+        "operationId": "invite_member_api_cookbooks__cookbook_id__members_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cookbook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Cookbook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CookbookMemberIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CookbookMemberOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Invite Member",
+        "tags": [
+          "cookbooks"
+        ]
+      }
+    },
+    "/api/cookbooks/{cookbook_id}/members/{user_id}": {
+      "delete": {
+        "description": "Remove a member. Owner-only; idempotent \u2014 a no-op if not a member.",
+        "operationId": "remove_member_api_cookbooks__cookbook_id__members__user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cookbook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Cookbook Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Member",
+        "tags": [
+          "cookbooks"
+        ]
+      },
+      "patch": {
+        "description": "Change a member's role. Owner-only; 404 if user_id isn't a member.",
+        "operationId": "update_member_role_api_cookbooks__cookbook_id__members__user_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cookbook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Cookbook Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CookbookMemberRoleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CookbookMemberOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Member Role",
+        "tags": [
+          "cookbooks"
+        ]
+      }
+    },
     "/api/files/{ref}": {
       "get": {
         "description": "Serve a stored file by its content-addressed ref.\n\nReturns the raw bytes with a guessed media type.\nInvalid or missing refs produce a 404 envelope (no detail leaked).",
@@ -3892,6 +4919,49 @@
         ]
       }
     },
+    "/api/public/cookbooks/{token}": {
+      "get": {
+        "description": "Anonymous read of a public/unlisted cookbook \u2014 no session required.\n\nMirrors ``sharing.router``'s public recipe route: token-only lookup,\nrate-limited by IP, and never carries a ``get_current_user``\ndependency. Recipes are fetched via ``cookbook_service.get_recipe_unscoped``\n\u2014 the same trusted-internal-caller path ``sharing.service`` uses for its\nown public-link resolution \u2014 since this route has already established\nthe caller's right to see every recipe under this cookbook via the\ntoken check above.",
+        "operationId": "get_public_cookbook_api_public_cookbooks__token__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicCookbookOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Public Cookbook",
+        "tags": [
+          "public"
+        ]
+      }
+    },
     "/api/public/{token}": {
       "get": {
         "operationId": "get_public_recipe_api_public__token__get",
@@ -4263,7 +5333,27 @@
         ]
       },
       "post": {
+        "description": "Create a recipe. ``cookbook_id`` (query param) is optional \u2014 when given,\nthe caller must have editor+ access to that cookbook (404 otherwise);\nwhen omitted, the recipe lands in the caller's own default cookbook.",
         "operationId": "create_recipe_api_recipes_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cookbook_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cookbook Id"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {

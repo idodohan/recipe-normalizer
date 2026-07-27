@@ -9,11 +9,12 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import (
     AliasChoices,
     BaseModel,
+    EmailStr,
     Field,
     computed_field,
     field_validator,
@@ -364,6 +365,87 @@ class CookbookSummary(BaseModel):
     @classmethod
     def cover_image_ref_to_url(cls, v: str | None) -> str | None:
         return _image_url(v)
+
+
+# ---------------------------------------------------------------------------
+# Cookbook CRUD / membership DTOs (Task 6 — HTTP surface over Task 4/5 services)
+# ---------------------------------------------------------------------------
+
+
+class CookbookIn(BaseModel):
+    """Body for POST /api/cookbooks."""
+
+    name: str = Field(min_length=1, max_length=200)
+    description: str | None = None
+
+
+class CookbookPatchIn(BaseModel):
+    """Body for PATCH /api/cookbooks/{id} — every field optional (partial patch).
+
+    The router distinguishes "field absent" from "explicitly provided" via
+    ``model_fields_set`` (same convention as ``RecipePersonalPatch``), so a
+    caller can clear ``description`` with an explicit ``null`` without
+    touching name/visibility. ``name``/``visibility`` have no meaningful
+    null value, so those are only applied when both present AND non-null.
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = None
+    # Literal, not the CookbookVisibility enum — cookbook.schemas must stay
+    # free of cookbook.models: sharing/extraction/ai/ingestion all import this
+    # module and are import-linter-forbidden from reaching cookbook.models
+    # even transitively. The router converts this to CookbookVisibility.
+    visibility: Literal["private", "unlisted", "public"] | None = None
+
+
+class CookbookOut(CookbookSummary):
+    """CookbookSummary + ``public_token`` — the create/detail/PATCH response shape.
+
+    ``public_token`` is None for a private cookbook, and the minted token for
+    an unlisted/public one (see ``cookbook.service.set_cookbook_visibility``).
+    Deliberately NOT part of ``CookbookSummary``/the ``GET /api/cookbooks``
+    list response — the brief only calls for it on create/detail/PATCH.
+    """
+
+    public_token: str | None = None
+
+
+class CookbookDetailOut(CookbookOut):
+    """GET /api/cookbooks/{id} — the cookbook plus its recipes (access-checked)."""
+
+    recipes: list[RecipeSummary] = []
+
+
+class CookbookMemberIn(BaseModel):
+    """Body for POST /api/cookbooks/{id}/members."""
+
+    email: EmailStr = Field(max_length=320)
+    # Literal, not the CookbookRole enum — see CookbookPatchIn.visibility's
+    # comment; the router converts this to CookbookRole.
+    role: Literal["editor", "viewer"]
+
+
+class CookbookMemberRoleIn(BaseModel):
+    """Body for PATCH /api/cookbooks/{id}/members/{user_id}."""
+
+    role: Literal["editor", "viewer"]
+
+
+class CookbookMemberOut(BaseModel):
+    """A single cookbook membership row, as returned by the invite/role-change routes."""
+
+    cookbook_id: uuid.UUID
+    user_id: uuid.UUID
+    role: str
+    added_by: uuid.UUID | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def coerce_role(cls, v: Any) -> str:
+        return str(v)
 
 
 class CollectionOut(BaseModel):

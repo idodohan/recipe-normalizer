@@ -38,6 +38,9 @@ forbidden_modules =
 ignore_imports =
     recipe_normalizer.catalog.service -> recipe_normalizer.catalog.models
     recipe_normalizer.cookbook.router -> recipe_normalizer.api_deps
+    # Task 6: cookbook_router (the separate cookbook-CRUD/membership router
+    # module) reads the authenticated user the same way cookbook.router does.
+    recipe_normalizer.cookbook.cookbook_router -> recipe_normalizer.api_deps
     # Task 4: cookbook.service resolves email -> user for member invites via
     # users.service.get_user_by_email (never users.models directly) — same
     # pattern sharing.service already uses for its own recipient lookups.
