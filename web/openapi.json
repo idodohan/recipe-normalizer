@@ -1594,7 +1594,7 @@
         "type": "object"
       },
       "PublicCookbookRecipeOut": {
-        "description": "``PublicRecipeOut``, minus ``owner_id``, for recipes nested in a public cookbook.\n\n``PublicRecipeOut`` (the per-recipe public-link allowlist) DOES carry\n``owner_id`` \u2014 acceptable there since a bare, unguessable UUID isn't PII\non its own, and that route's threat model already accepted it. This\nendpoint's contract is stricter (\"MUST NOT leak owner_id\"), so this\nsubclass re-declares the field ``exclude=True`` to drop it from\nserialization while still reusing every other field/validator (and\n``from_recipe_out``) from the base class verbatim \u2014 no duplication of\nthe allowlist itself.",
+        "description": "``PublicRecipeOut``, minus every raw user id, for recipes nested in a public cookbook.\n\n``PublicRecipeOut`` (the per-recipe public-link allowlist) carries two\nfields that resolve to a real account id \u2014 acceptable there since a\nbare, unguessable UUID isn't PII on its own, and that route's threat\nmodel already accepted it:\n\n- ``owner_id`` \u2014 always the recipe owner.\n- ``last_edited_by`` \u2014 whoever last full-replace-edited the recipe\n  (``PATCH /api/recipes/{id}``). For a cookbook with editor MEMBERS this\n  is NOT necessarily the owner \u2014 it can be any editor's account id, so\n  leaking it here would expose a member's identity to anyone holding\n  the cookbook's public link, which they never consented to. (Every\n  other field on the base class was audited: ``derived_from`` is a\n  RECIPE id, not a user id, and everything else is non-identifying.)\n\nThis endpoint's contract is stricter (\"MUST NOT leak owner_id [or]\nmember emails\" \u2014 a member's raw user id falls under that same \"internal\nfields\" umbrella), so this subclass re-declares both fields\n``exclude=True`` to drop them from serialization while still reusing\nevery other field/validator (and ``from_recipe_out``) from the base\nclass verbatim \u2014 no duplication of the allowlist itself.",
         "properties": {
           "cook_min": {
             "anyOf": [
@@ -1696,18 +1696,6 @@
               }
             ],
             "title": "Last Edited At"
-          },
-          "last_edited_by": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Edited By"
           },
           "prep_min": {
             "anyOf": [
