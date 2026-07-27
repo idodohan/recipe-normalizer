@@ -232,6 +232,9 @@ class StepOut(BaseModel):
 class RecipeOut(BaseModel):
     id: uuid.UUID
     owner_id: uuid.UUID
+    # Nullable during the cookbooks-pivot transition (see Recipe.cookbook_id's
+    # docstring) — None only for legacy pre-migration rows.
+    cookbook_id: uuid.UUID | None = None
     schema_version: int = 1
     title: str
     description: str | None = None

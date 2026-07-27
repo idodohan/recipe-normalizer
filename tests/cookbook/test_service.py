@@ -12,7 +12,16 @@ from sqlalchemy.orm import Session
 from recipe_normalizer.catalog import service as catalog_service
 from recipe_normalizer.catalog.seed_loader import load_seed
 from recipe_normalizer.cookbook import service as cookbook_service
-from recipe_normalizer.cookbook.models import IngredientLine, Recipe, SourceType, Step
+from recipe_normalizer.cookbook.models import (
+    Cookbook,
+    CookbookMember,
+    CookbookRole,
+    CookbookVisibility,
+    IngredientLine,
+    Recipe,
+    SourceType,
+    Step,
+)
 from recipe_normalizer.cookbook.schemas import (
     IngredientGroupIn,
     IngredientLineIn,
@@ -1752,3 +1761,204 @@ def test_update_recipe_loads_fuzzy_corpus_once(
         data=_simple_recipe_in(lines=_fuzzy_lines(5)),
     )
     assert calls == 1
+
+
+# ---------------------------------------------------------------------------
+# Recipe access derives from its cookbook (Task 5)
+# ---------------------------------------------------------------------------
+
+
+def make_cookbook(
+    db: Session,
+    owner: User,
+    *,
+    visibility: CookbookVisibility = CookbookVisibility.private,
+    name: str = "Cookbook",
+) -> Cookbook:
+    cookbook = Cookbook(owner_id=owner.id, name=name, visibility=visibility)
+    db.add(cookbook)
+    db.flush()
+    return cookbook
+
+
+def add_member(db: Session, cookbook: Cookbook, user: User, role: CookbookRole) -> CookbookMember:
+    member = CookbookMember(cookbook_id=cookbook.id, user_id=user.id, role=role)
+    db.add(member)
+    db.flush()
+    return member
+
+
+def test_create_recipe_into_editable_cookbook_ok(seeded: Session, owner: User) -> None:
+    editor = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    cookbook = make_cookbook(seeded, owner, name="Shared Book")
+    add_member(seeded, cookbook, editor, CookbookRole.editor)
+
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=editor.id, data=_simple_recipe_in(), cookbook_id=cookbook.id
+    )
+    assert created.cookbook_id == cookbook.id
+
+
+def test_create_recipe_into_viewer_only_cookbook_raises_404(seeded: Session, owner: User) -> None:
+    viewer = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    cookbook = make_cookbook(seeded, owner, name="Viewer Book")
+    add_member(seeded, cookbook, viewer, CookbookRole.viewer)
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.create_recipe(
+            seeded, owner_id=viewer.id, data=_simple_recipe_in(), cookbook_id=cookbook.id
+        )
+    assert exc_info.value.status_code == 404
+
+
+def test_create_recipe_into_cookbook_not_a_member_of_raises_404(
+    seeded: Session, owner: User
+) -> None:
+    stranger = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    cookbook = make_cookbook(seeded, owner, name="Private Book")
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.create_recipe(
+            seeded, owner_id=stranger.id, data=_simple_recipe_in(), cookbook_id=cookbook.id
+        )
+    assert exc_info.value.status_code == 404
+
+
+def test_create_recipe_omitted_cookbook_id_lands_in_default(seeded: Session, owner: User) -> None:
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_simple_recipe_in())
+    default_cookbook = cookbook_service.ensure_default_cookbook(seeded, owner.id)
+    assert created.cookbook_id == default_cookbook.id
+
+
+def test_move_recipe_between_editable_cookbooks_ok(seeded: Session, owner: User) -> None:
+    source = make_cookbook(seeded, owner, name="Source")
+    dest = make_cookbook(seeded, owner, name="Dest")
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_simple_recipe_in(), cookbook_id=source.id
+    )
+
+    moved = cookbook_service.move_recipe(seeded, created.id, owner.id, dest.id)
+
+    assert moved.cookbook_id == dest.id
+
+
+def test_move_recipe_destination_not_editable_raises_404(seeded: Session, owner: User) -> None:
+    source = make_cookbook(seeded, owner, name="Source")
+    dest_owner = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    dest = make_cookbook(seeded, dest_owner, name="Someone Else's Book")
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_simple_recipe_in(), cookbook_id=source.id
+    )
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.move_recipe(seeded, created.id, owner.id, dest.id)
+    assert exc_info.value.status_code == 404
+
+
+def test_move_recipe_source_not_editable_raises_404(seeded: Session, owner: User) -> None:
+    """A viewer-only member of the recipe's current cookbook cannot move it out,
+    even if they have editor access to the destination cookbook."""
+    source = make_cookbook(seeded, owner, name="Source")
+    viewer = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    add_member(seeded, source, viewer, CookbookRole.viewer)
+    dest = make_cookbook(seeded, viewer, name="Viewer's Own Book")
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_simple_recipe_in(), cookbook_id=source.id
+    )
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.move_recipe(seeded, created.id, viewer.id, dest.id)
+    assert exc_info.value.status_code == 404
+
+
+def test_viewer_of_shared_cookbook_can_get_but_not_update_or_delete(
+    seeded: Session, owner: User
+) -> None:
+    viewer = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    cookbook = make_cookbook(seeded, owner, name="Shared Book")
+    add_member(seeded, cookbook, viewer, CookbookRole.viewer)
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_simple_recipe_in(), cookbook_id=cookbook.id
+    )
+
+    fetched = cookbook_service.get_recipe(seeded, owner_id=viewer.id, recipe_id=created.id)
+    assert fetched.id == created.id
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.update_recipe(
+            seeded,
+            owner_id=viewer.id,
+            recipe_id=created.id,
+            data=_simple_recipe_in(title="Hacked"),
+            editor_id=viewer.id,
+        )
+    assert exc_info.value.status_code == 404
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.delete_recipe(seeded, owner_id=viewer.id, recipe_id=created.id)
+    assert exc_info.value.status_code == 404
+
+
+def test_editor_of_shared_cookbook_can_update_and_delete(seeded: Session, owner: User) -> None:
+    editor = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    cookbook = make_cookbook(seeded, owner, name="Shared Book")
+    add_member(seeded, cookbook, editor, CookbookRole.editor)
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_simple_recipe_in(), cookbook_id=cookbook.id
+    )
+
+    updated = cookbook_service.update_recipe(
+        seeded,
+        owner_id=editor.id,
+        recipe_id=created.id,
+        data=_simple_recipe_in(title="Edited by editor"),
+        editor_id=editor.id,
+    )
+    assert updated.title == "Edited by editor"
+
+    cookbook_service.delete_recipe(seeded, owner_id=editor.id, recipe_id=created.id)
+    assert seeded.get(Recipe, created.id) is None
+
+
+def test_legacy_null_cookbook_recipe_owner_only_access(seeded: Session, owner: User) -> None:
+    """A recipe with cookbook_id=NULL (legacy, pre-migration) falls back to
+    owner-only access — not derived from any cookbook — so it never 500s and
+    never leaks to a non-owner."""
+    other = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_simple_recipe_in())
+
+    # Simulate a legacy row: null out cookbook_id directly (bypassing create_recipe).
+    recipe = seeded.get(Recipe, created.id)
+    assert recipe is not None
+    recipe.cookbook_id = None
+    seeded.flush()
+
+    # Owner still has full access.
+    fetched = cookbook_service.get_recipe(seeded, owner_id=owner.id, recipe_id=created.id)
+    assert fetched.id == created.id
+    updated = cookbook_service.update_recipe(
+        seeded,
+        owner_id=owner.id,
+        recipe_id=created.id,
+        data=_simple_recipe_in(title="Still Mine"),
+        editor_id=owner.id,
+    )
+    assert updated.title == "Still Mine"
+
+    # Non-owner gets 404 on every operation.
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.get_recipe(seeded, owner_id=other.id, recipe_id=created.id)
+    assert exc_info.value.status_code == 404
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.update_recipe(
+            seeded,
+            owner_id=other.id,
+            recipe_id=created.id,
+            data=_simple_recipe_in(title="Stolen"),
+            editor_id=other.id,
+        )
+    assert exc_info.value.status_code == 404
+
+    cookbook_service.delete_recipe(seeded, owner_id=owner.id, recipe_id=created.id)
+    assert seeded.get(Recipe, created.id) is None

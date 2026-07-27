@@ -39,13 +39,19 @@ router = APIRouter(prefix="/api", tags=["recipes"])
 @router.post("/recipes", status_code=201, response_model=RecipeOut)
 def create_recipe(
     body: RecipeIn,
+    cookbook_id: uuid.UUID | None = Query(default=None),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
     current_user: Any = Depends(get_current_user),  # noqa: B008
 ) -> RecipeOut:
+    """Create a recipe. ``cookbook_id`` (query param) is optional — when given,
+    the caller must have editor+ access to that cookbook (404 otherwise);
+    when omitted, the recipe lands in the caller's own default cookbook.
+    """
     return service.create_recipe(
         db,
         owner_id=current_user.id,
         data=body,
+        cookbook_id=cookbook_id,
         source_type=SourceType.manual,
     )
 

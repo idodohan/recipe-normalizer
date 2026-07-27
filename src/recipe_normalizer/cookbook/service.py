@@ -81,6 +81,7 @@ __all__ = [
     "list_collections",
     "list_my_cookbooks",
     "list_recipes",
+    "move_recipe",
     "recipe_summaries_for_ids",
     "recipe_titles_for_ids",
     "recommendations_for_recipe",
@@ -328,6 +329,58 @@ def require_cookbook_access(
     if cookbook is None or resolved is None or _rank(resolved) < _rank(need):
         raise ApiError(404, "not_found", f"Cookbook {cookbook_id} not found.")
     return cookbook
+
+
+# ---------------------------------------------------------------------------
+# Recipe access derived from its cookbook (Task 5) — replaces the old
+# `user_recipe_access` widening for create/move/get/update/delete. A recipe
+# with a NULL `cookbook_id` (legacy row, pre-migration — see
+# Recipe.cookbook_id's docstring) has no cookbook to derive access from, so
+# it falls back to a plain owner-only check via `recipe.owner_id` directly —
+# this keeps pre-migration recipes from ever 500ing while never granting a
+# non-owner access to one.
+# ---------------------------------------------------------------------------
+
+
+def _recipe_access(db: Session, *, user_id: uuid.UUID | None, recipe: Recipe) -> Access | None:
+    """Resolve *user_id*'s access level to an already-loaded *recipe*."""
+    if recipe.cookbook_id is None:
+        if user_id is not None and recipe.owner_id == user_id:
+            return "owner"
+        return None
+    return cookbook_access(db, user_id=user_id, cookbook_id=recipe.cookbook_id)
+
+
+def _require_recipe_access(
+    db: Session, *, user_id: uuid.UUID | None, recipe: Recipe, need: Access
+) -> None:
+    """Raise ApiError 404 unless *user_id* has at least *need* access to *recipe*.
+
+    Mirrors ``require_cookbook_access``'s not-found discipline: a recipe that
+    doesn't exist and one that exists but the caller can't reach are
+    indistinguishable to the caller.
+    """
+    resolved = _recipe_access(db, user_id=user_id, recipe=recipe)
+    if resolved is None or _rank(resolved) < _rank(need):
+        raise ApiError(404, "not_found", f"Recipe {recipe.id} not found.")
+
+
+def _has_recipe_access(
+    db: Session, *, user_id: uuid.UUID | None, recipe: Recipe, need: Access
+) -> bool:
+    """True if *user_id* has at least *need* cookbook-derived access to *recipe*,
+    OR — transitional fallback, ``get_recipe``/``update_recipe`` only — is
+    granted access via the legacy pre-cookbook-pivot sharing-module widening
+    (``user_recipe_access``, still the path ``sharing.service``/``ai.service``
+    go through for their own shared-cookbook-membership checks; it has not
+    been migrated onto the ``Cookbook``/``CookbookMember`` model yet). Once
+    sharing is migrated onto Cookbook membership, this fallback becomes
+    dead code and ``_require_recipe_access`` alone will suffice.
+    """
+    resolved = _recipe_access(db, user_id=user_id, recipe=recipe)
+    if resolved is not None and _rank(resolved) >= _rank(need):
+        return True
+    return user_id is not None and user_recipe_access(db, user_id, recipe.id) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -820,6 +873,7 @@ def create_recipe(
     *,
     owner_id: uuid.UUID,
     data: RecipeIn,
+    cookbook_id: uuid.UUID | None = None,
     source_fingerprint: str | None = None,
     source: str | None = None,
     source_type: SourceType = SourceType.manual,
@@ -831,6 +885,13 @@ def create_recipe(
 ) -> RecipeOut:
     """Create a new recipe and return a fully-populated RecipeOut.
 
+    - ``cookbook_id``: when given, *owner_id* must have editor+ access to that
+      cookbook (``require_cookbook_access(..., need=CookbookRole.editor)`` —
+      404 if the cookbook doesn't exist, or the caller has only viewer access,
+      or no claim on it at all). When omitted, the recipe lands in
+      *owner_id*'s own default cookbook (``ensure_default_cookbook``), created
+      on first use — this is what keeps every existing caller that doesn't
+      pass a cookbook_id working unchanged.
     - Fingerprint check first → DuplicateRecipeError if already exists for this owner.
     - Vocab rows get-or-created.
     - Ingredient lines: catalog-matched (or unreviewed created), normalized when possible.
@@ -853,8 +914,17 @@ def create_recipe(
         if existing is not None:
             raise DuplicateRecipeError(existing_id=existing.id)
 
+    target_cookbook = (
+        require_cookbook_access(
+            db, user_id=owner_id, cookbook_id=cookbook_id, need=CookbookRole.editor
+        )
+        if cookbook_id is not None
+        else ensure_default_cookbook(db, owner_id)
+    )
+
     recipe = Recipe(
         owner_id=owner_id,
+        cookbook_id=target_cookbook.id,
         title=data.title,
         description=data.description,
         language=data.language,
@@ -893,18 +963,51 @@ def get_recipe(
 ) -> RecipeOut:
     """Fetch a recipe by id. Raises ApiError 404 if not found or the caller has no access.
 
-    WIDENED for shared cookbooks (see ``user_recipe_access``): despite the
-    parameter name (kept as ``owner_id`` for backward compatibility with
-    every existing call site — ingestion, sharing, the router's GET and
-    /scaled endpoints), the caller is granted access if they either own the
-    recipe outright OR are a member of a shared cookbook containing it. A
-    caller with neither claim gets the same 404 as a nonexistent id — this
-    function never reveals whether a recipe merely belongs to someone else.
+    Access derives from the recipe's cookbook (see ``_recipe_access``):
+    despite the parameter name (kept as ``owner_id`` for backward
+    compatibility with every existing call site — ingestion, sharing, the
+    router's GET and /scaled endpoints), any caller with at least viewer
+    access to the recipe's cookbook — owner, editor, or viewer member, or a
+    public/unlisted viewer — can read it. Also still honors the legacy
+    sharing-module widening (see ``_has_recipe_access``) so an existing
+    shared-cookbook member keeps read access until sharing is migrated onto
+    the Cookbook model. A caller with neither claim gets the same 404 as a
+    nonexistent id — this function never reveals whether a recipe merely
+    belongs to someone else.
     """
     loaded = _load_recipe_full(db, recipe_id)
-    if loaded is None or user_recipe_access(db, owner_id, recipe_id) is None:
+    if loaded is None:
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+    if not _has_recipe_access(db, user_id=owner_id, recipe=loaded, need=CookbookRole.viewer):
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
     return RecipeOut.model_validate(loaded)
+
+
+def move_recipe(
+    db: Session,
+    recipe_id: uuid.UUID,
+    user_id: uuid.UUID,
+    to_cookbook_id: uuid.UUID,
+) -> Recipe:
+    """Move a recipe to a different cookbook.
+
+    Requires editor+ access on BOTH the recipe's current cookbook (the
+    source) and *to_cookbook_id* (the destination) — 404 on either check
+    failing, via the same not-found discipline as the rest of this module.
+    A legacy NULL-cookbook recipe's source check falls back to owner-only
+    (see ``_recipe_access``). Reassigns ``recipe.cookbook_id`` in place;
+    flushes, caller owns commit.
+    """
+    recipe = db.get(Recipe, recipe_id)
+    if recipe is None:
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+    _require_recipe_access(db, user_id=user_id, recipe=recipe, need=CookbookRole.editor)
+    require_cookbook_access(
+        db, user_id=user_id, cookbook_id=to_cookbook_id, need=CookbookRole.editor
+    )
+    recipe.cookbook_id = to_cookbook_id
+    db.flush()
+    return recipe
 
 
 def get_recipe_unscoped(db: Session, recipe_id: uuid.UUID) -> RecipeOut:
@@ -1457,9 +1560,13 @@ def update_recipe(
 ) -> RecipeOut:
     """Replace a recipe's content wholesale; returns updated RecipeOut.
 
-    WIDENED for shared cookbooks (see ``user_recipe_access``): ``owner_id``
-    (again, kept as the param name for compatibility) is granted access as
-    owner OR as a shared-cookbook member — 404 if neither and if missing.
+    Access derives from the recipe's cookbook (see ``_recipe_access``):
+    ``owner_id`` (again, kept as the param name for compatibility) needs
+    editor+ access to the recipe's cookbook — owner or editor member — 404
+    otherwise (viewer members and non-members alike). Also still honors the
+    legacy sharing-module widening (see ``_has_recipe_access``) so an
+    existing shared-cookbook member keeps edit access until sharing is
+    migrated onto the Cookbook model.
     - Replaces groups/lines/steps (delete-orphan cascade handles cleanup).
     - Re-runs catalog matching + normalization.
     - Sets last_edited_by and last_edited_at to *editor_id* — for a member
@@ -1468,7 +1575,9 @@ def update_recipe(
       can see who last touched a shared recipe.
     """
     recipe = db.scalars(select(Recipe).where(Recipe.id == recipe_id)).first()
-    if recipe is None or user_recipe_access(db, owner_id, recipe_id) is None:
+    if recipe is None:
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+    if not _has_recipe_access(db, user_id=owner_id, recipe=recipe, need=CookbookRole.editor):
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
 
     # Clear existing groups/steps — delete-orphan cascade removes children
@@ -1506,12 +1615,19 @@ def delete_recipe(
     owner_id: uuid.UUID,
     recipe_id: uuid.UUID,
 ) -> None:
-    """Delete a recipe (and its children via cascade). Raises 404 if not found/wrong owner."""
-    recipe = db.scalars(
-        select(Recipe).where(Recipe.id == recipe_id, Recipe.owner_id == owner_id)
-    ).first()
+    """Delete a recipe (and its children via cascade).
+
+    Access derives from the recipe's cookbook (see ``_recipe_access``):
+    ``owner_id`` (kept as the param name for compatibility) needs editor+
+    access — owner or editor member can delete; a viewer member or
+    non-member gets 404. Editors may add/edit/remove recipes; only
+    cookbook-level management (rename/visibility/membership/delete-cookbook)
+    is owner-only.
+    """
+    recipe = db.get(Recipe, recipe_id)
     if recipe is None:
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+    _require_recipe_access(db, user_id=owner_id, recipe=recipe, need=CookbookRole.editor)
     db.delete(recipe)
     db.flush()
 
