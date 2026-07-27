@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from recipe_normalizer.api_deps import get_current_user
 from recipe_normalizer.catalog.seed_loader import load_seed
+from recipe_normalizer.cookbook import service as cookbook_service
 from recipe_normalizer.cookbook.models import IngredientGroup, IngredientLine, Recipe, SourceType
 from recipe_normalizer.db import get_db
 from recipe_normalizer.errors import install_error_handlers
@@ -48,6 +49,7 @@ def make_draft_recipe(
 ) -> Recipe:
     recipe = Recipe(
         owner_id=owner_id,
+        cookbook_id=cookbook_service.ensure_default_cookbook(db, owner_id).id,
         title=title,
         source_type=SourceType.text,
         source_fingerprint=fingerprint,

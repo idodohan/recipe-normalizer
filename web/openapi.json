@@ -5170,7 +5170,7 @@
         ]
       },
       "get": {
-        "description": "Fetch a recipe. ``service.get_recipe`` is widened to shared-cookbook\nmembers, but a member must never see the OWNER's personal\nnotes/favorites/collections or the owner-facing provenance \u2014 those are\nscrubbed here for anyone who isn't the recipe's owner.\n\nNo extra access-check call is needed: ``service.get_recipe`` already\nraises 404 unless the caller is the owner or a shared-cookbook member,\nand the returned ``RecipeOut.owner_id`` tells us which of those two it\nwas \u2014 a member is exactly the case where ``owner_id != current_user.id``.",
+        "description": "Fetch a recipe. ``service.get_recipe`` admits anyone with viewer+\naccess to the recipe's COOKBOOK, but such a reader must never see the\nOWNER's personal notes/favorites/collections or the owner-facing\nprovenance \u2014 those are scrubbed here for anyone who isn't the owner.\n\nNo extra access-check call is needed: ``service.get_recipe`` already\nraises 404 unless the caller can read the recipe's cookbook, and the\nreturned ``RecipeOut.owner_id`` tells us whether the caller is the\nowner \u2014 a non-owner reader is exactly the case where\n``owner_id != current_user.id``.",
         "operationId": "get_recipe_api_recipes__recipe_id__get",
         "parameters": [
           {
@@ -5544,7 +5544,7 @@
     },
     "/api/recipes/{recipe_id}/similar": {
       "get": {
-        "description": "\"More like this\" \u2014 content-similar recipes from the CALLER's own cookbook.\n\nAccess to *recipe_id* is the same owner-or-shared-cookbook-member check\nevery other per-recipe read uses (404 otherwise), but the recommendations\nthemselves are always drawn from the caller's own cookbook \u2014 see\n`service.recommendations_for_recipe`'s docstring.",
+        "description": "\"More like this\" \u2014 content-similar recipes from the CALLER's own cookbook.\n\nAccess to *recipe_id* is the same cookbook-derived check every other\nper-recipe read uses (404 otherwise), but the recommendations\nthemselves are always drawn from the caller's own cookbook \u2014 see\n`service.recommendations_for_recipe`'s docstring.",
         "operationId": "get_similar_recipes_api_recipes__recipe_id__similar_get",
         "parameters": [
           {

@@ -708,15 +708,16 @@ export interface paths {
         };
         /**
          * Get Recipe
-         * @description Fetch a recipe. ``service.get_recipe`` is widened to shared-cookbook
-         *     members, but a member must never see the OWNER's personal
-         *     notes/favorites/collections or the owner-facing provenance — those are
-         *     scrubbed here for anyone who isn't the recipe's owner.
+         * @description Fetch a recipe. ``service.get_recipe`` admits anyone with viewer+
+         *     access to the recipe's COOKBOOK, but such a reader must never see the
+         *     OWNER's personal notes/favorites/collections or the owner-facing
+         *     provenance — those are scrubbed here for anyone who isn't the owner.
          *
          *     No extra access-check call is needed: ``service.get_recipe`` already
-         *     raises 404 unless the caller is the owner or a shared-cookbook member,
-         *     and the returned ``RecipeOut.owner_id`` tells us which of those two it
-         *     was — a member is exactly the case where ``owner_id != current_user.id``.
+         *     raises 404 unless the caller can read the recipe's cookbook, and the
+         *     returned ``RecipeOut.owner_id`` tells us whether the caller is the
+         *     owner — a non-owner reader is exactly the case where
+         *     ``owner_id != current_user.id``.
          */
         get: operations["get_recipe_api_recipes__recipe_id__get"];
         put?: never;
@@ -815,8 +816,8 @@ export interface paths {
          * Get Similar Recipes
          * @description "More like this" — content-similar recipes from the CALLER's own cookbook.
          *
-         *     Access to *recipe_id* is the same owner-or-shared-cookbook-member check
-         *     every other per-recipe read uses (404 otherwise), but the recommendations
+         *     Access to *recipe_id* is the same cookbook-derived check every other
+         *     per-recipe read uses (404 otherwise), but the recommendations
          *     themselves are always drawn from the caller's own cookbook — see
          *     `service.recommendations_for_recipe`'s docstring.
          */

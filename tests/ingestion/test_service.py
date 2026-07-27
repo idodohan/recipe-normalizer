@@ -62,6 +62,9 @@ def make_draft_recipe(
 
     recipe = Recipe(
         owner_id=owner_id,
+        # Every recipe lives in a cookbook (NOT NULL since the finalize
+        # migration), so even the bypass-the-service shortcut needs one.
+        cookbook_id=cookbook_service.ensure_default_cookbook(db, owner_id).id,
         title=title,
         source_type=SourceType.text,
         source_fingerprint=fingerprint,

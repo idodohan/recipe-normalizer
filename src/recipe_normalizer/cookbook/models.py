@@ -177,10 +177,13 @@ class Recipe(TimestampMixin, Base):
     # there are rewritten; these two columns are deliberately left alone).
     is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # nullable during the cookbooks-pivot transition; migration <Task 8> backfills
-    # + sets NOT NULL.
-    cookbook_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("cookbooks.id", ondelete="CASCADE"), index=True, nullable=True
+    # Every recipe lives in exactly one cookbook — the containment invariant
+    # of the cookbooks pivot, and the sole source of recipe access (see
+    # cookbook.service._recipe_access). Enforced in the database as of the
+    # finalize migration b7d3f0c11a94, which swept the last cookbook-less
+    # rows into their owners' default cookbooks before flipping this NOT NULL.
+    cookbook_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("cookbooks.id", ondelete="CASCADE"), index=True, nullable=False
     )
 
     # Relationships
@@ -372,7 +375,12 @@ class Cookbook(TimestampMixin, Base):
 
 
 class CookbookMember(Base):
-    """A user's membership in a shared cookbook (owner is implicit, not a member row)."""
+    """A user's membership in someone else's cookbook.
+
+    The cookbook's OWNER is implicit and never has a row here — see
+    `cookbook.service.list_my_cookbooks`, which unions owned cookbooks with
+    member-of ones and would list an owner's own cookbook twice otherwise.
+    """
 
     __tablename__ = "cookbook_members"
     __table_args__ = (

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from recipe_normalizer.cookbook.models import (
@@ -102,7 +104,16 @@ def test_recipe_links_to_cookbook(db_session: Session) -> None:
     assert fetched_cookbook.recipes[0].id == recipe.id
 
 
-def test_recipe_cookbook_id_is_nullable(db_session: Session) -> None:
+def test_recipe_cookbook_id_is_not_nullable(db_session: Session) -> None:
+    """Exactly-one containment is a DB constraint, not a convention.
+
+    Inverted from its original form: `cookbook_id` was nullable for the
+    duration of the pivot (Tasks 2-8) so every intermediate state stayed
+    runnable. The finalize migration (b7d3f0c11a94) flipped it, and this
+    pins that a cookbook-less recipe can no longer be written at all —
+    which is what lets `_recipe_access` derive access from the cookbook
+    with no fallback branch.
+    """
     owner = make_user(db_session, "5")
     recipe = Recipe(
         owner_id=owner.id,
@@ -110,13 +121,9 @@ def test_recipe_cookbook_id_is_nullable(db_session: Session) -> None:
         source_type=SourceType.manual,
     )
     db_session.add(recipe)
-    db_session.flush()
 
-    db_session.expire_all()
-    fetched = db_session.get(Recipe, recipe.id)
-    assert fetched is not None
-    assert fetched.cookbook_id is None
-    assert fetched.cookbook is None
+    with pytest.raises(IntegrityError), db_session.begin_nested():
+        db_session.flush()
 
 
 def test_cookbook_visibility_enum_values() -> None:

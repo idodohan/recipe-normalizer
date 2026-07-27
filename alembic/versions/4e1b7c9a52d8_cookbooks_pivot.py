@@ -386,6 +386,15 @@ def _build_member_rows(
        cookbook owner) preserves both the access and the shared placement;
        the alternative — pulling the recipe back to the owner's default
        cookbook — would silently revoke it from everyone else.
+
+       Accepted trade-off: the synthesized row grants that owner editor access
+       to the WHOLE derived cookbook, not just the one recipe of theirs it
+       holds — access is per-cookbook now, so there is no narrower grant to
+       make. It is a widening, but a deliberate one, and strictly smaller than
+       the old model's (where any member of any shared cookbook containing a
+       recipe could read and edit it). Synthesized rows are indistinguishable
+       from real memberships by design; nothing downstream needs to tell them
+       apart.
     """
     members = conn.execute(
         sa.select(

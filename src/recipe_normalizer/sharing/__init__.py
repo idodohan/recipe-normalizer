@@ -1,4 +1,4 @@
-"""Sharing module — copy-on-share, public links, and shared cookbooks.
+"""Sharing module — copy-on-share and per-recipe public links.
 
 Owns all sharing-related state. Talks to `cookbook` only via
 `cookbook.service` / `cookbook.schemas` (never `cookbook.models`); `cookbook`

@@ -188,7 +188,7 @@ def list_conversations(
 
     When *recipe_id* is given, only conversations about that recipe are
     returned (still owner-scoped — this never surfaces another user's
-    conversations about the same recipe, e.g. a shared-cookbook co-member's
+    conversations about the same recipe, e.g. a cookbook co-member's
     chat history).
     """
     stmt = select(Conversation).where(Conversation.user_id == user_id)
@@ -430,10 +430,13 @@ def _make_search_recipes_execute(
 ) -> Any:
     """Build the `execute` callback `cookbook_qa_turn` passes to `llm.tool_loop`.
 
-    Scopes every search to *user_id*'s OWN cookbook via
-    `cookbook_service.list_recipes(owner_id=user_id, ...)` — the same
-    owner-only listing the cookbook's own search UI uses; shared-cookbook
-    recipes aren't included (acceptable v1 per the phase plan). Every recipe
+    Scopes every search to what *user_id* can READ via
+    `cookbook_service.list_recipes(owner_id=user_id, ...)` — the exact same
+    listing the cookbook's own search UI uses, so Q&A can never surface a
+    recipe the asker couldn't open. Since the cookbooks pivot that span is
+    "cookbooks I own + cookbooks I'm a member of" rather than strictly my own
+    recipes, so a co-member's recipe in a cookbook we share is now
+    answerable; a public cookbook I'm not a member of still is not. Every recipe
     id a search returns is appended to *referenced_ids* (mutated in place,
     duplicates and all — the caller dedupes) so `cookbook_qa_turn` can report
     which recipes the model actually saw, for the UI's "referenced recipes"

@@ -40,8 +40,13 @@ ALEMBIC_INI = REPO_ROOT / "alembic.ini"
 #: Revision immediately before the cookbooks pivot — the state a production
 #: database is in before this migration runs.
 PREV_HEAD = "533866b8e4fb"
-#: The cookbooks-pivot revision under test.
+#: The ADDITIVE cookbooks-pivot revision (creates cookbooks, backfills,
+#: absorbs the shared-cookbook data; leaves cookbook_id nullable and the old
+#: tables in place).
 PIVOT_REV = "4e1b7c9a52d8"
+#: The FINALIZE revision: sweeps stragglers, flips cookbook_id NOT NULL, and
+#: drops the shared_cookbook* tables. Also the current head.
+FINALIZE_REV = "b7d3f0c11a94"
 
 
 # ---------------------------------------------------------------------------
@@ -252,10 +257,16 @@ def _members_of(
 
 
 def test_backfill_preserves_every_recipe_and_shared_cookbook(migration_engine: Engine) -> None:
-    """The full pre-state → post-state data-preservation contract."""
+    """The full pre-state → post-state data-preservation contract.
+
+    Stops at ``PIVOT_REV`` on purpose, not ``head``: this is the *additive*
+    migration's contract, and two of its guarantees (the shared tables
+    survive, cookbook_id stays nullable) are precisely what the finalize
+    revision then undoes — see the finalize tests at the bottom.
+    """
     _upgrade(migration_engine, PREV_HEAD)
     _seed_pre_migration_state(migration_engine)
-    _upgrade(migration_engine, "head")
+    _upgrade(migration_engine, PIVOT_REV)
 
     with migration_engine.connect() as conn:
         # 1. No recipe was left behind.
@@ -321,8 +332,8 @@ def test_backfill_preserves_every_recipe_and_shared_cookbook(migration_engine: E
         assert placement[R_BOB_BAKERS] == bakers.id
         assert placement[R_ALICE_SOLO] == alice_default
 
-        # 6. The old shared_cookbook* tables are still here — Task 9 drops
-        #    them, only after the code that reads them is gone.
+        # 6. The old shared_cookbook* tables are still here — the finalize
+        #    revision drops them, only after the code reading them is gone.
         for table in (
             "shared_cookbooks",
             "shared_cookbook_members",
@@ -332,7 +343,8 @@ def test_backfill_preserves_every_recipe_and_shared_cookbook(migration_engine: E
                 text("select to_regclass(:t) is not null"), {"t": table}
             ).scalar_one(), f"{table} must survive this migration"
 
-        # 7. recipes.cookbook_id stays NULLABLE until Task 9 fixes the writers.
+        # 7. recipes.cookbook_id stays NULLABLE until the finalize revision
+        #    (which runs after the writers stopped producing NULLs).
         nullable = conn.execute(
             text(
                 "select is_nullable from information_schema.columns "
@@ -372,7 +384,7 @@ def test_backfill_logs_the_contested_shared_recipe_link(
     _upgrade(migration_engine, PREV_HEAD)
     _seed_pre_migration_state(migration_engine)
     capfd.readouterr()  # drop everything the pre-migration upgrades emitted
-    _upgrade(migration_engine, "head")
+    _upgrade(migration_engine, PIVOT_REV)
 
     err = capfd.readouterr().err
     assert "1 recipe/shared-cookbook link(s) dropped" in err
@@ -424,13 +436,14 @@ def test_partial_unique_index_blocks_a_second_default_cookbook(migration_engine:
 
 
 def test_upgrade_downgrade_upgrade_round_trips(migration_engine: Engine) -> None:
-    """Reversible on an empty DB: head → -1 → head leaves no debris behind.
+    """Reversible on an empty DB: head → PREV_HEAD → head leaves no debris.
 
-    A leaked enum type or index would make the second upgrade fail, so the
-    round trip completing at all is most of the assertion.
+    Walks BOTH pivot revisions down and back up. A leaked enum type or index
+    would make the second upgrade fail, so the round trip completing at all
+    is most of the assertion.
     """
     _upgrade(migration_engine, "head")
-    _downgrade(migration_engine, "-1")
+    _downgrade(migration_engine, PREV_HEAD)
 
     with migration_engine.connect() as conn:
         for table in ("cookbooks", "cookbook_members"):
@@ -458,6 +471,198 @@ def test_upgrade_downgrade_upgrade_round_trips(migration_engine: Engine) -> None
 
     with migration_engine.connect() as conn:
         assert (
-            conn.execute(text("select version_num from alembic_version")).scalar_one() == PIVOT_REV
+            conn.execute(text("select version_num from alembic_version")).scalar_one()
+            == FINALIZE_REV
         )
         assert conn.execute(text("select to_regclass('cookbooks')")).scalar_one() is not None
+
+
+# ---------------------------------------------------------------------------
+# The FINALIZE revision: sweep stragglers → NOT NULL → drop the old tables
+# ---------------------------------------------------------------------------
+
+#: A user who registers AFTER the additive migration ran, so nothing ever
+#: created a default cookbook for them.
+ERIN = uuid.UUID("00000000-0000-0000-0000-0000000000e0")
+#: Erin's recipe and one of Alice's, both written with a NULL cookbook_id
+#: between the two migrations (what copy_recipe/extraction used to do).
+R_ERIN_STRAY = uuid.UUID("00000000-0000-0000-0000-0000000000f1")
+R_ALICE_STRAY = uuid.UUID("00000000-0000-0000-0000-0000000000f2")
+
+
+def _seed_stragglers_after_the_additive_migration(engine: Engine) -> None:
+    """Two NULL-cookbook recipes written between the two migrations.
+
+    One belongs to Alice, who already has a default cookbook (the additive
+    migration made her one); the other to Erin, who registered afterwards and
+    therefore has no cookbook at all. The finalize sweep has to handle both,
+    or the ``SET NOT NULL`` right after it fails and takes the deploy with it.
+    """
+    with engine.begin() as conn:
+        conn.execute(
+            sa.insert(users_t),
+            [
+                {
+                    "id": ERIN,
+                    "email": "erin@example.com",
+                    "password_hash": "x",
+                    "display_name": "Erin",
+                }
+            ],
+        )
+        conn.execute(
+            sa.insert(recipes_t),
+            [
+                {
+                    "id": R_ERIN_STRAY,
+                    "owner_id": ERIN,
+                    "title": "Erin stray",
+                    "source_type": "manual",
+                    "cookbook_id": None,
+                },
+                {
+                    "id": R_ALICE_STRAY,
+                    "owner_id": ALICE,
+                    "title": "Alice stray",
+                    "source_type": "manual",
+                    "cookbook_id": None,
+                },
+            ],
+        )
+
+
+def test_finalize_sweeps_stragglers_then_enforces_not_null(migration_engine: Engine) -> None:
+    """Every NULL-cookbook recipe written since the additive migration lands."""
+    _upgrade(migration_engine, PREV_HEAD)
+    _seed_pre_migration_state(migration_engine)
+    _upgrade(migration_engine, PIVOT_REV)
+    _seed_stragglers_after_the_additive_migration(migration_engine)
+
+    _upgrade(migration_engine, "head")
+
+    with migration_engine.connect() as conn:
+        assert (
+            conn.execute(
+                text("select count(*) from recipes where cookbook_id is null")
+            ).scalar_one()
+            == 0
+        )
+
+        # Alice's straggler went to the default she already had...
+        placement = dict(
+            conn.execute(text("select id, cookbook_id from recipes")).all()  # type: ignore[arg-type]
+        )
+        alice_default = conn.execute(
+            text("select id from cookbooks where is_default and owner_id = :o"), {"o": ALICE}
+        ).scalar_one()
+        assert placement[R_ALICE_STRAY] == alice_default
+
+        # ...and Erin, who had none, got one created for her.
+        erin_default = conn.execute(
+            text(
+                "select id, name, visibility::text as visibility from cookbooks "
+                "where is_default and owner_id = :o"
+            ),
+            {"o": ERIN},
+        ).one()
+        assert placement[R_ERIN_STRAY] == erin_default.id
+        assert (erin_default.name, erin_default.visibility) == ("My Cookbook", "private")
+
+        # Nothing that was already placed by the additive migration moved.
+        family = conn.execute(text("select id from cookbooks where name = 'Family'")).scalar_one()
+        assert placement[R_ALICE_SHARED] == family
+
+        # The column is genuinely NOT NULL now, not merely empty of NULLs.
+        nullable = conn.execute(
+            text(
+                "select is_nullable from information_schema.columns "
+                "where table_name = 'recipes' and column_name = 'cookbook_id'"
+            )
+        ).scalar_one()
+        assert nullable == "NO"
+
+        # Invariant #8 again, AFTER the flip: no recipe sits in a cookbook
+        # whose owner is neither the recipe's owner nor a member — otherwise
+        # cookbook.service._recipe_access returns None and the owner 404s on
+        # their own recipe.
+        stranded = conn.execute(
+            text(
+                "select r.id from recipes r "
+                "join cookbooks c on c.id = r.cookbook_id "
+                "left join cookbook_members m "
+                "  on m.cookbook_id = c.id and m.user_id = r.owner_id "
+                "where c.owner_id <> r.owner_id and m.user_id is null"
+            )
+        ).all()
+        assert stranded == [], "recipe owners must keep access to their own recipes"
+
+    with pytest.raises(IntegrityError), migration_engine.begin() as conn:
+        conn.execute(
+            sa.insert(recipes_t),
+            [
+                {
+                    "id": uuid.uuid4(),
+                    "owner_id": ALICE,
+                    "title": "Post-flip NULL",
+                    "source_type": "manual",
+                    "cookbook_id": None,
+                }
+            ],
+        )
+
+
+def test_finalize_drops_the_shared_cookbook_tables(migration_engine: Engine) -> None:
+    """The old co-ownership tables are gone once nothing reads them."""
+    _upgrade(migration_engine, PREV_HEAD)
+    _seed_pre_migration_state(migration_engine)
+    _upgrade(migration_engine, "head")
+
+    with migration_engine.connect() as conn:
+        for table in ("shared_cookbook_recipes", "shared_cookbook_members", "shared_cookbooks"):
+            assert (
+                conn.execute(text("select to_regclass(:t)"), {"t": table}).scalar_one() is None
+            ), f"{table} should be gone after the finalize migration"
+
+
+def test_finalize_downgrade_restores_the_schema_but_not_the_data(migration_engine: Engine) -> None:
+    """down(finalize) is a SCHEMA reverse only — the old rows are not restored.
+
+    The shared_cookbook* tables come back empty and cookbook_id goes nullable
+    again, which is exactly enough for the previous revision's code to boot;
+    the co-ownership rows themselves were converted into cookbooks/members by
+    the additive migration and are not re-derivable.
+    """
+    _upgrade(migration_engine, PREV_HEAD)
+    _seed_pre_migration_state(migration_engine)
+    _upgrade(migration_engine, "head")
+
+    _downgrade(migration_engine, PIVOT_REV)
+
+    with migration_engine.connect() as conn:
+        for table in ("shared_cookbooks", "shared_cookbook_members", "shared_cookbook_recipes"):
+            assert (
+                conn.execute(text("select to_regclass(:t)"), {"t": table}).scalar_one() is not None
+            ), f"{table} should be back after the downgrade"
+            assert conn.execute(text(f"select count(*) from {table}")).scalar_one() == 0, (
+                f"{table} comes back EMPTY — the data is not restored"
+            )
+
+        nullable = conn.execute(
+            text(
+                "select is_nullable from information_schema.columns "
+                "where table_name = 'recipes' and column_name = 'cookbook_id'"
+            )
+        ).scalar_one()
+        assert nullable == "YES"
+
+        # The cookbooks the additive migration built are untouched by this
+        # downgrade — only the finalize step was reversed.
+        assert conn.execute(text("select count(*) from cookbooks")).scalar_one() > 0
+
+    # ...and it goes straight back up again.
+    _upgrade(migration_engine, "head")
+    with migration_engine.connect() as conn:
+        assert (
+            conn.execute(text("select version_num from alembic_version")).scalar_one()
+            == FINALIZE_REV
+        )

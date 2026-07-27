@@ -21,6 +21,21 @@ def make_user(db_session: Session, suffix: str = "") -> User:
     return user
 
 
+def make_cookbook_id(db_session: Session, owner: User) -> uuid.UUID:
+    """A cookbook for *owner* to hold the recipes these model tests build.
+
+    ``recipes.cookbook_id`` is NOT NULL (every recipe lives in exactly one
+    cookbook), so even tests that only care about groups/lines/steps need a
+    cookbook to hang the recipe off.
+    """
+    from recipe_normalizer.cookbook.models import Cookbook
+
+    cookbook = Cookbook(owner_id=owner.id, name="My Cookbook", is_default=True)
+    db_session.add(cookbook)
+    db_session.flush()
+    return cookbook.id
+
+
 def test_recipe_aggregate_roundtrip(db_session: Session) -> None:
     """Build full Recipe aggregate, flush, reload via fresh query, assert order/content."""
     from recipe_normalizer.cookbook.models import (
@@ -46,6 +61,7 @@ def test_recipe_aggregate_roundtrip(db_session: Session) -> None:
     # --- build recipe ---
     recipe = Recipe(
         owner_id=owner.id,
+        cookbook_id=make_cookbook_id(db_session, owner),
         title="Pizza Margherita",
         source_type=SourceType.manual,
     )
@@ -135,7 +151,12 @@ def test_recipe_cascade_delete(db_session: Session) -> None:
     db_session.add_all([cuisine, dish_type, tag])
     db_session.flush()
 
-    recipe = Recipe(owner_id=owner.id, title="Temp", source_type=SourceType.text)
+    recipe = Recipe(
+        owner_id=owner.id,
+        cookbook_id=make_cookbook_id(db_session, owner),
+        title="Temp",
+        source_type=SourceType.text,
+    )
     db_session.add(recipe)
     db_session.flush()
 
@@ -188,8 +209,10 @@ def test_owner_fingerprint_partial_unique_index(db_session: Session) -> None:
 
     owner = make_user(db_session, suffix=str(uuid.uuid4())[:8])
 
+    owner_cookbook_id = make_cookbook_id(db_session, owner)
     first = Recipe(
         owner_id=owner.id,
+        cookbook_id=owner_cookbook_id,
         title="First",
         source_type=SourceType.web,
         source_fingerprint="fp-123",
@@ -201,6 +224,7 @@ def test_owner_fingerprint_partial_unique_index(db_session: Session) -> None:
     # Scope the rollback to a savepoint so the fixture's transaction survives.
     duplicate = Recipe(
         owner_id=owner.id,
+        cookbook_id=owner_cookbook_id,
         title="Duplicate",
         source_type=SourceType.web,
         source_fingerprint="fp-123",
@@ -211,8 +235,19 @@ def test_owner_fingerprint_partial_unique_index(db_session: Session) -> None:
 
     # two recipes with NULL fingerprints for the same owner -> allowed
     owner2 = make_user(db_session, suffix=str(uuid.uuid4())[:8])
-    null_a = Recipe(owner_id=owner2.id, title="Null A", source_type=SourceType.manual)
-    null_b = Recipe(owner_id=owner2.id, title="Null B", source_type=SourceType.manual)
+    owner2_cookbook_id = make_cookbook_id(db_session, owner2)
+    null_a = Recipe(
+        owner_id=owner2.id,
+        cookbook_id=owner2_cookbook_id,
+        title="Null A",
+        source_type=SourceType.manual,
+    )
+    null_b = Recipe(
+        owner_id=owner2.id,
+        cookbook_id=owner2_cookbook_id,
+        title="Null B",
+        source_type=SourceType.manual,
+    )
     db_session.add_all([null_a, null_b])
     db_session.flush()
     count = db_session.execute(
@@ -231,7 +266,12 @@ def test_out_of_order_inserts_returned_sorted(db_session: Session) -> None:
     )
 
     owner = make_user(db_session, suffix=str(uuid.uuid4())[:8])
-    recipe = Recipe(owner_id=owner.id, title="Unordered", source_type=SourceType.manual)
+    recipe = Recipe(
+        owner_id=owner.id,
+        cookbook_id=make_cookbook_id(db_session, owner),
+        title="Unordered",
+        source_type=SourceType.manual,
+    )
     db_session.add(recipe)
     db_session.flush()
 
@@ -288,7 +328,12 @@ def test_collection_recipes_m2m_and_delete_leaves_recipe(db_session: Session) ->
     from recipe_normalizer.cookbook.models import Collection, Recipe, SourceType
 
     owner = make_user(db_session, suffix=str(uuid.uuid4())[:8])
-    recipe = Recipe(owner_id=owner.id, title="Pancakes", source_type=SourceType.manual)
+    recipe = Recipe(
+        owner_id=owner.id,
+        cookbook_id=make_cookbook_id(db_session, owner),
+        title="Pancakes",
+        source_type=SourceType.manual,
+    )
     collection = Collection(owner_id=owner.id, name="Breakfast")
     db_session.add_all([recipe, collection])
     db_session.flush()

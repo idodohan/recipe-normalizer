@@ -280,21 +280,17 @@ def require_cookbook_access(
 # whenever the caller didn't own the recipe outright) is gone — shared access
 # is now a `CookbookMember` row, which `cookbook_access` already resolves.
 #
-# A recipe with a NULL `cookbook_id` (legacy row, pre-migration — see
-# Recipe.cookbook_id's docstring) has no cookbook to derive access from, so it
-# falls back to a plain owner-only check via `recipe.owner_id` directly. That
-# branch is unreachable once the finalize migration's NOT NULL is in place;
-# it stays as a belt-and-braces guard so a stray row could never 500 (and
-# could never widen access either).
+# `recipes.cookbook_id` is NOT NULL as of the finalize migration
+# (b7d3f0c11a94), so there is no cookbook-less case to fall back on — owning
+# the recipe ROW grants nothing by itself. A recipe's owner reaches it because
+# they own, or are a member of, the cookbook holding it; that is exactly why
+# the pivot migration synthesizes a member row for any owner whose recipe was
+# claimed into someone else's cookbook.
 # ---------------------------------------------------------------------------
 
 
 def _recipe_access(db: Session, *, user_id: uuid.UUID | None, recipe: Recipe) -> Access | None:
     """Resolve *user_id*'s access level to an already-loaded *recipe*."""
-    if recipe.cookbook_id is None:
-        if user_id is not None and recipe.owner_id == user_id:
-            return "owner"
-        return None
     return cookbook_access(db, user_id=user_id, cookbook_id=recipe.cookbook_id)
 
 
@@ -1019,12 +1015,12 @@ def recipe_summaries_for_ids(db: Session, ids: list[uuid.UUID]) -> dict[uuid.UUI
     """Return RecipeSummary rows for the given ids, UNSCOPED by owner.
 
     Trusted internal helper, mirroring ``get_recipe_unscoped``'s trust
-    boundary: callers (sharing.service, for the shared-cookbook recipe
-    list) must have already established the caller's right to see each of
-    these specific recipes through their own access-control layer (shared-
-    cookbook membership) before calling this — it does no authorization
-    itself. Ids that don't resolve to a recipe (e.g. deleted after being
-    added to a shared cookbook) are silently omitted, not raised.
+    boundary: callers (cookbook_router, for a cookbook's recipe list) must
+    have already established the caller's right to see each of these
+    specific recipes through their own access-control layer (cookbook
+    membership/visibility) before calling this — it does no authorization
+    itself. Ids that don't resolve to a recipe (e.g. deleted meanwhile) are
+    silently omitted, not raised.
     """
     if not ids:
         return {}
@@ -1347,6 +1343,13 @@ def list_recipes(
         conditions.append(Recipe.source_type == source_type)
 
     if favorites is not None:
+        # `is_favorite` is the OWNER's personal flag (set_personal is
+        # owner-only), so it is only ever meaningful about one's own recipes.
+        # Now that this list spans shared cookbooks, the filter is pinned to
+        # the caller's own rows as well — otherwise "show my favorites" would
+        # hand back recipes a co-member starred, which the caller never
+        # favorited and cannot un-favorite.
+        conditions.append(Recipe.owner_id == owner_id)
         conditions.append(Recipe.is_favorite == favorites)
 
     if collection is not None:
@@ -1376,11 +1379,25 @@ def list_recipes(
     )
     recipes = db.scalars(stmt).all()
     return RecipePage(
-        items=[RecipeSummary.model_validate(r) for r in recipes],
+        items=[_summary_for(r, viewer_id=owner_id) for r in recipes],
         total=total,
         limit=limit,
         offset=offset,
     )
+
+
+def _summary_for(recipe: Recipe, *, viewer_id: uuid.UUID) -> RecipeSummary:
+    """RecipeSummary for *viewer_id*, with the owner's personal flag masked.
+
+    ``is_favorite`` belongs to the recipe's OWNER — a co-member browsing a
+    shared recipe never set it and (``set_personal`` being owner-only) could
+    not clear it, so surfacing it as if it were theirs would render a filled
+    heart whose toggle 404s. Reported as False for anyone but the owner.
+    """
+    summary = RecipeSummary.model_validate(recipe)
+    if recipe.owner_id != viewer_id and summary.is_favorite:
+        summary = summary.model_copy(update={"is_favorite": False})
+    return summary
 
 
 # ---------------------------------------------------------------------------
@@ -1460,7 +1477,7 @@ def recommendations_for_recipe(
     recommendations drawn from THEIR OWN cookbook, never the owner's. This is
     both the intended UX (never recommend a recipe the viewer can't open) and
     the safe default (never leaks the existence of another user's other
-    recipes to a shared-cookbook member).
+    recipes to a member of a cookbook they share).
 
     Excludes *recipe_id* itself. Recipes scoring 0 (no overlap at all) are
     excluded too — an empty list means genuinely nothing in the cookbook

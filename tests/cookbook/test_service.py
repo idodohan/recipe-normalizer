@@ -441,6 +441,40 @@ def test_list_recipes_excludes_public_cookbooks_i_am_not_a_member_of(
     assert page.total == 0
 
 
+def test_list_recipes_span_masks_the_owners_favorite_flag(seeded: Session, owner: User) -> None:
+    """A co-member's starred recipe is not shown as MY favorite.
+
+    ``is_favorite`` is the recipe owner's personal flag and ``set_personal``
+    is owner-only, so a filled heart on someone else's recipe would be both
+    wrong and un-toggleable. It is masked in the flat list, and the
+    ``favorites`` filter never reaches past the caller's own recipes.
+    """
+    stranger = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    shared = make_cookbook(seeded, stranger, name="Shared Book")
+    add_member(seeded, shared, owner, CookbookRole.editor)
+    theirs = cookbook_service.create_recipe(
+        seeded,
+        owner_id=stranger.id,
+        data=_simple_recipe_in(title="Their Favorite"),
+        cookbook_id=shared.id,
+    )
+    cookbook_service.set_personal(
+        seeded, owner_id=stranger.id, recipe_id=theirs.id, is_favorite=True
+    )
+    mine = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_simple_recipe_in(title="My Favorite")
+    )
+    cookbook_service.set_personal(seeded, owner_id=owner.id, recipe_id=mine.id, is_favorite=True)
+
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id)
+    flags = {item.title: item.is_favorite for item in page.items}
+    assert flags == {"My Favorite": True, "Their Favorite": False}
+
+    only_favorites = cookbook_service.list_recipes(seeded, owner_id=owner.id, favorites=True)
+    assert [item.title for item in only_favorites.items] == ["My Favorite"]
+    assert only_favorites.total == 1
+
+
 def test_list_recipes_span_still_honors_filters_and_pagination(
     seeded: Session, owner: User
 ) -> None:
@@ -2086,47 +2120,3 @@ def test_recipe_owner_without_a_member_row_cannot_reach_their_own_recipe(
     # recipe its owner would 404 on.
     page = cookbook_service.list_recipes(seeded, owner_id=contributor.id)
     assert created.id not in {item.id for item in page.items}
-
-
-def test_legacy_null_cookbook_recipe_owner_only_access(seeded: Session, owner: User) -> None:
-    """A recipe with cookbook_id=NULL (legacy, pre-migration) falls back to
-    owner-only access — not derived from any cookbook — so it never 500s and
-    never leaks to a non-owner."""
-    other = make_user(seeded, suffix=str(uuid.uuid4())[:8])
-    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_simple_recipe_in())
-
-    # Simulate a legacy row: null out cookbook_id directly (bypassing create_recipe).
-    recipe = seeded.get(Recipe, created.id)
-    assert recipe is not None
-    recipe.cookbook_id = None
-    seeded.flush()
-
-    # Owner still has full access.
-    fetched = cookbook_service.get_recipe(seeded, owner_id=owner.id, recipe_id=created.id)
-    assert fetched.id == created.id
-    updated = cookbook_service.update_recipe(
-        seeded,
-        owner_id=owner.id,
-        recipe_id=created.id,
-        data=_simple_recipe_in(title="Still Mine"),
-        editor_id=owner.id,
-    )
-    assert updated.title == "Still Mine"
-
-    # Non-owner gets 404 on every operation.
-    with pytest.raises(ApiError) as exc_info:
-        cookbook_service.get_recipe(seeded, owner_id=other.id, recipe_id=created.id)
-    assert exc_info.value.status_code == 404
-
-    with pytest.raises(ApiError) as exc_info:
-        cookbook_service.update_recipe(
-            seeded,
-            owner_id=other.id,
-            recipe_id=created.id,
-            data=_simple_recipe_in(title="Stolen"),
-            editor_id=other.id,
-        )
-    assert exc_info.value.status_code == 404
-
-    cookbook_service.delete_recipe(seeded, owner_id=owner.id, recipe_id=created.id)
-    assert seeded.get(Recipe, created.id) is None
