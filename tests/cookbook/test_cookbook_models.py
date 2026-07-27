@@ -9,6 +9,8 @@ from recipe_normalizer.cookbook.models import (
     CookbookMember,
     CookbookRole,
     CookbookVisibility,
+    Recipe,
+    SourceType,
 )
 from recipe_normalizer.users.models import User
 
@@ -70,6 +72,51 @@ def test_cookbook_member_defaults_and_persistence(db_session: Session) -> None:
     assert fetched.role.value == "editor"
     assert fetched.added_by == owner.id
     assert fetched.created_at is not None
+
+
+def test_recipe_links_to_cookbook(db_session: Session) -> None:
+    owner = make_user(db_session, "4")
+    cookbook = Cookbook(owner_id=owner.id, name="Weeknight Dinners")
+    db_session.add(cookbook)
+    db_session.flush()
+
+    recipe = Recipe(
+        owner_id=owner.id,
+        title="Weeknight Pasta",
+        source_type=SourceType.manual,
+        cookbook_id=cookbook.id,
+    )
+    db_session.add(recipe)
+    db_session.flush()
+
+    db_session.expire_all()
+    fetched_recipe = db_session.get(Recipe, recipe.id)
+    assert fetched_recipe is not None
+    assert fetched_recipe.cookbook_id == cookbook.id
+    assert fetched_recipe.cookbook is not None
+    assert fetched_recipe.cookbook.id == cookbook.id
+
+    fetched_cookbook = db_session.get(Cookbook, cookbook.id)
+    assert fetched_cookbook is not None
+    assert len(fetched_cookbook.recipes) == 1
+    assert fetched_cookbook.recipes[0].id == recipe.id
+
+
+def test_recipe_cookbook_id_is_nullable(db_session: Session) -> None:
+    owner = make_user(db_session, "5")
+    recipe = Recipe(
+        owner_id=owner.id,
+        title="Unlinked Recipe",
+        source_type=SourceType.manual,
+    )
+    db_session.add(recipe)
+    db_session.flush()
+
+    db_session.expire_all()
+    fetched = db_session.get(Recipe, recipe.id)
+    assert fetched is not None
+    assert fetched.cookbook_id is None
+    assert fetched.cookbook is None
 
 
 def test_cookbook_visibility_enum_values() -> None:

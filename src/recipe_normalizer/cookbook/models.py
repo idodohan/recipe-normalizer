@@ -177,6 +177,11 @@ class Recipe(TimestampMixin, Base):
     # there are rewritten; these two columns are deliberately left alone).
     is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # nullable during the cookbooks-pivot transition; migration <Task 8> backfills
+    # + sets NOT NULL.
+    cookbook_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("cookbooks.id", ondelete="CASCADE"), index=True, nullable=True
+    )
 
     # Relationships
     ingredient_groups: Mapped[list["IngredientGroup"]] = relationship(
@@ -202,6 +207,9 @@ class Recipe(TimestampMixin, Base):
     collections: Mapped[list["Collection"]] = relationship(
         secondary="collection_recipes", back_populates="recipes"
     )
+    # `Cookbook` (defined below) is referenced by class name here — resolved
+    # lazily at mapper-configuration time, so definition order doesn't matter.
+    cookbook: Mapped["Cookbook | None"] = relationship(back_populates="recipes")
 
 
 # ---------------------------------------------------------------------------
@@ -359,6 +367,9 @@ class Cookbook(TimestampMixin, Base):
     public_token: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
+    recipes: Mapped[list[Recipe]] = relationship(back_populates="cookbook")
+    members: Mapped[list["CookbookMember"]] = relationship(back_populates="cookbook")
+
 
 class CookbookMember(Base):
     """A user's membership in a shared cookbook (owner is implicit, not a member row)."""
@@ -380,3 +391,5 @@ class CookbookMember(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=func.now()
     )
+
+    cookbook: Mapped[Cookbook] = relationship(back_populates="members")
