@@ -44,6 +44,12 @@ def seeded_auth_client(auth_client: TestClient, db_session):  # type: ignore[no-
 
 
 @pytest.fixture()
+def seeded_admin_client(admin_client: TestClient, db_session):  # type: ignore[no-untyped-def]
+    load_seed(db_session)
+    return admin_client
+
+
+@pytest.fixture()
 def admin_client(client: TestClient, db_session):  # type: ignore[no-untyped-def]
     """A TestClient already authenticated with a registered + logged-in admin user."""
     client.post(
@@ -110,32 +116,38 @@ def test_merge_unauthenticated_returns_401(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_list_ingredients_returns_empty_list(auth_client: TestClient) -> None:
-    resp = auth_client.get("/api/catalog/ingredients")
+def test_list_ingredients_returns_empty_list(admin_client: TestClient) -> None:
+    resp = admin_client.get("/api/catalog/ingredients")
     assert resp.status_code == 200
     assert resp.json() == []
 
 
-def test_list_ingredients_returns_seeded(seeded_auth_client: TestClient) -> None:
-    resp = seeded_auth_client.get("/api/catalog/ingredients")
+def test_list_ingredients_returns_seeded(seeded_admin_client: TestClient) -> None:
+    resp = seeded_admin_client.get("/api/catalog/ingredients")
     assert resp.status_code == 200
     names = [item["name"] for item in resp.json()]
     assert "all-purpose flour" in names
 
 
-def test_list_ingredients_q_filter(seeded_auth_client: TestClient) -> None:
-    resp = seeded_auth_client.get("/api/catalog/ingredients", params={"q": "flou"})
+def test_list_ingredients_q_filter(seeded_admin_client: TestClient) -> None:
+    resp = seeded_admin_client.get("/api/catalog/ingredients", params={"q": "flou"})
     assert resp.status_code == 200
     names = [item["name"] for item in resp.json()]
     assert "all-purpose flour" in names
 
 
-def test_list_ingredients_status_filter(auth_client: TestClient, db_session) -> None:  # type: ignore[no-untyped-def]
+def test_list_ingredients_status_filter(admin_client: TestClient, db_session) -> None:  # type: ignore[no-untyped-def]
     service.create_unreviewed(db_session, name="mystery herb")
-    resp = auth_client.get("/api/catalog/ingredients", params={"status": "unreviewed"})
+    resp = admin_client.get("/api/catalog/ingredients", params={"status": "unreviewed"})
     assert resp.status_code == 200
     names = [item["name"] for item in resp.json()]
     assert "mystery herb" in names
+
+
+def test_list_ingredients_non_admin_returns_403(auth_client: TestClient) -> None:
+    resp = auth_client.get("/api/catalog/ingredients")
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "forbidden"
 
 
 # ---------------------------------------------------------------------------
@@ -143,20 +155,27 @@ def test_list_ingredients_status_filter(auth_client: TestClient, db_session) -> 
 # ---------------------------------------------------------------------------
 
 
-def test_get_ingredient_by_id(auth_client: TestClient, db_session) -> None:  # type: ignore[no-untyped-def]
+def test_get_ingredient_by_id(admin_client: TestClient, db_session) -> None:  # type: ignore[no-untyped-def]
     ing = service.create_unreviewed(db_session, name="test herb")
-    resp = auth_client.get(f"/api/catalog/ingredients/{ing.id}")
+    resp = admin_client.get(f"/api/catalog/ingredients/{ing.id}")
     assert resp.status_code == 200
     assert resp.json()["name"] == "test herb"
 
 
-def test_get_ingredient_not_found_returns_404(auth_client: TestClient) -> None:
+def test_get_ingredient_not_found_returns_404(admin_client: TestClient) -> None:
     import uuid
 
-    resp = auth_client.get(f"/api/catalog/ingredients/{uuid.uuid4()}")
+    resp = admin_client.get(f"/api/catalog/ingredients/{uuid.uuid4()}")
     assert resp.status_code == 404
     body = resp.json()
     assert body["error"]["code"] == "not_found"
+
+
+def test_get_ingredient_non_admin_returns_403(auth_client: TestClient, db_session) -> None:  # type: ignore[no-untyped-def]
+    ing = service.create_unreviewed(db_session, name="forbidden herb")
+    resp = auth_client.get(f"/api/catalog/ingredients/{ing.id}")
+    assert resp.status_code == 403
+    assert resp.json()["error"]["code"] == "forbidden"
 
 
 # ---------------------------------------------------------------------------
@@ -325,14 +344,14 @@ def test_patch_without_density_leaves_it_unchanged(
     assert resp.json()["category"] == "spices"
 
 
-def test_list_limit_caps_results(seeded_auth_client: TestClient) -> None:
-    resp = seeded_auth_client.get("/api/catalog/ingredients", params={"limit": 1})
+def test_list_limit_caps_results(seeded_admin_client: TestClient) -> None:
+    resp = seeded_admin_client.get("/api/catalog/ingredients", params={"limit": 1})
     assert resp.status_code == 200
     assert len(resp.json()) == 1
 
 
-def test_list_limit_out_of_bounds_returns_422(auth_client: TestClient) -> None:
-    resp = auth_client.get("/api/catalog/ingredients", params={"limit": 0})
+def test_list_limit_out_of_bounds_returns_422(admin_client: TestClient) -> None:
+    resp = admin_client.get("/api/catalog/ingredients", params={"limit": 0})
     assert resp.status_code == 422
-    resp = auth_client.get("/api/catalog/ingredients", params={"limit": 201})
+    resp = admin_client.get("/api/catalog/ingredients", params={"limit": 201})
     assert resp.status_code == 422
