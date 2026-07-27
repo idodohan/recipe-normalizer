@@ -162,6 +162,58 @@ def test_any_authenticated_user_on_public_cookbook_gets_viewer(db_session: Sessi
     )
 
 
+def test_authenticated_non_member_on_unlisted_cookbook_gets_viewer(db_session: Session) -> None:
+    owner = make_user(db_session, "29")
+    rando = make_user(db_session, "30")
+    cookbook = make_cookbook(db_session, owner, visibility=CookbookVisibility.unlisted)
+
+    assert (
+        cookbook_access(db_session, user_id=rando.id, cookbook_id=cookbook.id)
+        == CookbookRole.viewer
+    )
+
+
+# ---------------------------------------------------------------------------
+# cookbook_access — member role vs. visibility ordering invariant
+#
+# Step 2 (member row) must be consulted BEFORE step 3 (visibility fallback):
+# an explicit-role member on a public/unlisted cookbook keeps their real
+# role and must NEVER be downgraded to viewer by the visibility branch.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("visibility", [CookbookVisibility.public, CookbookVisibility.unlisted])
+def test_editor_member_on_public_or_unlisted_cookbook_keeps_editor_role(
+    db_session: Session, visibility: CookbookVisibility
+) -> None:
+    owner = make_user(db_session, f"31{visibility.value}")
+    editor = make_user(db_session, f"32{visibility.value}")
+    cookbook = make_cookbook(db_session, owner, visibility=visibility, name=f"CB-{visibility}-ed")
+    add_member(db_session, cookbook, editor, CookbookRole.editor)
+
+    assert (
+        cookbook_access(db_session, user_id=editor.id, cookbook_id=cookbook.id)
+        == CookbookRole.editor
+    )
+
+
+def test_viewer_member_on_public_cookbook_gets_viewer_via_member_row(db_session: Session) -> None:
+    # Same *result* as the anonymous/rando visibility-fallback case, but this
+    # pins that the member row is what's actually consulted for a member —
+    # not an accidental early return from the visibility branch — so a
+    # future reorder that skips the member lookup for public/unlisted
+    # cookbooks would still be caught by the editor-member tests above.
+    owner = make_user(db_session, "33")
+    viewer = make_user(db_session, "34")
+    cookbook = make_cookbook(db_session, owner, visibility=CookbookVisibility.public)
+    add_member(db_session, cookbook, viewer, CookbookRole.viewer)
+
+    assert (
+        cookbook_access(db_session, user_id=viewer.id, cookbook_id=cookbook.id)
+        == CookbookRole.viewer
+    )
+
+
 # ---------------------------------------------------------------------------
 # require_cookbook_access — owner: every level ok
 # ---------------------------------------------------------------------------
@@ -287,6 +339,43 @@ def test_require_anonymous_denied_editor_and_owner_on_public_and_unlisted(
 
     with pytest.raises(ApiError) as exc_info:
         require_cookbook_access(db_session, user_id=None, cookbook_id=cookbook.id, need=need)
+    assert exc_info.value.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# require_cookbook_access — authenticated NON-member on public/unlisted:
+# viewer ok, editor/owner denied (same shape as the anonymous case above,
+# but with a real user_id that isn't the owner or a member row).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("visibility", [CookbookVisibility.public, CookbookVisibility.unlisted])
+def test_require_authenticated_non_member_viewer_ok_on_public_and_unlisted(
+    db_session: Session, visibility: CookbookVisibility
+) -> None:
+    owner = make_user(db_session, f"35{visibility.value}")
+    rando = make_user(db_session, f"36{visibility.value}")
+    cookbook = make_cookbook(db_session, owner, visibility=visibility, name=f"CB-{visibility}-r")
+
+    result = require_cookbook_access(
+        db_session, user_id=rando.id, cookbook_id=cookbook.id, need=CookbookRole.viewer
+    )
+    assert result.id == cookbook.id
+
+
+@pytest.mark.parametrize("visibility", [CookbookVisibility.public, CookbookVisibility.unlisted])
+@pytest.mark.parametrize("need", [CookbookRole.editor, "owner"])
+def test_require_authenticated_non_member_denied_editor_and_owner_on_public_and_unlisted(
+    db_session: Session, visibility: CookbookVisibility, need: CookbookRole | str
+) -> None:
+    owner = make_user(db_session, f"37{visibility.value}{need}")
+    rando = make_user(db_session, f"38{visibility.value}{need}")
+    cookbook = make_cookbook(
+        db_session, owner, visibility=visibility, name=f"CB-{visibility}-{need}-r"
+    )
+
+    with pytest.raises(ApiError) as exc_info:
+        require_cookbook_access(db_session, user_id=rando.id, cookbook_id=cookbook.id, need=need)
     assert exc_info.value.status_code == 404
 
 
