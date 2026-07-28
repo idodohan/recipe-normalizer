@@ -1,0 +1,82 @@
+/* ------------------------------------------------------------------ */
+/*  SaveToCookbooks — checklist (owner) / copy-picker (non-owner)      */
+/*  rendered inside Dialog's paper panel.                              */
+/* ------------------------------------------------------------------ */
+
+.stc__status {
+  font-size: var(--text-small);
+  color: var(--color-text-muted);
+  margin: 0;
+  max-width: none;
+}
+
+.stc__status--error {
+  color: var(--color-error);
+}
+
+.stc__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.stc__item {
+  border-bottom: var(--hairline);
+  padding: var(--space-2) 0;
+}
+
+.stc__item:last-child {
+  border-bottom: none;
+}
+
+.stc__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 2.75rem;
+  cursor: pointer;
+  font-size: var(--text-small);
+  color: var(--color-ink);
+}
+
+.stc__row input[type="checkbox"] {
+  width: 1.125rem;
+  height: 1.125rem;
+  accent-color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.stc__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.stc__count {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-faint);
+  font-size: var(--text-micro);
+}
+
+.stc__note {
+  margin: var(--space-1) 0 var(--space-2) calc(1.125rem + var(--space-3));
+  font-size: var(--text-micro);
+  color: var(--color-text-muted);
+}
+
+/* -- Non-owner copy picker ---------------------------------------------- */
+
+.stc__picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.stc__hint {
+  font-size: var(--text-small);
+  color: var(--color-text-muted);
+  margin: 0;
+  max-width: none;
+}

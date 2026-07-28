@@ -9,7 +9,7 @@ import { NewCookbookDialog } from "../components/cookbook/NewCookbookDialog";
 import { CookbookQaPanel } from "../components/cookbook/CookbookQaPanel";
 import { RecipeCard } from "../components/recipe/RecipeCard";
 import { useCookbooks } from "../hooks/useCookbooks";
-import { useCollections, useRecipeSearch } from "../hooks/useRecipeSearch";
+import { useRecipeSearch } from "../hooks/useRecipeSearch";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { apiErrorMessage } from "../api/errors";
 import "../components/cookbook/cookbooks-home.css";
@@ -17,19 +17,16 @@ import "../components/cookbook/cookbooks-home.css";
 export function CookbooksHomePage() {
   const navigate = useNavigate();
   const cookbooks = useCookbooks();
-  const collections = useCollections();
   const [newOpen, setNewOpen] = useState(false);
 
-  // Search across all readable cookbooks. A single calm field + optional
-  // collection/favorites toggles — deliberately NOT the old nine-dropdown bar.
+  // Search across all readable cookbooks. A single calm field + a favorites
+  // toggle — deliberately NOT the old nine-dropdown bar.
   const [queryInput, setQueryInput] = useState("");
   const query = useDebouncedValue(queryInput, 250);
-  const [collection, setCollection] = useState<string | null>(null);
   const [favorites, setFavorites] = useState(false);
-  const searching = Boolean(query.trim() || collection || favorites);
+  const searching = Boolean(query.trim() || favorites);
   const results = useRecipeSearch({
     q: query,
-    collection: collection ?? undefined,
     favorites,
   });
 
@@ -37,12 +34,10 @@ export function CookbooksHomePage() {
   const mine = items.filter((c) => c.role === "owner");
   const shared = items.filter((c) => c.role !== "owner");
   const totalRecipes = items.reduce((n, c) => n + c.recipe_count, 0);
-  const collectionList = collections.data ?? [];
   const resultItems = results.data?.items ?? [];
 
   function clearSearch() {
     setQueryInput("");
-    setCollection(null);
     setFavorites(false);
   }
 
@@ -64,7 +59,7 @@ export function CookbooksHomePage() {
       {/* Ask across everything you've saved — AI, grounded in your recipes. */}
       <CookbookQaPanel />
 
-      {/* Plain search across all cookbooks + collection/favorite scopes. */}
+      {/* Plain search across all cookbooks + a favorites scope. */}
       <div className="cb-search">
         <input
           type="search"
@@ -84,19 +79,6 @@ export function CookbooksHomePage() {
           >
             ♥ Favorites
           </button>
-          {collectionList.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              className="chip chip--filter"
-              aria-pressed={collection === c.id}
-              onClick={() =>
-                setCollection((cur) => (cur === c.id ? null : c.id))
-              }
-            >
-              {c.name} ({c.recipe_count})
-            </button>
-          ))}
           {searching ? (
             <button type="button" className="cb-search__clear" onClick={clearSearch}>
               Clear
