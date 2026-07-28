@@ -1,0 +1,444 @@
+/* ------------------------------------------------------------------ */
+/*  Cookbook detail — warm, photo-forward magazine spread. Soft shadows */
+/*  + rounded corners throughout, no hairline boxes. Matches the        */
+/*  cookbooks-home / cookbook-card visual language.                     */
+/* ------------------------------------------------------------------ */
+
+.cbd__back {
+  display: inline-block;
+  font-size: var(--text-small);
+  color: var(--color-text-muted);
+  text-decoration: none;
+  margin-bottom: var(--space-5);
+}
+
+.cbd__back:hover {
+  color: var(--color-accent-deep);
+}
+
+/* -- Masthead --------------------------------------------------------- */
+
+.cbd__masthead {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-6);
+  margin-bottom: var(--space-7);
+}
+
+.cbd__cover {
+  flex: 0 0 14rem;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  background: var(--color-neutral-200);
+}
+
+.cbd__cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cbd__masthead-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+}
+
+.cbd__masthead-text {
+  min-width: 0;
+  flex: 1 1 20rem;
+}
+
+.cbd__overline {
+  font-family: var(--font-body);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--color-accent);
+  margin: 0 0 var(--space-2);
+}
+
+.cbd__title-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.cbd__title {
+  font-family: var(--font-display);
+  font-size: var(--text-display);
+  font-weight: 560;
+  line-height: var(--leading-tight);
+  margin: 0;
+}
+
+.cbd__edit-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-small);
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.cbd__edit-btn:hover {
+  color: var(--color-accent-deep);
+  background-color: var(--color-accent-wash);
+}
+
+.cbd__edit-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.cbd__description {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+  max-width: 42rem;
+}
+
+.cbd__count {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-small);
+  color: var(--color-text-faint);
+}
+
+.cbd__masthead-actions {
+  flex-shrink: 0;
+}
+
+/* -- Inline name/description editor ------------------------------------ */
+
+.cbd__edit-form {
+  flex: 1 1 20rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-5);
+}
+
+.cbd__textarea {
+  height: auto;
+  padding: var(--space-3);
+  resize: vertical;
+  font-family: inherit;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+}
+
+.cbd__edit-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+/* -- Badges ------------------------------------------------------------ */
+
+.cbd-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-small);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  background: var(--color-accent-wash);
+  color: var(--color-accent-deep);
+}
+
+.cbd-badge--role {
+  background: var(--color-neutral-100);
+  color: var(--color-text-muted);
+}
+
+.cbd__viewer-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-7);
+}
+
+/* -- Owner panel -------------------------------------------------------- */
+
+.cbd__owner-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  margin-bottom: var(--space-8);
+}
+
+.cbd__panel-block {
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-5);
+}
+
+.cbd__panel-block--danger {
+  box-shadow: var(--shadow-sm);
+}
+
+.cbd__panel-heading {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: var(--text-heading);
+  font-weight: 520;
+  margin: 0 0 var(--space-4);
+}
+
+.cbd__hint {
+  font-size: var(--text-small);
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-4);
+  max-width: 34rem;
+}
+
+/* -- Visibility segmented control ---------------------------------------- */
+
+.cbd-seg {
+  display: inline-flex;
+  align-items: stretch;
+  height: var(--control-height);
+  padding: 4px;
+  gap: 2px;
+  background: var(--color-neutral-100);
+  border-radius: 999px;
+}
+
+.cbd-seg__option {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-4);
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: var(--text-small);
+  font-weight: 500;
+  color: var(--color-text-muted);
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.cbd-seg__option:hover:not(:disabled):not(.cbd-seg__option--active) {
+  color: var(--color-ink);
+}
+
+.cbd-seg__option:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.cbd-seg__option--active {
+  background: var(--color-accent);
+  color: var(--color-paper);
+}
+
+.cbd-seg__option:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* -- Share token ---------------------------------------------------------- */
+
+.cbd__share {
+  margin-top: var(--space-5);
+  max-width: 30rem;
+}
+
+.cbd__share-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.cbd__share-note {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-small);
+  color: var(--color-text-faint);
+}
+
+/* -- Members -------------------------------------------------------------- */
+
+.cbd-members {
+  list-style: none;
+  margin: 0 0 var(--space-5);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.cbd-members__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-neutral-100);
+}
+
+.cbd-members__id {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--text-small);
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cbd-members__remove {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.cbd-members__remove:hover:not(:disabled) {
+  background: var(--color-error-wash);
+  color: var(--color-error);
+}
+
+.cbd-members__remove:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.cbd-members__remove:disabled {
+  opacity: 0.6;
+}
+
+/* -- Invite form ------------------------------------------------------------ */
+
+.cbd__invite {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.cbd__invite .field {
+  flex: 1 1 16rem;
+}
+
+.cbd__role-select-label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-small);
+  font-weight: 500;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-neutral-700);
+}
+
+.cbd__role-select {
+  height: var(--control-height);
+  padding: 0 var(--space-3);
+  background-color: var(--color-surface-raised);
+  border: var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+}
+
+.cbd__role-select:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--focus-ring);
+}
+
+/* -- Confirm-delete dialog actions ------------------------------------------ */
+
+.cbd__dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: 0 var(--space-5) var(--space-5);
+}
+
+/* -- Recipe grid -------------------------------------------------------------- */
+
+.cbd-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-8) var(--space-6);
+}
+
+.cbd-grid > li {
+  display: flex;
+  min-width: 0;
+}
+
+@media (max-width: 940px) {
+  .cbd-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .cbd__masthead {
+    flex-direction: column;
+  }
+
+  .cbd__cover {
+    flex: none;
+    width: 100%;
+    aspect-ratio: 21 / 9;
+  }
+
+  .cbd__masthead-body {
+    align-items: flex-start;
+  }
+
+  .cbd__masthead-actions .btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 580px) {
+  .cbd-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-7);
+  }
+
+  .cbd__invite {
+    align-items: stretch;
+  }
+
+  .cbd__invite .btn {
+    width: 100%;
+  }
+}

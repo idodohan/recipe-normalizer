@@ -14,13 +14,15 @@ import { useTheme } from "../hooks/useTheme";
 import { useUserActions, type User } from "../hooks/useUser";
 import "./AppShell.css";
 
-const NAV_ITEMS: Array<
-  { label: string; to: string; soon?: false } | { label: string; soon: true }
-> = [
-  { label: "Cookbook", to: "/" },
-  { label: "Inbox", to: "/inbox" },
-  { label: "Catalog", to: "/catalog" },
+type NavItem = { label: string; to: string };
+
+const BASE_NAV: NavItem[] = [
+  { label: "Cookbooks", to: "/" },
+  { label: "Add a recipe", to: "/add" },
 ];
+
+// Catalog is a curation surface, not an everyday screen — admins only.
+const ADMIN_NAV: NavItem[] = [{ label: "Catalog", to: "/catalog" }];
 
 export function AppShell({ user }: { user: User }) {
   const navigate = useNavigate();
@@ -81,31 +83,20 @@ export function AppShell({ user }: { user: User }) {
             Recipe Normalizer
           </Link>
           <nav className="shell__nav" aria-label="Primary">
-            {NAV_ITEMS.map((item) =>
-              item.soon ? (
-                <span
-                  key={item.label}
-                  className="shell__nav-link shell__nav-link--disabled"
-                  aria-disabled="true"
-                >
-                  {item.label}
-                  <span className="shell__soon">soon</span>
-                </span>
-              ) : (
-                <NavLink
-                  key={item.label}
-                  to={item.to}
-                  end={item.to === "/"}
-                  className={({ isActive }) =>
-                    isActive
-                      ? "shell__nav-link shell__nav-link--active"
-                      : "shell__nav-link"
-                  }
-                >
-                  {item.label}
-                </NavLink>
-              ),
-            )}
+            {[...BASE_NAV, ...(user.is_admin ? ADMIN_NAV : [])].map((item) => (
+              <NavLink
+                key={item.label}
+                to={item.to}
+                end={item.to === "/"}
+                className={({ isActive }) =>
+                  isActive
+                    ? "shell__nav-link shell__nav-link--active"
+                    : "shell__nav-link"
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
           </nav>
           <div className="shell__user">
             <span className="shell__user-name">

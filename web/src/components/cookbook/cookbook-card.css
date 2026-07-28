@@ -1,0 +1,79 @@
+/* ------------------------------------------------------------------ */
+/*  Cookbook tile — warm, photo-forward. Soft shadow + rounded, no box. */
+/* ------------------------------------------------------------------ */
+
+.cb-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.cb-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg);
+}
+
+.cb-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring), var(--shadow-md);
+}
+
+.cb-card__cover {
+  position: relative;
+  aspect-ratio: 3 / 2;
+  background: var(--color-neutral-200);
+}
+
+.cb-card__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cb-card__badges {
+  position: absolute;
+  inset: auto var(--space-3) var(--space-3) auto;
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.cb-badge {
+  font-family: var(--font-body);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(28, 25, 23, 0.62);
+  color: #fffdf9;
+  backdrop-filter: blur(4px);
+}
+
+.cb-card__body {
+  padding: var(--space-4) var(--space-4) var(--space-5);
+}
+
+.cb-card__name {
+  font-family: var(--font-display);
+  font-size: var(--text-heading);
+  font-weight: 560;
+  line-height: var(--leading-snug);
+  margin: 0;
+}
+
+.cb-card__count {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-small);
+  color: var(--color-text-muted);
+}

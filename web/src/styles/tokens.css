@@ -76,14 +76,24 @@
   --hairline: 1px solid var(--color-hairline);
   --hairline-strong: 1px solid var(--color-hairline-strong);
   --rule-ink: 2px solid var(--color-ink);
-  --radius-sm: 2px; /* editorial — barely rounded */
-  --radius-md: 4px;
+  --radius-sm: 6px; /* controls, chips, inputs */
+  --radius-md: 10px; /* small cards, dialogs */
+  --radius-lg: 16px; /* recipe & cookbook cards */
+  --radius-xl: 24px; /* covers, hero surfaces */
+
+  /* -- Elevation ----------------------------------------------------- */
+  /*  Warm photo-forward direction: soft shadows carry cards, not hairline
+      boxes. Tinted with the ink so they read warm, not grey. Theme-aware
+      overrides live in the dark blocks below. */
+  --shadow-sm: 0 1px 2px rgba(28, 25, 23, 0.06), 0 2px 6px rgba(28, 25, 23, 0.06);
+  --shadow-md: 0 2px 4px rgba(28, 25, 23, 0.06), 0 8px 20px -6px rgba(28, 25, 23, 0.16);
+  --shadow-lg: 0 4px 8px rgba(28, 25, 23, 0.08), 0 18px 40px -12px rgba(28, 25, 23, 0.24);
 
   /* -- Focus -------------------------------------------------------- */
   --focus-ring: 0 0 0 2px var(--color-paper), 0 0 0 4px var(--color-accent);
 
   /* -- Layout -------------------------------------------------------- */
-  --content-max: 1100px;
+  --content-max: 1180px;
   --control-height: 2.75rem; /* 44px — buttons & inputs share this (WCAG 2.5.5 target) */
 }
 
@@ -146,6 +156,9 @@
   --color-error: #e57368;
   --color-error-wash: #2e1b18;
   --shadow-pop: 0 8px 24px -8px rgba(0, 0, 0, 0.6);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.4), 0 8px 20px -6px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.5), 0 18px 40px -12px rgba(0, 0, 0, 0.7);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -178,5 +191,8 @@
     --color-error: #e57368;
     --color-error-wash: #2e1b18;
     --shadow-pop: 0 8px 24px -8px rgba(0, 0, 0, 0.6);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.4), 0 8px 20px -6px rgba(0, 0, 0, 0.55);
+    --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.5), 0 18px 40px -12px rgba(0, 0, 0, 0.7);
   }
 }
