@@ -3,7 +3,7 @@
 Covers the boards model's data foundation:
 
 * the join rows themselves — dual-written by every code path that files a
-  recipe into a cookbook (`create_recipe`, `copy_recipe`, `move_recipe`) while
+  recipe into a cookbook (`create_recipe`, `copy_recipe`) while
   `recipes.cookbook_id` is still NOT NULL,
 * `add_recipe_to_cookbook` / `remove_recipe_from_cookbook` /
   `cookbooks_for_recipe`,
@@ -153,19 +153,6 @@ def test_copy_recipe_dual_writes_a_join_row(seeded: Session, owner: User) -> Non
     assert placements(seeded, copy.id) == {copy.cookbook_id}
     row = seeded.get(CookbookRecipe, (copy.cookbook_id, copy.id))
     assert row is not None and row.added_by == recipient.id
-
-
-def test_move_recipe_moves_the_join_row(seeded: Session, owner: User) -> None:
-    source = make_cookbook(seeded, owner, name="Source")
-    dest = make_cookbook(seeded, owner, name="Dest")
-    created = cookbook_service.create_recipe(
-        seeded, owner_id=owner.id, data=_recipe_in(), cookbook_id=source.id
-    )
-
-    cookbook_service.move_recipe(seeded, created.id, owner.id, dest.id)
-
-    assert placements(seeded, created.id) == {dest.id}
-    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [dest.id]
 
 
 # ---------------------------------------------------------------------------
@@ -416,16 +403,17 @@ def test_remove_requires_editor_on_the_cookbook(
     assert shared.id in placements(seeded, created.id)
 
 
-def test_remove_from_a_cookbook_the_recipe_is_not_in_is_a_noop(
+def test_remove_from_a_cookbook_the_recipe_is_not_in_raises_404(
     seeded: Session, owner: User
 ) -> None:
     unrelated = make_cookbook(seeded, owner, name="Unrelated")
     created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
 
-    cookbook_service.remove_recipe_from_cookbook(
-        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=unrelated.id
-    )
-
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.remove_recipe_from_cookbook(
+            seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=unrelated.id
+        )
+    assert exc_info.value.status_code == 404
     assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [created.cookbook_id]
 
 
@@ -435,6 +423,47 @@ def test_remove_nonexistent_recipe_raises_404(seeded: Session, owner: User) -> N
     with pytest.raises(ApiError) as exc_info:
         cookbook_service.remove_recipe_from_cookbook(
             seeded, user_id=owner.id, recipe_id=uuid.uuid4(), cookbook_id=cookbook.id
+        )
+    assert exc_info.value.status_code == 404
+
+
+def test_remove_gives_no_existence_oracle_for_recipes_outside_the_cookbook(
+    seeded: Session, owner: User
+) -> None:
+    """A real-but-elsewhere recipe and a made-up id must be indistinguishable.
+
+    Otherwise any editor of any cookbook could probe arbitrary recipe ids for
+    existence by watching which removal 404s and which silently succeeds.
+    """
+    stranger = make_user(seeded)
+    my_cookbook = make_cookbook(seeded, owner, name="Mine")
+    hidden = cookbook_service.create_recipe(seeded, owner_id=stranger.id, data=_recipe_in())
+
+    outcomes = []
+    for recipe_id in (hidden.id, uuid.uuid4()):
+        with pytest.raises(ApiError) as exc_info:
+            cookbook_service.remove_recipe_from_cookbook(
+                seeded, user_id=owner.id, recipe_id=recipe_id, cookbook_id=my_cookbook.id
+            )
+        outcomes.append((exc_info.value.status_code, exc_info.value.code))
+
+    assert outcomes[0] == outcomes[1] == (404, "not_found")
+
+
+def test_removing_the_same_placement_twice_raises_404(seeded: Session, owner: User) -> None:
+    """Not idempotent, by design — the second call can't tell "gone" from "never there"."""
+    second = make_cookbook(seeded, owner, name="Second")
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
+    )
+    cookbook_service.remove_recipe_from_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
+    )
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.remove_recipe_from_cookbook(
+            seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
         )
     assert exc_info.value.status_code == 404
 

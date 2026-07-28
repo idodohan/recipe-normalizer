@@ -85,7 +85,6 @@ __all__ = [
     "list_collections",
     "list_my_cookbooks",
     "list_recipes",
-    "move_recipe",
     "recipe_access",
     "recipe_summaries_for_ids",
     "recipe_titles_for_ids",
@@ -649,16 +648,21 @@ def _rehome_multi_placed_recipes(db: Session, cookbook_id: uuid.UUID) -> None:
         .correlate(Recipe)
         .scalar_subquery()
     )
-    db.execute(
+    rehomed = db.scalars(
         update(Recipe)
         .where(Recipe.cookbook_id == cookbook_id, replacement.is_not(None))
         .values(cookbook_id=replacement)
-    )
+        .returning(Recipe.id)
+    ).all()
+    if not rehomed:
+        return  # nothing multi-placed here — this delete is the pre-boards one
     db.flush()
     # The ORM may hold a loaded `cookbook.recipes` collection whose
     # delete-orphan cascade would still delete the rows we just re-homed;
-    # expiring the parent drops it back to unloaded, where `passive_deletes`
-    # leaves every remaining child to the database's own CASCADE.
+    # expiring drops it back to unloaded, where `passive_deletes` leaves every
+    # remaining child to the database's own CASCADE. Gated on rowcount so the
+    # overwhelmingly common delete (nothing multi-placed) doesn't invalidate the
+    # caller's whole identity map for nothing.
     db.expire_all()
 
 
@@ -883,13 +887,23 @@ def remove_recipe_from_cookbook(
 ) -> None:
     """Drop *recipe_id*'s placement in *cookbook_id*. NEVER deletes the recipe.
 
-    Requires editor+ access to *cookbook_id* (404 otherwise). Idempotent: a
-    no-op when the recipe isn't in that cookbook at all.
+    Requires editor+ access to *cookbook_id* (404 otherwise).
+
+    Raises ApiError 404 when the recipe is not in *cookbook_id* — including
+    when it doesn't exist at all, and including a second removal of the same
+    placement. The two cases are deliberately INDISTINGUISHABLE: 404-ing only
+    the nonexistent one would hand any editor of any cookbook an existence
+    oracle for arbitrary recipe ids ("is this uuid a real recipe?"). Same
+    not-found discipline as ``add_recipe_to_cookbook`` and the rest of the
+    module — the cost is that removal is not idempotent, which a DELETE
+    endpoint can absorb by mapping 404 to "already gone".
 
     Raises ApiError 409 ``last_placement`` when *cookbook_id* is the recipe's
     ONLY placement — every recipe must stay in at least one cookbook, and
     "delete the recipe entirely" is the separate owner-only action
-    (``delete_recipe``). This invariant lives here, not in the database.
+    (``delete_recipe``). This invariant lives here, not in the database. (No
+    oracle here: reaching it already required editor+ on a cookbook the recipe
+    is in, so the caller can see the recipe anyway.)
 
     TRANSITION: when the dropped placement is also the recipe's primary
     (``recipes.cookbook_id``, still NOT NULL), that column is repointed at one
@@ -901,13 +915,14 @@ def remove_recipe_from_cookbook(
     entries. Flushes; caller owns commit.
     """
     require_cookbook_access(db, user_id=user_id, cookbook_id=cookbook_id, need=CookbookRole.editor)
-    recipe = db.get(Recipe, recipe_id)
-    if recipe is None:
-        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
 
+    # One check for both the nonexistent-recipe and the not-in-this-cookbook
+    # cases: a nonexistent recipe simply has an empty placement set.
     placements = cookbooks_for_recipe(db, recipe_id)
     if cookbook_id not in placements:
-        return
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found in this cookbook.")
+    recipe = db.get(Recipe, recipe_id)
+    assert recipe is not None  # it has a placement, so the row exists
     if len(placements) == 1:
         raise ApiError(
             409,
@@ -1234,64 +1249,21 @@ def get_recipe(
 ) -> RecipeOut:
     """Fetch a recipe by id. Raises ApiError 404 if not found or the caller has no access.
 
-    Access derives from the recipe's cookbook (see ``_recipe_access``):
-    despite the parameter name (kept as ``owner_id`` for backward
-    compatibility with every existing call site — ingestion, sharing, the
-    router's GET and /scaled endpoints), any caller with at least viewer
-    access to the recipe's cookbook — owner, editor, or viewer member, or a
-    public/unlisted viewer — can read it, and nobody else. A caller with no
-    claim gets the same 404 as a nonexistent id — this function never reveals
-    whether a recipe merely belongs to someone else.
+    Access is the SET-based rule (see ``_recipe_access``): despite the
+    parameter name (kept as ``owner_id`` for backward compatibility with every
+    existing call site — ingestion, sharing, the router's GET and /scaled
+    endpoints), any caller with at least viewer access to ANY cookbook holding
+    the recipe — owner, editor, or viewer member, or a public/unlisted
+    viewer — can read it, as can the recipe's own owner (``recipes.owner_id``),
+    and nobody else. A caller with no claim gets the same 404 as a nonexistent
+    id — this function never reveals whether a recipe merely belongs to
+    someone else.
     """
     loaded = _load_recipe_full(db, recipe_id)
     if loaded is None:
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
     _require_recipe_access(db, user_id=owner_id, recipe=loaded, need=CookbookRole.viewer)
     return RecipeOut.model_validate(loaded)
-
-
-def move_recipe(
-    db: Session,
-    recipe_id: uuid.UUID,
-    user_id: uuid.UUID,
-    to_cookbook_id: uuid.UUID,
-) -> Recipe:
-    """Move a recipe to a different cookbook.
-
-    Requires editor+ access on BOTH the recipe's current cookbook (the
-    source) and *to_cookbook_id* (the destination) — 404 on either check
-    failing, via the same not-found discipline as the rest of this module.
-    There is no cookbook-less case to special-case: ``recipes.cookbook_id`` is
-    NOT NULL, so a recipe always HAS a source cookbook to check against.
-    Reassigns ``recipe.cookbook_id`` in place; flushes, caller owns commit.
-
-    A MOVE, not a placement: it drops the join row for the source cookbook and
-    writes one for the destination, so the recipe's cookbook set is unchanged
-    in size. In the boards model the interesting operations are
-    ``add_recipe_to_cookbook`` / ``remove_recipe_from_cookbook`` instead; this
-    one survives for the pre-boards "move to cookbook" call sites and only ever
-    re-homes the PRIMARY placement (other placements are left untouched).
-    """
-    recipe = db.get(Recipe, recipe_id)
-    if recipe is None:
-        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
-    _require_recipe_access(db, user_id=user_id, recipe=recipe, need=CookbookRole.editor)
-    require_cookbook_access(
-        db, user_id=user_id, cookbook_id=to_cookbook_id, need=CookbookRole.editor
-    )
-    from_cookbook_id = recipe.cookbook_id
-    recipe.cookbook_id = to_cookbook_id
-    # DUAL-WRITE (transition): keep the join rows in step with the column.
-    if from_cookbook_id != to_cookbook_id:
-        old_row = db.get(CookbookRecipe, (from_cookbook_id, recipe_id))
-        if old_row is not None:
-            db.delete(old_row)
-        db.flush()
-        db.execute(
-            _placement_insert(cookbook_id=to_cookbook_id, recipe_id=recipe_id, added_by=user_id)
-        )
-    db.flush()
-    return recipe
 
 
 def get_recipe_unscoped(db: Session, recipe_id: uuid.UUID) -> RecipeOut:
@@ -1943,10 +1915,11 @@ def update_recipe(
 ) -> RecipeOut:
     """Replace a recipe's content wholesale; returns updated RecipeOut.
 
-    Access derives from the recipe's cookbook (see ``_recipe_access``):
-    ``owner_id`` (again, kept as the param name for compatibility) needs
-    editor+ access to the recipe's cookbook — owner or editor member — 404
-    otherwise (viewer members and non-members alike).
+    Access is the SET-based rule (see ``_recipe_access``): ``owner_id`` (again,
+    kept as the param name for compatibility) needs editor+ access to ANY
+    cookbook holding the recipe — owner or editor member of at least one — or
+    to be the recipe's own owner (``recipes.owner_id``); 404 otherwise (viewer
+    members and non-members alike).
     - Replaces groups/lines/steps (delete-orphan cascade handles cleanup).
     - Re-runs catalog matching + normalization.
     - Sets last_edited_by and last_edited_at to *editor_id* — for a member

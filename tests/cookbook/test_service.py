@@ -1951,47 +1951,6 @@ def test_create_recipe_omitted_cookbook_id_lands_in_default(seeded: Session, own
     assert created.cookbook_id == default_cookbook.id
 
 
-def test_move_recipe_between_editable_cookbooks_ok(seeded: Session, owner: User) -> None:
-    source = make_cookbook(seeded, owner, name="Source")
-    dest = make_cookbook(seeded, owner, name="Dest")
-    created = cookbook_service.create_recipe(
-        seeded, owner_id=owner.id, data=_simple_recipe_in(), cookbook_id=source.id
-    )
-
-    moved = cookbook_service.move_recipe(seeded, created.id, owner.id, dest.id)
-
-    assert moved.cookbook_id == dest.id
-
-
-def test_move_recipe_destination_not_editable_raises_404(seeded: Session, owner: User) -> None:
-    source = make_cookbook(seeded, owner, name="Source")
-    dest_owner = make_user(seeded, suffix=str(uuid.uuid4())[:8])
-    dest = make_cookbook(seeded, dest_owner, name="Someone Else's Book")
-    created = cookbook_service.create_recipe(
-        seeded, owner_id=owner.id, data=_simple_recipe_in(), cookbook_id=source.id
-    )
-
-    with pytest.raises(ApiError) as exc_info:
-        cookbook_service.move_recipe(seeded, created.id, owner.id, dest.id)
-    assert exc_info.value.status_code == 404
-
-
-def test_move_recipe_source_not_editable_raises_404(seeded: Session, owner: User) -> None:
-    """A viewer-only member of the recipe's current cookbook cannot move it out,
-    even if they have editor access to the destination cookbook."""
-    source = make_cookbook(seeded, owner, name="Source")
-    viewer = make_user(seeded, suffix=str(uuid.uuid4())[:8])
-    add_member(seeded, source, viewer, CookbookRole.viewer)
-    dest = make_cookbook(seeded, viewer, name="Viewer's Own Book")
-    created = cookbook_service.create_recipe(
-        seeded, owner_id=owner.id, data=_simple_recipe_in(), cookbook_id=source.id
-    )
-
-    with pytest.raises(ApiError) as exc_info:
-        cookbook_service.move_recipe(seeded, created.id, viewer.id, dest.id)
-    assert exc_info.value.status_code == 404
-
-
 def test_viewer_of_shared_cookbook_can_get_but_not_update_or_delete(
     seeded: Session, owner: User
 ) -> None:
@@ -2050,13 +2009,19 @@ def test_editor_of_shared_cookbook_can_update_but_not_delete(seeded: Session, ow
     assert seeded.get(Recipe, created.id) is not None
 
 
-def test_recipe_access_matrix_is_cookbook_derived_only(seeded: Session, owner: User) -> None:
-    """Owner / editor-member / viewer-member / non-member, with no second path.
+def test_recipe_access_matrix_is_cookbook_set_derived_plus_owner_id(
+    seeded: Session, owner: User
+) -> None:
+    """Owner / editor-member / viewer-member / non-member, plus the owner_id path.
 
-    Recipe access used to be a UNION of cookbook-derived access and a legacy
-    widening callback that `sharing` registered (any member of any shared
-    cookbook containing the recipe). That union is gone, so this pins the
-    whole matrix through the one remaining rule: the recipe's cookbook.
+    Recipe access has exactly TWO sources under the boards model: the cookbooks
+    holding the recipe (highest role across the set wins — see
+    tests/cookbook/test_recipe_placements.py for the multi-cookbook cases) and
+    ``recipes.owner_id``, which always resolves to "owner". The legacy widening
+    callback `sharing` used to register is long gone; nothing else grants
+    access. Both sources are pinned here, cookbook-derived first and then the
+    owner_id one in isolation (a recipe owner who is neither the cookbook's
+    owner nor a member of it).
     """
     editor = make_user(seeded, suffix=str(uuid.uuid4())[:8])
     viewer = make_user(seeded, suffix=str(uuid.uuid4())[:8])
@@ -2099,6 +2064,44 @@ def test_recipe_access_matrix_is_cookbook_derived_only(seeded: Session, owner: U
             editor_id=stranger.id,
         )
     assert exc_info.value.status_code == 404
+
+    # THE SECOND PATH, in isolation: `contributor` owns the recipe row but is
+    # neither the holding cookbook's owner nor a member of it (their editor
+    # membership is revoked right after they contribute the recipe), and the
+    # cookbook is private — so the whole cookbook-derived side of the matrix
+    # resolves to None for them. `recipes.owner_id` alone must still grant
+    # "owner", read AND edit.
+    contributor = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    add_member(seeded, cookbook, contributor, CookbookRole.editor)
+    contributed = cookbook_service.create_recipe(
+        seeded, owner_id=contributor.id, data=_simple_recipe_in(), cookbook_id=cookbook.id
+    )
+    cookbook_service.remove_cookbook_member(
+        seeded, cookbook_id=cookbook.id, owner_id=owner.id, member_user_id=contributor.id
+    )
+
+    assert (
+        cookbook_service.cookbook_access(seeded, user_id=contributor.id, cookbook_id=cookbook.id)
+        is None
+    )
+    assert (
+        cookbook_service.recipe_access(seeded, user_id=contributor.id, recipe_id=contributed.id)
+        == "owner"
+    )
+    assert (
+        cookbook_service.get_recipe(seeded, owner_id=contributor.id, recipe_id=contributed.id).id
+        == contributed.id
+    )
+    assert (
+        cookbook_service.update_recipe(
+            seeded,
+            owner_id=contributor.id,
+            recipe_id=contributed.id,
+            data=_simple_recipe_in(title="Still mine"),
+            editor_id=contributor.id,
+        ).title
+        == "Still mine"
+    )
 
 
 def test_recipe_owner_keeps_access_after_losing_their_member_row(
