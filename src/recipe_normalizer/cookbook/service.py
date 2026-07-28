@@ -12,7 +12,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-from sqlalchemy import exists, func, literal, literal_column, or_, select, update
+from sqlalchemy import Subquery, and_, exists, func, literal, literal_column, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, selectinload
 
@@ -25,6 +25,7 @@ from recipe_normalizer.cookbook.models import (
     Collection,
     Cookbook,
     CookbookMember,
+    CookbookRecipe,
     CookbookRole,
     CookbookVisibility,
     Cuisine,
@@ -61,9 +62,11 @@ __all__ = [
     "DuplicateCollectionNameError",
     "DuplicateRecipeError",
     "SourceType",
+    "add_recipe_to_cookbook",
     "are_verified",
     "clear_recipe_image",
     "cookbook_access",
+    "cookbooks_for_recipe",
     "copy_recipe",
     "create_collection",
     "create_cookbook",
@@ -89,6 +92,7 @@ __all__ = [
     "recommendations_for_recipe",
     "register_hooks",
     "remove_cookbook_member",
+    "remove_recipe_from_cookbook",
     "rename_collection",
     "rename_cookbook",
     "repoint_ingredient_lines",
@@ -211,24 +215,50 @@ def _rank(level: Access) -> int:
     return _ACCESS_RANK[level]
 
 
+def _access_from_parts(
+    *,
+    user_id: uuid.UUID | None,
+    cookbook_owner_id: uuid.UUID,
+    visibility: CookbookVisibility,
+    member_role: CookbookRole | None,
+) -> Access | None:
+    """THE cookbook access rule, over already-fetched facts about one cookbook.
+
+    Pure (no DB): the two callers differ only in how they obtain the three
+    facts — ``_resolve_cookbook_access`` from a loaded row plus a member lookup,
+    ``_resolve_recipe_access`` from one joined query over a recipe's whole
+    cookbook set. Keeping the rule itself in one place is what guarantees the
+    set-based recipe path can never drift from the single-cookbook path.
+    """
+    if user_id is not None and cookbook_owner_id == user_id:
+        return "owner"
+    if member_role is not None:
+        return member_role
+    if visibility in (CookbookVisibility.unlisted, CookbookVisibility.public):
+        return CookbookRole.viewer
+    return None
+
+
 def _resolve_cookbook_access(
     db: Session, *, user_id: uuid.UUID | None, cookbook: Cookbook
 ) -> Access | None:
     """Resolve *user_id*'s access to an already-loaded *cookbook* row."""
-    if user_id is not None and cookbook.owner_id == user_id:
-        return "owner"
-    if user_id is not None:
-        member_role = db.scalar(
+    member_role = (
+        db.scalar(
             select(CookbookMember.role).where(
                 CookbookMember.cookbook_id == cookbook.id,
                 CookbookMember.user_id == user_id,
             )
         )
-        if member_role is not None:
-            return member_role
-    if cookbook.visibility in (CookbookVisibility.unlisted, CookbookVisibility.public):
-        return CookbookRole.viewer
-    return None
+        if user_id is not None
+        else None
+    )
+    return _access_from_parts(
+        user_id=user_id,
+        cookbook_owner_id=cookbook.owner_id,
+        visibility=cookbook.visibility,
+        member_role=member_role,
+    )
 
 
 def cookbook_access(
@@ -272,27 +302,102 @@ def require_cookbook_access(
 
 
 # ---------------------------------------------------------------------------
-# Recipe access derived from its cookbook — THE only recipe-access rule.
+# Recipe access derived from ALL the cookbooks holding it (the boards rule).
 #
-# Every recipe lives in exactly one cookbook, so "who may read/edit this
-# recipe" is answered entirely by "who may read/edit its cookbook". There is
-# no per-recipe grant, and no second, wider path: the pre-pivot
-# shared-cookbook widening (a callback `sharing` registered here, consulted
-# whenever the caller didn't own the recipe outright) is gone — shared access
-# is now a `CookbookMember` row, which `cookbook_access` already resolves.
+# A recipe may live in MANY cookbooks (`cookbook_recipes`), so "who may
+# read/edit this recipe" is answered by the HIGHEST access level the caller
+# holds across that whole set — one readable placement is enough to read,
+# one editor+ placement is enough to edit. There is no per-recipe grant.
 #
-# `recipes.cookbook_id` is NOT NULL as of the finalize migration
-# (b7d3f0c11a94), so there is no cookbook-less case to fall back on — owning
-# the recipe ROW grants nothing by itself. A recipe's owner reaches it because
-# they own, or are a member of, the cookbook holding it; that is exactly why
-# the pivot migration synthesizes a member row for any owner whose recipe was
-# claimed into someone else's cookbook.
+# The one non-cookbook path: `recipes.owner_id`. The recipe's creator always
+# resolves to "owner", even when they can reach none of the cookbooks holding
+# it (e.g. they contributed it to a shared cookbook and were later removed as
+# a member). Phase 1 deliberately denied that case — the boards model
+# deliberately allows it (see the design spec's "Access model"), which is what
+# dissolves the parked removed-contributor hole. Owner-only operations
+# (delete the recipe, mint a public link, be a copy-on-share source) still go
+# through `is_recipe_owner`, which is about the ROW's owner and nothing else.
+#
+# TRANSITION: `recipes.cookbook_id` is still NOT NULL and still dual-written,
+# and rows predating the backfill migration have no join row yet. So the
+# cookbook SET is `distinct(cookbook_recipes) ∪ {recipes.cookbook_id}` — see
+# `_recipe_cookbook_ids`. Reads therefore behave identically before and after
+# the migration; once `cookbook_id` is dropped, the union collapses to the
+# join table alone and nothing else here changes.
 # ---------------------------------------------------------------------------
+
+
+def _recipe_cookbook_ids(recipe_id: uuid.UUID) -> Subquery:
+    """A subquery of every cookbook id holding *recipe_id*, de-duplicated.
+
+    The UNION (not UNION ALL — the dedupe is the point) of the recipe's join
+    rows and its transitional primary placement ``recipes.cookbook_id``. Empty
+    for a nonexistent recipe. Used both as a join target (``_resolve_recipe_access``)
+    and selected from directly (``cookbooks_for_recipe``).
+    """
+    from_join = select(CookbookRecipe.cookbook_id.label("cookbook_id")).where(
+        CookbookRecipe.recipe_id == recipe_id
+    )
+    from_column = select(Recipe.cookbook_id.label("cookbook_id")).where(Recipe.id == recipe_id)
+    return from_join.union(from_column).subquery()
+
+
+def cookbooks_for_recipe(db: Session, recipe_id: uuid.UUID) -> list[uuid.UUID]:
+    """Every cookbook id *recipe_id* is placed in — the "which boards is this on" read.
+
+    UNSCOPED: no access check, and it does not filter to cookbooks the caller
+    can see. Callers that expose placements to a user must intersect with what
+    that user may read themselves. Returns ``[]`` for a nonexistent recipe.
+    """
+    ids = _recipe_cookbook_ids(recipe_id)
+    return list(db.scalars(select(ids.c.cookbook_id)).all())
+
+
+def _resolve_recipe_access(
+    db: Session, *, user_id: uuid.UUID | None, recipe_id: uuid.UUID, recipe_owner_id: uuid.UUID
+) -> Access | None:
+    """The set-based rule: highest level across the recipe's cookbooks, or owner.
+
+    One query over the recipe's cookbook set, left-joined to the caller's
+    member row in each, then ``_access_from_parts`` per cookbook and ``max`` by
+    rank — so a caller who is a viewer of cookbook A and an editor of cookbook
+    B, both holding the recipe, gets editor. ``user_id=None`` (anonymous)
+    left-joins to nothing (``cookbook_members.user_id`` is NOT NULL, so the
+    ``IS NULL`` comparison never matches), leaving only the visibility branch
+    reachable — exactly as in the single-cookbook path.
+    """
+    if user_id is not None and recipe_owner_id == user_id:
+        return "owner"
+    holding_cookbooks = _recipe_cookbook_ids(recipe_id)
+    rows = db.execute(
+        select(Cookbook.owner_id, Cookbook.visibility, CookbookMember.role)
+        .join(holding_cookbooks, holding_cookbooks.c.cookbook_id == Cookbook.id)
+        .outerjoin(
+            CookbookMember,
+            and_(
+                CookbookMember.cookbook_id == Cookbook.id,
+                CookbookMember.user_id == user_id,
+            ),
+        )
+    ).all()
+    best: Access | None = None
+    for cookbook_owner_id, visibility, member_role in rows:
+        level = _access_from_parts(
+            user_id=user_id,
+            cookbook_owner_id=cookbook_owner_id,
+            visibility=visibility,
+            member_role=member_role,
+        )
+        if level is not None and (best is None or _rank(level) > _rank(best)):
+            best = level
+    return best
 
 
 def _recipe_access(db: Session, *, user_id: uuid.UUID | None, recipe: Recipe) -> Access | None:
     """Resolve *user_id*'s access level to an already-loaded *recipe*."""
-    return cookbook_access(db, user_id=user_id, cookbook_id=recipe.cookbook_id)
+    return _resolve_recipe_access(
+        db, user_id=user_id, recipe_id=recipe.id, recipe_owner_id=recipe.owner_id
+    )
 
 
 def recipe_access(db: Session, *, user_id: uuid.UUID | None, recipe_id: uuid.UUID) -> Access | None:
@@ -305,10 +410,12 @@ def recipe_access(db: Session, *, user_id: uuid.UUID | None, recipe_id: uuid.UUI
     recipe and for one the caller has no claim on — callers treat both as
     their 404 case, never revealing which it was.
     """
-    recipe = db.get(Recipe, recipe_id)
-    if recipe is None:
+    owner_id = db.scalar(select(Recipe.owner_id).where(Recipe.id == recipe_id))
+    if owner_id is None:
         return None
-    return _recipe_access(db, user_id=user_id, recipe=recipe)
+    return _resolve_recipe_access(
+        db, user_id=user_id, recipe_id=recipe_id, recipe_owner_id=owner_id
+    )
 
 
 def is_recipe_owner(db: Session, user_id: uuid.UUID, recipe_id: uuid.UUID) -> bool:
@@ -518,8 +625,51 @@ def set_cookbook_cover(
     return cookbook
 
 
+def _rehome_multi_placed_recipes(db: Session, cookbook_id: uuid.UUID) -> None:
+    """Repoint ``recipes.cookbook_id`` off *cookbook_id* for recipes placed elsewhere too.
+
+    Called just before a cookbook is deleted. ``recipes.cookbook_id`` carries
+    ON DELETE CASCADE, so a recipe whose PRIMARY placement is the doomed
+    cookbook would be destroyed even when it also lives in other cookbooks —
+    silent data loss now that a recipe can be in several. Each such recipe is
+    re-homed to its oldest remaining placement instead; recipes with no other
+    placement are left to cascade away exactly as before.
+
+    The doomed cookbook's own ``cookbook_recipes`` rows always cascade (they
+    are placements IN it, not of it), so nothing here has to delete them.
+    """
+    replacement = (
+        select(CookbookRecipe.cookbook_id)
+        .where(
+            CookbookRecipe.recipe_id == Recipe.id,
+            CookbookRecipe.cookbook_id != cookbook_id,
+        )
+        .order_by(CookbookRecipe.added_at, CookbookRecipe.cookbook_id)
+        .limit(1)
+        .correlate(Recipe)
+        .scalar_subquery()
+    )
+    db.execute(
+        update(Recipe)
+        .where(Recipe.cookbook_id == cookbook_id, replacement.is_not(None))
+        .values(cookbook_id=replacement)
+    )
+    db.flush()
+    # The ORM may hold a loaded `cookbook.recipes` collection whose
+    # delete-orphan cascade would still delete the rows we just re-homed;
+    # expiring the parent drops it back to unloaded, where `passive_deletes`
+    # leaves every remaining child to the database's own CASCADE.
+    db.expire_all()
+
+
 def delete_cookbook(db: Session, cookbook_id: uuid.UUID, user_id: uuid.UUID) -> None:
-    """Delete a cookbook (its recipes CASCADE). Owner-only (404 otherwise).
+    """Delete a cookbook. Owner-only (404 otherwise).
+
+    Recipes whose ONLY placement is this cookbook are deleted with it (FK
+    CASCADE, as before); recipes that also live in another cookbook survive,
+    re-homed to their oldest remaining placement — see
+    ``_rehome_multi_placed_recipes``. Membership rows and this cookbook's
+    ``cookbook_recipes`` placements always cascade away.
 
     Raises ApiError(409, "cannot_delete_default", ...) if this is the user's
     default cookbook — every user must always have exactly one. Flushes;
@@ -532,6 +682,7 @@ def delete_cookbook(db: Session, cookbook_id: uuid.UUID, user_id: uuid.UUID) -> 
             "cannot_delete_default",
             "The default cookbook cannot be deleted.",
         )
+    _rehome_multi_placed_recipes(db, cookbook_id)
     db.delete(cookbook)
     db.flush()
 
@@ -663,6 +814,125 @@ def leave_cookbook(db: Session, cookbook_id: uuid.UUID, user_id: uuid.UUID) -> N
     if member is not None:
         db.delete(member)
         db.flush()
+
+
+# ---------------------------------------------------------------------------
+# Recipe placements (`cookbook_recipes`) — adding/removing a recipe to/from a
+# cookbook, the per-cookbook actions of the boards model.
+#
+# Gating, per the design spec:
+#   - add:    editor+ on the TARGET cookbook, AND read access to the recipe
+#             ("you can add a recipe you can see"). Idempotent.
+#   - remove: editor+ on the cookbook the placement is being dropped from.
+#             Never deletes the recipe; refuses (409) when it would leave the
+#             recipe in zero cookbooks — "delete the recipe" is the separate,
+#             owner-only action (`delete_recipe`).
+# ---------------------------------------------------------------------------
+
+
+def _placement_insert(*, cookbook_id: uuid.UUID, recipe_id: uuid.UUID, added_by: uuid.UUID) -> Any:
+    """An idempotent INSERT of one join row (no-op when the placement exists).
+
+    ``ON CONFLICT DO NOTHING`` on the composite PK rather than a
+    read-then-insert, so two concurrent "save to cookbook" clicks can't race
+    into a duplicate-key error.
+    """
+    return (
+        pg_insert(CookbookRecipe)
+        .values(cookbook_id=cookbook_id, recipe_id=recipe_id, added_by=added_by)
+        .on_conflict_do_nothing(index_elements=["cookbook_id", "recipe_id"])
+    )
+
+
+def add_recipe_to_cookbook(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    recipe_id: uuid.UUID,
+    cookbook_id: uuid.UUID,
+) -> None:
+    """Place *recipe_id* in *cookbook_id* (idempotent).
+
+    Requires editor+ access to *cookbook_id* AND read (viewer+) access to the
+    recipe — both raise ApiError 404 on failure, the module's usual not-found
+    discipline (never leaking that the cookbook/recipe exists but belongs to
+    someone else). Note the recipe-side check is the SET-based one, so a recipe
+    is addable as soon as ANY cookbook holding it is readable by the caller
+    (e.g. a public cookbook) — that is exactly the "save someone's public
+    recipe" path, which for a *reference* (rather than copy-on-save) placement
+    is the caller's decision to make, not this function's.
+
+    Leaves ``recipes.cookbook_id`` (the transitional primary placement) alone —
+    adding a placement never re-homes the recipe. Flushes; caller owns commit.
+    """
+    require_cookbook_access(db, user_id=user_id, cookbook_id=cookbook_id, need=CookbookRole.editor)
+    recipe = db.get(Recipe, recipe_id)
+    if recipe is None:
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+    _require_recipe_access(db, user_id=user_id, recipe=recipe, need=CookbookRole.viewer)
+    db.execute(_placement_insert(cookbook_id=cookbook_id, recipe_id=recipe_id, added_by=user_id))
+    db.flush()
+
+
+def remove_recipe_from_cookbook(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    recipe_id: uuid.UUID,
+    cookbook_id: uuid.UUID,
+) -> None:
+    """Drop *recipe_id*'s placement in *cookbook_id*. NEVER deletes the recipe.
+
+    Requires editor+ access to *cookbook_id* (404 otherwise). Idempotent: a
+    no-op when the recipe isn't in that cookbook at all.
+
+    Raises ApiError 409 ``last_placement`` when *cookbook_id* is the recipe's
+    ONLY placement — every recipe must stay in at least one cookbook, and
+    "delete the recipe entirely" is the separate owner-only action
+    (``delete_recipe``). This invariant lives here, not in the database.
+
+    TRANSITION: when the dropped placement is also the recipe's primary
+    (``recipes.cookbook_id``, still NOT NULL), that column is repointed at one
+    of the remaining placements — otherwise the transitional
+    ``join ∪ {cookbook_id}`` set would keep reporting the cookbook the recipe
+    was just removed from, and access would survive the removal. The remaining
+    placement is picked deterministically (oldest ``added_at``, then id), and
+    exists by construction: this line is only reached when the set had ≥ 2
+    entries. Flushes; caller owns commit.
+    """
+    require_cookbook_access(db, user_id=user_id, cookbook_id=cookbook_id, need=CookbookRole.editor)
+    recipe = db.get(Recipe, recipe_id)
+    if recipe is None:
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+
+    placements = cookbooks_for_recipe(db, recipe_id)
+    if cookbook_id not in placements:
+        return
+    if len(placements) == 1:
+        raise ApiError(
+            409,
+            "last_placement",
+            f"Recipe {recipe_id} is only in this cookbook; delete the recipe instead.",
+        )
+
+    join_row = db.get(CookbookRecipe, (cookbook_id, recipe_id))
+    if join_row is not None:
+        db.delete(join_row)
+        db.flush()
+
+    if recipe.cookbook_id == cookbook_id:
+        replacement = db.scalar(
+            select(CookbookRecipe.cookbook_id)
+            .where(
+                CookbookRecipe.recipe_id == recipe_id,
+                CookbookRecipe.cookbook_id != cookbook_id,
+            )
+            .order_by(CookbookRecipe.added_at, CookbookRecipe.cookbook_id)
+            .limit(1)
+        )
+        assert replacement is not None  # guaranteed by the len(placements) > 1 check above
+        recipe.cookbook_id = replacement
+    db.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -938,6 +1208,13 @@ def create_recipe(
     db.add(recipe)
     db.flush()  # get recipe.id
 
+    # DUAL-WRITE (transition): the recipe's placement lives both in
+    # `recipes.cookbook_id` above and as a `cookbook_recipes` join row, so
+    # set-based reads work for new rows before the backfill migration runs.
+    db.execute(
+        _placement_insert(cookbook_id=target_cookbook.id, recipe_id=recipe.id, added_by=owner_id)
+    )
+
     _apply_groups(db, recipe, data, llm=llm)
     _apply_steps(db, recipe, data)
     _apply_vocab(db, recipe, data)
@@ -987,6 +1264,13 @@ def move_recipe(
     There is no cookbook-less case to special-case: ``recipes.cookbook_id`` is
     NOT NULL, so a recipe always HAS a source cookbook to check against.
     Reassigns ``recipe.cookbook_id`` in place; flushes, caller owns commit.
+
+    A MOVE, not a placement: it drops the join row for the source cookbook and
+    writes one for the destination, so the recipe's cookbook set is unchanged
+    in size. In the boards model the interesting operations are
+    ``add_recipe_to_cookbook`` / ``remove_recipe_from_cookbook`` instead; this
+    one survives for the pre-boards "move to cookbook" call sites and only ever
+    re-homes the PRIMARY placement (other placements are left untouched).
     """
     recipe = db.get(Recipe, recipe_id)
     if recipe is None:
@@ -995,7 +1279,17 @@ def move_recipe(
     require_cookbook_access(
         db, user_id=user_id, cookbook_id=to_cookbook_id, need=CookbookRole.editor
     )
+    from_cookbook_id = recipe.cookbook_id
     recipe.cookbook_id = to_cookbook_id
+    # DUAL-WRITE (transition): keep the join rows in step with the column.
+    if from_cookbook_id != to_cookbook_id:
+        old_row = db.get(CookbookRecipe, (from_cookbook_id, recipe_id))
+        if old_row is not None:
+            db.delete(old_row)
+        db.flush()
+        db.execute(
+            _placement_insert(cookbook_id=to_cookbook_id, recipe_id=recipe_id, added_by=user_id)
+        )
     db.flush()
     return recipe
 
@@ -1168,6 +1462,16 @@ def copy_recipe(
     )
     db.add(new_recipe)
     db.flush()  # get new_recipe.id
+
+    # DUAL-WRITE (transition) — same reasoning as create_recipe: the copy is
+    # placed in the new owner's default cookbook both ways. `added_by` is the
+    # RECIPIENT (they are the one placing this copy in their own cookbook), not
+    # the sharer.
+    db.execute(
+        _placement_insert(
+            cookbook_id=target_cookbook.id, recipe_id=new_recipe.id, added_by=new_owner_id
+        )
+    )
 
     line_id_map: dict[str, str] = {}
     for group in source.ingredient_groups:
@@ -1690,19 +1994,24 @@ def delete_recipe(
     owner_id: uuid.UUID,
     recipe_id: uuid.UUID,
 ) -> None:
-    """Delete a recipe (and its children via cascade).
+    """Delete a recipe (and its children + placements via cascade).
 
-    Access derives from the recipe's cookbook (see ``_recipe_access``):
-    ``owner_id`` (kept as the param name for compatibility) needs editor+
-    access — owner or editor member can delete; a viewer member or
-    non-member gets 404. Editors may add/edit/remove recipes; only
-    cookbook-level management (rename/visibility/membership/delete-cookbook)
-    is owner-only.
+    OWNER-ONLY, on ``recipes.owner_id`` — NOT cookbook-derived access (this is
+    the one recipe mutation that doesn't go through ``_require_recipe_access``).
+    A recipe now lives in many cookbooks, so deleting the row destroys it for
+    every cookbook holding it, including ones the caller has nothing to do
+    with; only the recipe's own owner may do that. Anyone else with editor+
+    access on a particular cookbook gets the per-cookbook action instead —
+    ``remove_recipe_from_cookbook``, which drops that one placement and leaves
+    the recipe alone. This TIGHTENS Phase 1's editor+ delete.
+
+    Raises ApiError 404 both for a nonexistent recipe and for one the caller
+    doesn't own (same not-found discipline as everywhere else here).
+    ``cookbook_recipes`` rows go with the recipe via ON DELETE CASCADE.
     """
     recipe = db.get(Recipe, recipe_id)
-    if recipe is None:
+    if recipe is None or recipe.owner_id != owner_id:
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
-    _require_recipe_access(db, user_id=owner_id, recipe=recipe, need=CookbookRole.editor)
     db.delete(recipe)
     db.flush()
 

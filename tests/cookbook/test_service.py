@@ -2020,7 +2020,14 @@ def test_viewer_of_shared_cookbook_can_get_but_not_update_or_delete(
     assert exc_info.value.status_code == 404
 
 
-def test_editor_of_shared_cookbook_can_update_and_delete(seeded: Session, owner: User) -> None:
+def test_editor_of_shared_cookbook_can_update_but_not_delete(seeded: Session, owner: User) -> None:
+    """Editor+ edits recipe CONTENT; deleting the recipe row is owner-only.
+
+    Tightened by the boards model: a recipe lives in many cookbooks now, so
+    deleting the row destroys it for every cookbook holding it. An editor's
+    per-cookbook action is ``remove_recipe_from_cookbook`` instead (see
+    tests/cookbook/test_recipe_placements.py).
+    """
     editor = make_user(seeded, suffix=str(uuid.uuid4())[:8])
     cookbook = make_cookbook(seeded, owner, name="Shared Book")
     add_member(seeded, cookbook, editor, CookbookRole.editor)
@@ -2037,8 +2044,10 @@ def test_editor_of_shared_cookbook_can_update_and_delete(seeded: Session, owner:
     )
     assert updated.title == "Edited by editor"
 
-    cookbook_service.delete_recipe(seeded, owner_id=editor.id, recipe_id=created.id)
-    assert seeded.get(Recipe, created.id) is None
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.delete_recipe(seeded, owner_id=editor.id, recipe_id=created.id)
+    assert exc_info.value.status_code == 404
+    assert seeded.get(Recipe, created.id) is not None
 
 
 def test_recipe_access_matrix_is_cookbook_derived_only(seeded: Session, owner: User) -> None:
@@ -2092,15 +2101,17 @@ def test_recipe_access_matrix_is_cookbook_derived_only(seeded: Session, owner: U
     assert exc_info.value.status_code == 404
 
 
-def test_recipe_owner_without_a_member_row_cannot_reach_their_own_recipe(
+def test_recipe_owner_keeps_access_after_losing_their_member_row(
     seeded: Session, owner: User
 ) -> None:
-    """Owning the recipe ROW is not access — the cookbook decides, alone.
+    """Owning the recipe ROW is access — the boards model's owner_id path.
 
-    This is exactly why the pivot migration synthesizes an editor member row
-    for every recipe owner who isn't a member of the cookbook that claimed
-    their recipe (see 4e1b7c9a52d8's ``_build_member_rows``): without it, this
-    is the state a user would wake up in.
+    Phase 1 denied this deliberately (access was the recipe's single cookbook,
+    full stop), which is why the pivot migration had to synthesize a member row
+    for every recipe owner whose recipe was claimed into someone else's
+    cookbook. The boards access model adds ``R.owner_id == user`` as a standing
+    read/edit path (design spec, "Access model"), so a removed contributor
+    keeps their own recipe.
     """
     contributor = make_user(seeded, suffix=str(uuid.uuid4())[:8])
     cookbook = make_cookbook(seeded, owner, name="Shared Book")
@@ -2113,10 +2124,18 @@ def test_recipe_owner_without_a_member_row_cannot_reach_their_own_recipe(
         seeded, cookbook_id=cookbook.id, owner_id=owner.id, member_user_id=contributor.id
     )
 
-    with pytest.raises(ApiError) as exc_info:
-        cookbook_service.get_recipe(seeded, owner_id=contributor.id, recipe_id=created.id)
-    assert exc_info.value.status_code == 404
-    # ...and it is gone from their flat list too, so the list can never show a
-    # recipe its owner would 404 on.
+    assert (
+        cookbook_service.recipe_access(seeded, user_id=contributor.id, recipe_id=created.id)
+        == "owner"
+    )
+    assert (
+        cookbook_service.get_recipe(seeded, owner_id=contributor.id, recipe_id=created.id).id
+        == created.id
+    )
+    # The flat list still spans only cookbooks the caller can read, so their
+    # recipe is not listed while its only placement is a cookbook they lost
+    # access to — the reverse of the Phase-1 hole (readable but unlisted, not
+    # listed but unreadable). `list_recipes` becomes placement-aware in the
+    # follow-on "global list de-dup" task.
     page = cookbook_service.list_recipes(seeded, owner_id=contributor.id)
     assert created.id not in {item.id for item in page.items}

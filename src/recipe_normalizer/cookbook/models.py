@@ -177,11 +177,15 @@ class Recipe(TimestampMixin, Base):
     # there are rewritten; these two columns are deliberately left alone).
     is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Every recipe lives in exactly one cookbook — the containment invariant
-    # of the cookbooks pivot, and the sole source of recipe access (see
-    # cookbook.service._recipe_access). Enforced in the database as of the
-    # finalize migration b7d3f0c11a94, which swept the last cookbook-less
-    # rows into their owners' default cookbooks before flipping this NOT NULL.
+    # The recipe's PRIMARY cookbook placement. Historically (Phase 1) a recipe
+    # lived in exactly one cookbook and this column was the sole source of
+    # recipe access; under the boards model a recipe may live in many
+    # (`cookbook_recipes`), and access derives from that whole set — see
+    # cookbook.service._recipe_cookbook_ids. This column is still NOT NULL
+    # (enforced as of the finalize migration b7d3f0c11a94) and is DUAL-WRITTEN
+    # alongside a join row until the backfill migration lets it be dropped;
+    # until then it is unioned into the placement set so rows predating the
+    # backfill stay readable.
     cookbook_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("cookbooks.id", ondelete="CASCADE"), index=True, nullable=False
     )
@@ -219,6 +223,14 @@ class Recipe(TimestampMixin, Base):
     # loaded instance. The DTO (`schemas.RecipeOut.cookbook_id`) is not
     # optional — a persisted recipe always has a cookbook.
     cookbook: Mapped["Cookbook | None"] = relationship(back_populates="recipes")
+    # Every cookbook this recipe is placed in (the boards join). `CookbookRecipe`
+    # is defined below and resolved lazily at mapper-configuration time.
+    # Transitional: this list is the future source of truth, while
+    # `cookbook_id` above is still the (NOT NULL) primary placement — see
+    # cookbook.service._recipe_cookbook_ids, which unions the two.
+    cookbook_placements: Mapped[list["CookbookRecipe"]] = relationship(
+        back_populates="recipe", cascade="all, delete-orphan", passive_deletes=True
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +388,10 @@ class Cookbook(TimestampMixin, Base):
     public_token: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
-    # Deleting a cookbook deletes everything inside it. `passive_deletes=True`
+    # Deleting a cookbook deletes the recipes whose PRIMARY placement it is —
+    # ones that also live in another cookbook are re-homed by
+    # `cookbook.service._rehome_multi_placed_recipes` first, so they survive.
+    # `passive_deletes=True`
     # is what makes that work: without it SQLAlchemy loads the children on
     # parent delete and tries to NULL out their `cookbook_id`, which now fails
     # outright — `recipes.cookbook_id` is NOT NULL, and `cookbook_members`
@@ -390,6 +405,15 @@ class Cookbook(TimestampMixin, Base):
         back_populates="cookbook", cascade="all, delete-orphan", passive_deletes=True
     )
     members: Mapped[list["CookbookMember"]] = relationship(
+        back_populates="cookbook", cascade="all, delete-orphan", passive_deletes=True
+    )
+    # The boards join rows pointing INTO this cookbook. Same `passive_deletes`
+    # reasoning as `recipes`/`members` above: `cookbook_id` is half of
+    # `cookbook_recipes`' composite PK, so it can never be NULLed out — the FK's
+    # ON DELETE CASCADE has to do the work. Note the asymmetry with `recipes`:
+    # deleting a cookbook removes a recipe's PLACEMENT in it, and only deletes
+    # the recipe itself when this cookbook is its primary (`recipes.cookbook_id`).
+    recipe_placements: Mapped[list["CookbookRecipe"]] = relationship(
         back_populates="cookbook", cascade="all, delete-orphan", passive_deletes=True
     )
 
@@ -427,3 +451,57 @@ class CookbookMember(Base):
     )
 
     cookbook: Mapped[Cookbook] = relationship(back_populates="members")
+
+
+class CookbookRecipe(Base):
+    """A recipe's placement in a cookbook — the boards many-to-many join.
+
+    A recipe may sit in several cookbooks at once (Pinterest-style boards), and
+    every recipe is in at least one at all times. The ">= 1 placement"
+    invariant is enforced in the service (``remove_recipe_from_cookbook``
+    refuses to drop the last one), NOT in the database — there is no
+    constraint expressible here that spans rows this way.
+
+    A full ORM class rather than a bare ``Table`` (unlike ``recipe_cuisines``
+    et al.) because the join carries its own payload — ``added_by`` and
+    ``added_at``, the "who pinned this here, when" provenance the social phase
+    surfaces — and because the service inserts/deletes rows by hand
+    (idempotent ``ON CONFLICT DO NOTHING`` adds) rather than through a
+    ``secondary`` collection.
+
+    TRANSITION: ``recipes.cookbook_id`` still exists and is still NOT NULL —
+    it is the recipe's *primary* placement and is dual-written alongside a row
+    here by every path that files a recipe into a cookbook. Rows created before
+    the (later) backfill migration have no join row at all, which is why
+    ``cookbook.service._recipe_cookbook_ids`` reads the UNION of this table and
+    ``recipes.cookbook_id``. Once the migration lands and the column is
+    dropped, this table alone answers "which cookbooks is this recipe in".
+    """
+
+    __tablename__ = "cookbook_recipes"
+    __table_args__ = (
+        # The composite PK is (cookbook_id, recipe_id), so it can't serve a bare
+        # `WHERE recipe_id = X` lookup — which is THE access-path of the boards
+        # model ("which cookbooks is this recipe in", asked on every recipe
+        # read to derive access). Hence a standalone index on recipe_id, the
+        # same reasoning as ix_cookbook_members_user_id.
+        Index("ix_cookbook_recipes_recipe_id", "recipe_id"),
+    )
+
+    cookbook_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("cookbooks.id", ondelete="CASCADE"), primary_key=True
+    )
+    recipe_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("recipes.id", ondelete="CASCADE"), primary_key=True
+    )
+    # SET NULL, not CASCADE: the person who added the recipe leaving the system
+    # must not silently un-place the recipe from the cookbook.
+    added_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=func.now()
+    )
+
+    cookbook: Mapped[Cookbook] = relationship(back_populates="recipe_placements")
+    recipe: Mapped[Recipe] = relationship(back_populates="cookbook_placements")
