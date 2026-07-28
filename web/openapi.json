@@ -1985,6 +1985,36 @@
         "title": "PublicRecipeOut",
         "type": "object"
       },
+      "RecipeCookbookOut": {
+        "description": "One cookbook a recipe is placed in, as visible to the CALLER.\n\nRow shape for ``GET /api/recipes/{recipe_id}/cookbooks`` \u2014 deliberately\nlighter than ``CookbookSummary`` (no recipe_count/description/is_default/\ncover_image_ref): this endpoint answers \"which of the cookbooks THIS\nrecipe is in can I see\", not \"list my cookbooks\". Only cookbooks the\ncaller can themselves read are ever included \u2014 see\n``cookbook.service.readable_cookbooks_for_recipe``.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "visibility",
+          "role"
+        ],
+        "title": "RecipeCookbookOut",
+        "type": "object"
+      },
       "RecipeIn": {
         "properties": {
           "cook_min": {
@@ -2422,6 +2452,47 @@
           }
         },
         "title": "RecipePersonalPatch",
+        "type": "object"
+      },
+      "RecipePlacementIn": {
+        "description": "Body for POST /api/recipes/{recipe_id}/cookbooks \u2014 save/pin a recipe into a cookbook.",
+        "properties": {
+          "cookbook_id": {
+            "format": "uuid",
+            "title": "Cookbook Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cookbook_id"
+        ],
+        "title": "RecipePlacementIn",
+        "type": "object"
+      },
+      "RecipePlacementOut": {
+        "description": "Response for POST /api/recipes/{recipe_id}/cookbooks.\n\n``recipe_id`` is the id actually placed in ``cookbook_id``: the SOURCE\nrecipe's own id for a reference placement (the caller's own recipe), or a\nbrand-new copy's id when ``copied`` is True (someone else's recipe) \u2014 see\n``cookbook.service.save_recipe_to_cookbook``.",
+        "properties": {
+          "cookbook_id": {
+            "format": "uuid",
+            "title": "Cookbook Id",
+            "type": "string"
+          },
+          "copied": {
+            "default": false,
+            "title": "Copied",
+            "type": "boolean"
+          },
+          "recipe_id": {
+            "format": "uuid",
+            "title": "Recipe Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cookbook_id",
+          "recipe_id"
+        ],
+        "title": "RecipePlacementOut",
         "type": "object"
       },
       "RecipeSummary": {
@@ -3892,7 +3963,7 @@
         ]
       },
       "get": {
-        "description": "Fetch a cookbook + its recipes. Viewer+ access required (404 otherwise).",
+        "description": "Fetch a cookbook + its recipes. Viewer+ access required (404 otherwise).\n\nRecipes come from the ``cookbook_recipes`` join (\u222a the legacy\n``recipes.cookbook_id`` for rows predating the dual-write, same\ntransitional union as ``_recipe_count`` above) \u2014 so a recipe merely\nPLACED into this cookbook via ``add_recipe_to_cookbook`` (not just\ncreated here) shows up too, not only ones whose primary placement this\ncookbook is.",
         "operationId": "get_cookbook_api_cookbooks__cookbook_id__get",
         "parameters": [
           {
@@ -5306,6 +5377,153 @@
           }
         },
         "summary": "Set Recipe Collections",
+        "tags": [
+          "recipes"
+        ]
+      }
+    },
+    "/api/recipes/{recipe_id}/cookbooks": {
+      "get": {
+        "description": "The cookbooks this recipe is in, SCOPED to what the caller can read.\n\nA cookbook holding this recipe that the caller cannot themselves see\n(owner/member/public-or-unlisted-viewer) is silently dropped \u2014 never\nleaked by id, name, or visibility. 404 if the recipe doesn't exist or the\ncaller can't read it at all \u2014 see ``service.readable_cookbooks_for_recipe``.",
+        "operationId": "list_recipe_cookbooks_api_recipes__recipe_id__cookbooks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "recipe_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Recipe Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RecipeCookbookOut"
+                  },
+                  "title": "Response List Recipe Cookbooks Api Recipes  Recipe Id  Cookbooks Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Recipe Cookbooks",
+        "tags": [
+          "recipes"
+        ]
+      },
+      "post": {
+        "description": "Save/pin a recipe into one of the caller's cookbooks.\n\nThe caller's OWN recipe -> a plain reference placement (idempotent, no\ncopy \u2014 editor+ on ``cookbook_id`` required). Someone else's recipe the\ncaller can read (e.g. via a public/shared cookbook) -> a deep copy filed\ninto ``cookbook_id``, so the caller ends up owning an independent copy\nrather than gaining edit rights on the original. 404 if the recipe\ndoesn't exist, the caller can't read it at all, or the caller lacks\neditor+ on ``cookbook_id`` \u2014 see ``service.save_recipe_to_cookbook``.",
+        "operationId": "save_recipe_to_cookbook_api_recipes__recipe_id__cookbooks_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "recipe_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Recipe Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecipePlacementIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecipePlacementOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Recipe To Cookbook",
+        "tags": [
+          "recipes"
+        ]
+      }
+    },
+    "/api/recipes/{recipe_id}/cookbooks/{cookbook_id}": {
+      "delete": {
+        "description": "Drop a recipe's placement in a cookbook. Never deletes the recipe.\n\nEditor+ on ``cookbook_id`` required (404 otherwise). 409\n``last_placement`` if this is the recipe's only remaining placement \u2014 see\n``service.remove_recipe_from_cookbook``.",
+        "operationId": "remove_recipe_from_cookbook_api_recipes__recipe_id__cookbooks__cookbook_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "recipe_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Recipe Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "cookbook_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Cookbook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Recipe From Cookbook",
         "tags": [
           "recipes"
         ]

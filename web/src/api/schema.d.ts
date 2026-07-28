@@ -309,6 +309,13 @@ export interface paths {
         /**
          * Get Cookbook
          * @description Fetch a cookbook + its recipes. Viewer+ access required (404 otherwise).
+         *
+         *     Recipes come from the ``cookbook_recipes`` join (∪ the legacy
+         *     ``recipes.cookbook_id`` for rows predating the dual-write, same
+         *     transitional union as ``_recipe_count`` above) — so a recipe merely
+         *     PLACED into this cookbook via ``add_recipe_to_cookbook`` (not just
+         *     created here) shows up too, not only ones whose primary placement this
+         *     cookbook is.
          */
         get: operations["get_cookbook_api_cookbooks__cookbook_id__get"];
         put?: never;
@@ -748,6 +755,67 @@ export interface paths {
         put: operations["set_recipe_collections_api_recipes__recipe_id__collections_put"];
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/recipes/{recipe_id}/cookbooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Recipe Cookbooks
+         * @description The cookbooks this recipe is in, SCOPED to what the caller can read.
+         *
+         *     A cookbook holding this recipe that the caller cannot themselves see
+         *     (owner/member/public-or-unlisted-viewer) is silently dropped — never
+         *     leaked by id, name, or visibility. 404 if the recipe doesn't exist or the
+         *     caller can't read it at all — see ``service.readable_cookbooks_for_recipe``.
+         */
+        get: operations["list_recipe_cookbooks_api_recipes__recipe_id__cookbooks_get"];
+        put?: never;
+        /**
+         * Save Recipe To Cookbook
+         * @description Save/pin a recipe into one of the caller's cookbooks.
+         *
+         *     The caller's OWN recipe -> a plain reference placement (idempotent, no
+         *     copy — editor+ on ``cookbook_id`` required). Someone else's recipe the
+         *     caller can read (e.g. via a public/shared cookbook) -> a deep copy filed
+         *     into ``cookbook_id``, so the caller ends up owning an independent copy
+         *     rather than gaining edit rights on the original. 404 if the recipe
+         *     doesn't exist, the caller can't read it at all, or the caller lacks
+         *     editor+ on ``cookbook_id`` — see ``service.save_recipe_to_cookbook``.
+         */
+        post: operations["save_recipe_to_cookbook_api_recipes__recipe_id__cookbooks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/recipes/{recipe_id}/cookbooks/{cookbook_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove Recipe From Cookbook
+         * @description Drop a recipe's placement in a cookbook. Never deletes the recipe.
+         *
+         *     Editor+ on ``cookbook_id`` required (404 otherwise). 409
+         *     ``last_placement`` if this is the recipe's only remaining placement — see
+         *     ``service.remove_recipe_from_cookbook``.
+         */
+        delete: operations["remove_recipe_from_cookbook_api_recipes__recipe_id__cookbooks__cookbook_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1825,6 +1893,30 @@ export interface components {
             /** Total Min */
             total_min?: number | null;
         };
+        /**
+         * RecipeCookbookOut
+         * @description One cookbook a recipe is placed in, as visible to the CALLER.
+         *
+         *     Row shape for ``GET /api/recipes/{recipe_id}/cookbooks`` — deliberately
+         *     lighter than ``CookbookSummary`` (no recipe_count/description/is_default/
+         *     cover_image_ref): this endpoint answers "which of the cookbooks THIS
+         *     recipe is in can I see", not "list my cookbooks". Only cookbooks the
+         *     caller can themselves read are ever included — see
+         *     ``cookbook.service.readable_cookbooks_for_recipe``.
+         */
+        RecipeCookbookOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Role */
+            role: string;
+            /** Visibility */
+            visibility: string;
+        };
         /** RecipeIn */
         RecipeIn: {
             /** Cook Min */
@@ -1999,6 +2091,43 @@ export interface components {
             is_favorite?: boolean | null;
             /** Notes */
             notes?: string | null;
+        };
+        /**
+         * RecipePlacementIn
+         * @description Body for POST /api/recipes/{recipe_id}/cookbooks — save/pin a recipe into a cookbook.
+         */
+        RecipePlacementIn: {
+            /**
+             * Cookbook Id
+             * Format: uuid
+             */
+            cookbook_id: string;
+        };
+        /**
+         * RecipePlacementOut
+         * @description Response for POST /api/recipes/{recipe_id}/cookbooks.
+         *
+         *     ``recipe_id`` is the id actually placed in ``cookbook_id``: the SOURCE
+         *     recipe's own id for a reference placement (the caller's own recipe), or a
+         *     brand-new copy's id when ``copied`` is True (someone else's recipe) — see
+         *     ``cookbook.service.save_recipe_to_cookbook``.
+         */
+        RecipePlacementOut: {
+            /**
+             * Cookbook Id
+             * Format: uuid
+             */
+            cookbook_id: string;
+            /**
+             * Copied
+             * @default false
+             */
+            copied: boolean;
+            /**
+             * Recipe Id
+             * Format: uuid
+             */
+            recipe_id: string;
         };
         /** RecipeSummary */
         RecipeSummary: {
@@ -3780,6 +3909,102 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RecipeOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_recipe_cookbooks_api_recipes__recipe_id__cookbooks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recipe_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecipeCookbookOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_recipe_to_cookbook_api_recipes__recipe_id__cookbooks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recipe_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecipePlacementIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecipePlacementOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_recipe_from_cookbook_api_recipes__recipe_id__cookbooks__cookbook_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recipe_id: string;
+                cookbook_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

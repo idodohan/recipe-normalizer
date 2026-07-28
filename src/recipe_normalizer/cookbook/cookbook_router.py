@@ -20,7 +20,13 @@ from sqlalchemy.orm import Session
 
 from recipe_normalizer.api_deps import get_current_user
 from recipe_normalizer.cookbook import service
-from recipe_normalizer.cookbook.models import Cookbook, CookbookRole, CookbookVisibility, Recipe
+from recipe_normalizer.cookbook.models import (
+    Cookbook,
+    CookbookRecipe,
+    CookbookRole,
+    CookbookVisibility,
+    Recipe,
+)
 from recipe_normalizer.cookbook.schemas import (
     CookbookDetailOut,
     CookbookIn,
@@ -42,10 +48,20 @@ router = APIRouter(prefix="/api/cookbooks", tags=["cookbooks"])
 
 
 def _recipe_count(db: Session, cookbook_id: uuid.UUID) -> int:
-    return (
-        db.scalar(select(func.count()).select_from(Recipe).where(Recipe.cookbook_id == cookbook_id))
-        or 0
+    """Number of recipes PLACED in *cookbook_id* — join ∪ legacy primary placement.
+
+    Same transitional union ``cookbook.service._recipe_cookbook_ids`` uses,
+    so a recipe placed here via ``add_recipe_to_cookbook`` (not just created
+    here) counts too, and a recipe predating the dual-write (no join row)
+    still counts once via ``recipes.cookbook_id``.
+    """
+    recipe_ids = (
+        select(CookbookRecipe.recipe_id)
+        .where(CookbookRecipe.cookbook_id == cookbook_id)
+        .union(select(Recipe.id).where(Recipe.cookbook_id == cookbook_id))
+        .subquery()
     )
+    return db.scalar(select(func.count()).select_from(recipe_ids)) or 0
 
 
 def _to_cookbook_out(db: Session, cookbook: Cookbook, *, user_id: uuid.UUID) -> CookbookOut:
@@ -118,13 +134,27 @@ def get_cookbook(
     db: Session = Depends(get_db),  # noqa: B008
     current_user: Any = Depends(get_current_user),  # noqa: B008
 ) -> CookbookDetailOut:
-    """Fetch a cookbook + its recipes. Viewer+ access required (404 otherwise)."""
+    """Fetch a cookbook + its recipes. Viewer+ access required (404 otherwise).
+
+    Recipes come from the ``cookbook_recipes`` join (∪ the legacy
+    ``recipes.cookbook_id`` for rows predating the dual-write, same
+    transitional union as ``_recipe_count`` above) — so a recipe merely
+    PLACED into this cookbook via ``add_recipe_to_cookbook`` (not just
+    created here) shows up too, not only ones whose primary placement this
+    cookbook is.
+    """
     cookbook = service.require_cookbook_access(
         db, user_id=current_user.id, cookbook_id=cookbook_id, need=CookbookRole.viewer
     )
+    placed_recipe_ids = (
+        select(CookbookRecipe.recipe_id)
+        .where(CookbookRecipe.cookbook_id == cookbook.id)
+        .union(select(Recipe.id).where(Recipe.cookbook_id == cookbook.id))
+        .subquery()
+    )
     recipe_ids = db.scalars(
         select(Recipe.id)
-        .where(Recipe.cookbook_id == cookbook.id)
+        .join(placed_recipe_ids, placed_recipe_ids.c.recipe_id == Recipe.id)
         # Total order — see list_recipes' ORDER BY comment. Unpaginated here,
         # so ties could only jitter the order between requests, but the two
         # recipe listings should sort identically.

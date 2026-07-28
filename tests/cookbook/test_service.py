@@ -441,6 +441,82 @@ def test_list_recipes_excludes_public_cookbooks_i_am_not_a_member_of(
     assert page.total == 0
 
 
+def test_list_recipes_placed_in_two_of_my_cookbooks_appears_once(
+    seeded: Session, owner: User
+) -> None:
+    """A recipe placed (not just created) into a SECOND readable cookbook of
+    mine must still appear exactly ONCE in the flat list — the join-based
+    scope is per-recipe, not per-placement.
+    """
+    first = make_cookbook(seeded, owner, name="First")
+    second = make_cookbook(seeded, owner, name="Second")
+    created = cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(title="Twice Placed"),
+        cookbook_id=first.id,
+    )
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
+    )
+
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id)
+
+    matching = [item for item in page.items if item.id == created.id]
+    assert len(matching) == 1
+    assert page.total == 1
+
+
+def test_list_recipes_placed_in_my_cookbook_and_a_shared_cookbook_appears_once(
+    seeded: Session, owner: User
+) -> None:
+    """Same de-dup, but the second placement is a cookbook I'm a MEMBER of."""
+    stranger = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    mine = make_cookbook(seeded, owner, name="Mine")
+    shared = make_cookbook(seeded, stranger, name="Shared")
+    add_member(seeded, shared, owner, CookbookRole.editor)
+    created = cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(title="Mine, Also Shared"),
+        cookbook_id=mine.id,
+    )
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=shared.id
+    )
+
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id)
+
+    assert [item.id for item in page.items] == [created.id]
+    assert page.total == 1
+
+
+def test_list_recipes_includes_my_own_recipe_even_with_no_readable_placement(
+    seeded: Session, owner: User
+) -> None:
+    """The removed-contributor case: my recipe still shows up in MY flat list
+    even once I can no longer read the cookbook it's actually placed in.
+    """
+    other_owner = make_user(seeded, suffix=str(uuid.uuid4())[:8])
+    shared = make_cookbook(seeded, other_owner, name="Shared")
+    add_member(seeded, shared, owner, CookbookRole.editor)
+    created = cookbook_service.create_recipe(
+        seeded,
+        owner_id=owner.id,
+        data=_simple_recipe_in(title="Still Mine"),
+        cookbook_id=shared.id,
+    )
+
+    cookbook_service.remove_cookbook_member(
+        seeded, cookbook_id=shared.id, owner_id=other_owner.id, member_user_id=owner.id
+    )
+
+    page = cookbook_service.list_recipes(seeded, owner_id=owner.id)
+
+    assert [item.id for item in page.items] == [created.id]
+    assert page.total == 1
+
+
 def test_list_recipes_span_masks_the_owners_favorite_flag(seeded: Session, owner: User) -> None:
     """A co-member's starred recipe is not shown as MY favorite.
 
@@ -2135,10 +2211,10 @@ def test_recipe_owner_keeps_access_after_losing_their_member_row(
         cookbook_service.get_recipe(seeded, owner_id=contributor.id, recipe_id=created.id).id
         == created.id
     )
-    # The flat list still spans only cookbooks the caller can read, so their
-    # recipe is not listed while its only placement is a cookbook they lost
-    # access to — the reverse of the Phase-1 hole (readable but unlisted, not
-    # listed but unreadable). `list_recipes` becomes placement-aware in the
-    # follow-on "global list de-dup" task.
+    # The flat list now ALSO includes recipes the caller owns outright, even
+    # when their only placement became unreadable — see the design spec's
+    # "global-list de-dup" note and `list_recipes`'s own scope docstring.
+    # (Superseding this test's earlier "not listed but unreadable" comment,
+    # from before `list_recipes` became placement-aware.)
     page = cookbook_service.list_recipes(seeded, owner_id=contributor.id)
-    assert created.id not in {item.id for item in page.items}
+    assert created.id in {item.id for item in page.items}

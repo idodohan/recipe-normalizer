@@ -151,6 +151,12 @@ class SetRecipeCollectionsIn(BaseModel):
     collection_ids: list[uuid.UUID] = []
 
 
+class RecipePlacementIn(BaseModel):
+    """Body for POST /api/recipes/{recipe_id}/cookbooks — save/pin a recipe into a cookbook."""
+
+    cookbook_id: uuid.UUID
+
+
 class RecipePersonalPatch(BaseModel):
     """Lightweight patch for personal metadata (favorites/notes).
 
@@ -344,6 +350,39 @@ class RecipePage(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class RecipePlacementOut(BaseModel):
+    """Response for POST /api/recipes/{recipe_id}/cookbooks.
+
+    ``recipe_id`` is the id actually placed in ``cookbook_id``: the SOURCE
+    recipe's own id for a reference placement (the caller's own recipe), or a
+    brand-new copy's id when ``copied`` is True (someone else's recipe) — see
+    ``cookbook.service.save_recipe_to_cookbook``.
+    """
+
+    cookbook_id: uuid.UUID
+    recipe_id: uuid.UUID
+    copied: bool = False
+
+
+class RecipeCookbookOut(BaseModel):
+    """One cookbook a recipe is placed in, as visible to the CALLER.
+
+    Row shape for ``GET /api/recipes/{recipe_id}/cookbooks`` — deliberately
+    lighter than ``CookbookSummary`` (no recipe_count/description/is_default/
+    cover_image_ref): this endpoint answers "which of the cookbooks THIS
+    recipe is in can I see", not "list my cookbooks". Only cookbooks the
+    caller can themselves read are ever included — see
+    ``cookbook.service.readable_cookbooks_for_recipe``.
+    """
+
+    id: uuid.UUID
+    name: str
+    visibility: str
+    role: str
+
+    model_config = {"from_attributes": True}
 
 
 class CookbookSummary(BaseModel):

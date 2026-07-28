@@ -45,6 +45,7 @@ from recipe_normalizer.cookbook.schemas import (
     CollectionOut,
     CookbookSummary,
     IngredientLineIn,
+    RecipeCookbookOut,
     RecipeIn,
     RecipeOut,
     RecipePage,
@@ -85,6 +86,7 @@ __all__ = [
     "list_collections",
     "list_my_cookbooks",
     "list_recipes",
+    "readable_cookbooks_for_recipe",
     "recipe_access",
     "recipe_summaries_for_ids",
     "recipe_titles_for_ids",
@@ -96,6 +98,7 @@ __all__ = [
     "rename_cookbook",
     "repoint_ingredient_lines",
     "require_cookbook_access",
+    "save_recipe_to_cookbook",
     "set_cookbook_cover",
     "set_cookbook_description",
     "set_cookbook_member_role",
@@ -521,15 +524,35 @@ def ensure_default_cookbook(db: Session, user_id: uuid.UUID) -> Cookbook:
 
 
 def _cookbook_recipe_counts(db: Session, cookbook_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
-    """Map cookbook id -> number of recipes in it, for the given ids only."""
+    """Map cookbook id -> number of recipes PLACED in it, for the given ids only.
+
+    A recipe placed into a cookbook via ``add_recipe_to_cookbook`` (not just
+    created there) must count too, matching what ``GET /api/cookbooks/{id}``'s
+    own recipe list now shows (see cookbook_router._recipe_count) — so this
+    counts the UNION (not union all — the dedupe is the point, same reasoning
+    as ``_recipe_cookbook_ids``) of ``cookbook_recipes`` placements and each
+    recipe's still-NOT-NULL legacy ``recipes.cookbook_id``, per (cookbook_id,
+    recipe_id) pair, so a dual-written recipe isn't counted twice and a
+    recipe predating the dual-write (no join row at all) still counts once.
+    """
     if not cookbook_ids:
         return {}
-    rows = db.execute(
-        select(Recipe.cookbook_id, func.count())
-        .where(Recipe.cookbook_id.in_(cookbook_ids))
-        .group_by(Recipe.cookbook_id)
-    ).all()
-    return {cookbook_id: count for cookbook_id, count in rows if cookbook_id is not None}
+    pairs = (
+        select(
+            CookbookRecipe.cookbook_id.label("cookbook_id"),
+            CookbookRecipe.recipe_id.label("recipe_id"),
+        )
+        .where(CookbookRecipe.cookbook_id.in_(cookbook_ids))
+        .union(
+            select(
+                Recipe.cookbook_id.label("cookbook_id"),
+                Recipe.id.label("recipe_id"),
+            ).where(Recipe.cookbook_id.in_(cookbook_ids))
+        )
+        .subquery()
+    )
+    rows = db.execute(select(pairs.c.cookbook_id, func.count()).group_by(pairs.c.cookbook_id)).all()
+    return {cookbook_id: count for cookbook_id, count in rows}
 
 
 def list_my_cookbooks(db: Session, user_id: uuid.UUID) -> list[CookbookSummary]:
@@ -950,6 +973,102 @@ def remove_recipe_from_cookbook(
     db.flush()
 
 
+def save_recipe_to_cookbook(
+    db: Session, *, user_id: uuid.UUID, recipe_id: uuid.UUID, cookbook_id: uuid.UUID
+) -> tuple[uuid.UUID, bool]:
+    """Save/pin *recipe_id* into *cookbook_id* — the social "Save" action.
+
+    The design spec's "Save / pin semantics" branch:
+
+    - ``recipe.owner_id == user_id`` (the caller's OWN recipe): a plain
+      REFERENCE placement via ``add_recipe_to_cookbook`` — editor+ on
+      *cookbook_id* required (404 otherwise), idempotent, no copy. The
+      caller already owns the row, so nothing about ownership widens.
+    - otherwise (someone else's recipe): the caller must still be able to
+      READ *recipe_id* via the set-based rule (any cookbook currently
+      holding it, e.g. a public/shared one) — 404 if not. The recipe is then
+      DEEP-COPIED via ``copy_recipe`` straight into *cookbook_id* (editor+
+      required there too, enforced by ``copy_recipe`` itself), so the caller
+      ends up owning an independent copy rather than gaining edit rights on
+      someone else's row. Cross-owner *reference* is a deliberate non-goal
+      of this phase — see the spec.
+
+    Returns ``(resulting_recipe_id, copied)``: the id actually placed (the
+    source's own id for a reference, the new copy's id when copied) and
+    whether a copy was made — the router surfaces both so a client can
+    navigate to the copy it just created.
+    """
+    recipe = db.get(Recipe, recipe_id)
+    if recipe is None:
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+
+    if recipe.owner_id == user_id:
+        add_recipe_to_cookbook(db, user_id=user_id, recipe_id=recipe_id, cookbook_id=cookbook_id)
+        return recipe_id, False
+
+    _require_recipe_access(db, user_id=user_id, recipe=recipe, need=CookbookRole.viewer)
+    provenance = {
+        "saved_from_owner_id": str(recipe.owner_id),
+        "saved_at": datetime.now(UTC).isoformat(),
+        "origin_recipe_id": str(recipe_id),
+    }
+    copied = copy_recipe(
+        db,
+        recipe_id,
+        new_owner_id=user_id,
+        cookbook_id=cookbook_id,
+        provenance=provenance,
+    )
+    return copied.id, True
+
+
+def readable_cookbooks_for_recipe(
+    db: Session, *, user_id: uuid.UUID, recipe_id: uuid.UUID
+) -> list[RecipeCookbookOut]:
+    """Cookbooks *recipe_id* is placed in that *user_id* may THEMSELVES read.
+
+    ``cookbooks_for_recipe`` is unscoped (every placement, regardless of
+    caller); each candidate cookbook here is filtered through this caller's
+    OWN ``cookbook_access`` (owner/member/public-or-unlisted-viewer) before
+    being returned — a stranger's private cookbook that also holds this
+    recipe (e.g. the removed-contributor scenario, where the recipe's owner
+    can still read the recipe itself but not that cookbook) must never leak
+    its id, name, or visibility to a caller who cannot see it.
+
+    Raises ApiError 404 if *recipe_id* doesn't exist, or the caller has no
+    read access to the recipe AT ALL (the module's usual not-found
+    discipline). Returns ``[]`` (not 404) when the recipe IS readable by the
+    caller (e.g. via ``recipes.owner_id``) but none of its current
+    placements individually are.
+    """
+    recipe = db.get(Recipe, recipe_id)
+    if recipe is None:
+        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
+    _require_recipe_access(db, user_id=user_id, recipe=recipe, need=CookbookRole.viewer)
+
+    cookbook_ids = cookbooks_for_recipe(db, recipe_id)
+    if not cookbook_ids:
+        return []
+    cookbooks = db.scalars(
+        select(Cookbook)
+        .where(Cookbook.id.in_(cookbook_ids))
+        .order_by(func.lower(Cookbook.name), Cookbook.id)
+    ).all()
+    out: list[RecipeCookbookOut] = []
+    for cookbook in cookbooks:
+        access = _resolve_cookbook_access(db, user_id=user_id, cookbook=cookbook)
+        if access is not None:
+            out.append(
+                RecipeCookbookOut(
+                    id=cookbook.id,
+                    name=cookbook.name,
+                    visibility=str(cookbook.visibility),
+                    role=str(access),
+                )
+            )
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Vocab helpers
 # ---------------------------------------------------------------------------
@@ -1347,20 +1466,29 @@ def copy_recipe(
     *,
     new_owner_id: uuid.UUID,
     provenance: dict[str, Any],
+    cookbook_id: uuid.UUID | None = None,
 ) -> Recipe:
     """Deep-copy a recipe into a new owner's cookbook (the copy-on-share primitive).
 
     No ownership check here — this is service-internal; the caller (the
-    sharing service) is responsible for verifying the SHARER owns
-    *recipe_id* before calling this. Raises ApiError 404 if *recipe_id*
-    doesn't exist at all.
+    sharing service, or ``save_recipe_to_cookbook`` below) is responsible for
+    verifying the caller may read *recipe_id* before calling this. Raises
+    ApiError 404 if *recipe_id* doesn't exist at all.
 
-    The copy is filed in *new_owner_id*'s own default cookbook
-    (``ensure_default_cookbook``, created on first use) — NEVER the source
-    recipe's cookbook, which belongs to the sharer and whose members must not
-    silently gain access to the recipient's copy. This is also what keeps
-    copy-on-share from minting cookbook-less recipes (``recipes.cookbook_id``
-    is NOT NULL as of the finalize migration).
+    The copy is filed in *cookbook_id* when given — the caller must have
+    editor+ access to it (404 otherwise), the same gate
+    ``add_recipe_to_cookbook`` uses for a reference placement. This is what
+    lets ``save_recipe_to_cookbook`` copy someone else's recipe straight into
+    the SPECIFIC cookbook the caller chose to save it into, rather than
+    always landing in their default one.
+
+    When *cookbook_id* is omitted (every pre-existing caller —
+    ``sharing.service.share_recipe``), the copy is filed in *new_owner_id*'s
+    own default cookbook (``ensure_default_cookbook``, created on first use)
+    instead — NEVER the source recipe's cookbook, which belongs to the sharer
+    and whose members must not silently gain access to the recipient's copy.
+    This is also what keeps copy-on-share from minting cookbook-less recipes
+    (``recipes.cookbook_id`` is NOT NULL as of the finalize migration).
 
     Copied verbatim: title/description/servings/prep_min/cook_min/total_min/
     language/source/source_type, image_ref (shared BY REFERENCE — the
@@ -1411,7 +1539,13 @@ def copy_recipe(
     if source is None:
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
 
-    target_cookbook = ensure_default_cookbook(db, new_owner_id)
+    target_cookbook = (
+        require_cookbook_access(
+            db, user_id=new_owner_id, cookbook_id=cookbook_id, need=CookbookRole.editor
+        )
+        if cookbook_id is not None
+        else ensure_default_cookbook(db, new_owner_id)
+    )
 
     new_recipe = Recipe(
         owner_id=new_owner_id,
@@ -1543,15 +1677,27 @@ def list_recipes(
 ) -> RecipePage:
     """Return a page of recipes *owner_id* can READ, newest first, filters ANDed.
 
-    SCOPE (the flat compat list): every recipe in a cookbook *owner_id* owns
-    OR is a member of (any role) — "my stuff + shared-with-me". Deliberately
-    NOT a discovery feed: a public/unlisted cookbook the caller is not a
-    member of is readable via its own cookbook page but does NOT pour its
-    recipes into this list, which would otherwise grow without bound as
-    strangers publish cookbooks. ``owner_id`` is kept as the parameter name
-    for call-site compatibility; it means "the calling user", and a recipe
-    someone else owns can now appear (shared to the caller as viewer or
-    editor).
+    SCOPE (the flat compat list, boards-aware): every recipe that appears —
+    via the ``cookbook_recipes`` join, OR its still-NOT-NULL legacy
+    ``recipes.cookbook_id`` (the same transitional union used everywhere else
+    in this module, see ``_recipe_cookbook_ids``) — in ANY cookbook
+    *owner_id* owns or is a member of (any role), PLUS every recipe
+    *owner_id* owns outright even if its only current placement became
+    unreadable to them (e.g. removed as a member of the cookbook holding
+    it) — "my stuff + shared-with-me". A recipe placed in SEVERAL cookbooks
+    *owner_id* can read appears exactly ONCE: the scope is expressed as a
+    per-recipe EXISTS/boolean condition over the ``Recipe`` table itself
+    (never a JOIN against ``cookbook_recipes``), so there is nothing to
+    de-duplicate — each recipe row is considered exactly once regardless of
+    how many of its placements are readable.
+
+    Deliberately NOT a discovery feed: a public/unlisted cookbook the caller
+    is not a member of is readable via its own cookbook page but does NOT
+    pour its recipes into this list, which would otherwise grow without
+    bound as strangers publish cookbooks. ``owner_id`` is kept as the
+    parameter name for call-site compatibility; it means "the calling user",
+    and a recipe someone else owns can now appear (shared to the caller as
+    viewer or editor, or still their own even without a readable placement).
 
     Search (*q*): a recipe matches when ANY of the following hold —
       1. title/description full-text search: ``to_tsvector('simple', title ||
@@ -1593,7 +1739,24 @@ def list_recipes(
 
     Raises ``ApiError`` 422 for an unrecognised *dietary* value.
     """
-    conditions: list[Any] = [Recipe.cookbook_id.in_(_readable_cookbook_ids(owner_id))]
+    placed_in_a_readable_cookbook = exists(
+        select(1).where(
+            CookbookRecipe.recipe_id == Recipe.id,
+            CookbookRecipe.cookbook_id.in_(_readable_cookbook_ids(owner_id)),
+        )
+    )
+    conditions: list[Any] = [
+        or_(
+            placed_in_a_readable_cookbook,
+            # TRANSITION: a recipe predating the backfill migration has no
+            # join row at all — its legacy primary placement alone decides.
+            Recipe.cookbook_id.in_(_readable_cookbook_ids(owner_id)),
+            # The caller's own recipes always show up here, even when their
+            # only placement(s) became unreadable to them (e.g. removed as a
+            # cookbook member) — see the design spec's access model.
+            Recipe.owner_id == owner_id,
+        )
+    ]
 
     if q and q.strip():
         q_stripped = q.strip()

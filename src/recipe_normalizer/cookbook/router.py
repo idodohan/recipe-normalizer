@@ -17,10 +17,13 @@ from recipe_normalizer.cookbook.scaling import ScaledRecipeOut, scale_factor_for
 from recipe_normalizer.cookbook.schemas import (
     CollectionIn,
     CollectionOut,
+    RecipeCookbookOut,
     RecipeIn,
     RecipeOut,
     RecipePage,
     RecipePersonalPatch,
+    RecipePlacementIn,
+    RecipePlacementOut,
     RecipeSummary,
     SetRecipeCollectionsIn,
 )
@@ -197,6 +200,69 @@ def set_recipe_collections(
         recipe_id=recipe_id,
         collection_ids=body.collection_ids,
     )
+
+
+# ---------------------------------------------------------------------------
+# Recipe placements — the boards model's "save to cookbook" surface
+# ---------------------------------------------------------------------------
+
+
+@router.post("/recipes/{recipe_id}/cookbooks", status_code=201, response_model=RecipePlacementOut)
+def save_recipe_to_cookbook(
+    recipe_id: uuid.UUID,
+    body: RecipePlacementIn,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> RecipePlacementOut:
+    """Save/pin a recipe into one of the caller's cookbooks.
+
+    The caller's OWN recipe -> a plain reference placement (idempotent, no
+    copy — editor+ on ``cookbook_id`` required). Someone else's recipe the
+    caller can read (e.g. via a public/shared cookbook) -> a deep copy filed
+    into ``cookbook_id``, so the caller ends up owning an independent copy
+    rather than gaining edit rights on the original. 404 if the recipe
+    doesn't exist, the caller can't read it at all, or the caller lacks
+    editor+ on ``cookbook_id`` — see ``service.save_recipe_to_cookbook``.
+    """
+    resulting_id, copied = service.save_recipe_to_cookbook(
+        db, user_id=current_user.id, recipe_id=recipe_id, cookbook_id=body.cookbook_id
+    )
+    return RecipePlacementOut(cookbook_id=body.cookbook_id, recipe_id=resulting_id, copied=copied)
+
+
+@router.delete("/recipes/{recipe_id}/cookbooks/{cookbook_id}", status_code=204)
+def remove_recipe_from_cookbook(
+    recipe_id: uuid.UUID,
+    cookbook_id: uuid.UUID,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> Response:
+    """Drop a recipe's placement in a cookbook. Never deletes the recipe.
+
+    Editor+ on ``cookbook_id`` required (404 otherwise). 409
+    ``last_placement`` if this is the recipe's only remaining placement — see
+    ``service.remove_recipe_from_cookbook``.
+    """
+    service.remove_recipe_from_cookbook(
+        db, user_id=current_user.id, recipe_id=recipe_id, cookbook_id=cookbook_id
+    )
+    return Response(status_code=204)
+
+
+@router.get("/recipes/{recipe_id}/cookbooks", response_model=list[RecipeCookbookOut])
+def list_recipe_cookbooks(
+    recipe_id: uuid.UUID,
+    db: Session = Depends(get_db),  # noqa: B008
+    current_user: Any = Depends(get_current_user),  # noqa: B008
+) -> list[RecipeCookbookOut]:
+    """The cookbooks this recipe is in, SCOPED to what the caller can read.
+
+    A cookbook holding this recipe that the caller cannot themselves see
+    (owner/member/public-or-unlisted-viewer) is silently dropped — never
+    leaked by id, name, or visibility. 404 if the recipe doesn't exist or the
+    caller can't read it at all — see ``service.readable_cookbooks_for_recipe``.
+    """
+    return service.readable_cookbooks_for_recipe(db, user_id=current_user.id, recipe_id=recipe_id)
 
 
 # ---------------------------------------------------------------------------
