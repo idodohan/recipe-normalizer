@@ -6,19 +6,45 @@ import { ErrorState } from "../components/ErrorState";
 import { Skeleton } from "../components/Skeleton";
 import { CookbookCard } from "../components/cookbook/CookbookCard";
 import { NewCookbookDialog } from "../components/cookbook/NewCookbookDialog";
+import { CookbookQaPanel } from "../components/cookbook/CookbookQaPanel";
+import { RecipeCard } from "../components/recipe/RecipeCard";
 import { useCookbooks } from "../hooks/useCookbooks";
+import { useCollections, useRecipeSearch } from "../hooks/useRecipeSearch";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { apiErrorMessage } from "../api/errors";
 import "../components/cookbook/cookbooks-home.css";
 
 export function CookbooksHomePage() {
   const navigate = useNavigate();
   const cookbooks = useCookbooks();
+  const collections = useCollections();
   const [newOpen, setNewOpen] = useState(false);
+
+  // Search across all readable cookbooks. A single calm field + optional
+  // collection/favorites toggles — deliberately NOT the old nine-dropdown bar.
+  const [queryInput, setQueryInput] = useState("");
+  const query = useDebouncedValue(queryInput, 250);
+  const [collection, setCollection] = useState<string | null>(null);
+  const [favorites, setFavorites] = useState(false);
+  const searching = Boolean(query.trim() || collection || favorites);
+  const results = useRecipeSearch({
+    q: query,
+    collection: collection ?? undefined,
+    favorites,
+  });
 
   const items = cookbooks.data ?? [];
   const mine = items.filter((c) => c.role === "owner");
   const shared = items.filter((c) => c.role !== "owner");
   const totalRecipes = items.reduce((n, c) => n + c.recipe_count, 0);
+  const collectionList = collections.data ?? [];
+  const resultItems = results.data?.items ?? [];
+
+  function clearSearch() {
+    setQueryInput("");
+    setCollection(null);
+    setFavorites(false);
+  }
 
   return (
     <>
@@ -35,14 +61,91 @@ export function CookbooksHomePage() {
         </div>
       </header>
 
-      {cookbooks.isPending ? (
+      {/* Ask across everything you've saved — AI, grounded in your recipes. */}
+      <CookbookQaPanel />
+
+      {/* Plain search across all cookbooks + collection/favorite scopes. */}
+      <div className="cb-search">
+        <input
+          type="search"
+          className="cb-search__input"
+          placeholder="Search all your recipes…"
+          aria-label="Search your recipes"
+          value={queryInput}
+          onChange={(e) => setQueryInput(e.target.value)}
+          maxLength={200}
+        />
+        <div className="cb-search__scopes" role="group" aria-label="Filters">
+          <button
+            type="button"
+            className="chip chip--filter"
+            aria-pressed={favorites}
+            onClick={() => setFavorites((f) => !f)}
+          >
+            ♥ Favorites
+          </button>
+          {collectionList.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              className="chip chip--filter"
+              aria-pressed={collection === c.id}
+              onClick={() =>
+                setCollection((cur) => (cur === c.id ? null : c.id))
+              }
+            >
+              {c.name} ({c.recipe_count})
+            </button>
+          ))}
+          {searching ? (
+            <button type="button" className="cb-search__clear" onClick={clearSearch}>
+              Clear
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {searching ? (
+        results.isPending ? (
+          <Skeleton variant="card-grid" />
+        ) : results.isError ? (
+          <ErrorState
+            message={apiErrorMessage(results.error, "Search failed.")}
+            onRetry={() => void results.refetch()}
+          />
+        ) : resultItems.length === 0 ? (
+          <EmptyState
+            title="Nothing matches"
+            body="Try a different word, or clear the filters."
+            action={
+              <Button variant="secondary" onClick={clearSearch}>
+                Clear search
+              </Button>
+            }
+          />
+        ) : (
+          <>
+            <p className="cb-home__result-count">
+              {results.data?.total ?? resultItems.length}{" "}
+              {(results.data?.total ?? resultItems.length) === 1
+                ? "recipe"
+                : "recipes"}{" "}
+              found
+            </p>
+            <ul className="cb-grid cb-grid--recipes">
+              {resultItems.map((recipe, index) => (
+                <li key={recipe.id}>
+                  <RecipeCard recipe={recipe} index={index} />
+                </li>
+              ))}
+            </ul>
+          </>
+        )
+      ) : cookbooks.isPending ? (
         <Skeleton variant="card-grid" />
       ) : cookbooks.isError ? (
         <ErrorState
-          message={apiErrorMessage(
-            cookbooks.error,
-            "Could not load your cookbooks.",
-          )}
+          message={apiErrorMessage(cookbooks.error, "Could not load your cookbooks.")}
           onRetry={() => void cookbooks.refetch()}
         />
       ) : totalRecipes === 0 && items.length <= 1 ? (

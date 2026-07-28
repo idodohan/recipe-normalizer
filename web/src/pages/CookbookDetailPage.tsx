@@ -494,6 +494,7 @@ function RecipeGrid({
   canAddRecipe: boolean;
 }) {
   const navigate = useNavigate();
+  const [filter, setFilter] = useState("");
 
   if (cookbook.recipes.length === 0) {
     return (
@@ -509,13 +510,39 @@ function RecipeGrid({
     );
   }
 
+  // Within-cookbook search: a light client-side filter by title over the
+  // recipes this cookbook already loaded. Cross-cookbook full-text and AI
+  // search live on the Cookbooks home.
+  const needle = filter.trim().toLowerCase();
+  const shown = needle
+    ? cookbook.recipes.filter((r) => r.title.toLowerCase().includes(needle))
+    : cookbook.recipes;
+
   return (
-    <ul className="cbd-grid">
-      {cookbook.recipes.map((recipe, index) => (
-        <li key={recipe.id}>
-          <RecipeCard recipe={recipe} index={index} />
-        </li>
-      ))}
-    </ul>
+    <section className="cbd__recipes">
+      {cookbook.recipes.length > 4 ? (
+        <input
+          type="search"
+          className="cbd__search"
+          placeholder={`Search in ${cookbook.name}…`}
+          aria-label={`Search recipes in ${cookbook.name}`}
+          value={filter}
+          maxLength={200}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+      ) : null}
+
+      {shown.length === 0 ? (
+        <p className="cbd__no-match">No recipes in this cookbook match “{filter}”.</p>
+      ) : (
+        <ul className="cbd-grid">
+          {shown.map((recipe, index) => (
+            <li key={recipe.id}>
+              <RecipeCard recipe={recipe} index={index} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

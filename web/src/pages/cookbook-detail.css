@@ -442,3 +442,37 @@
     width: 100%;
   }
 }
+
+/* -- Within-cookbook search ----------------------------------------- */
+.cbd__recipes {
+  margin-top: var(--space-5);
+}
+
+.cbd__search {
+  width: 100%;
+  max-width: 22rem;
+  height: var(--control-height);
+  padding: 0 var(--space-4);
+  margin-bottom: var(--space-5);
+  background: var(--color-surface-raised);
+  border: none;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+}
+
+.cbd__search::placeholder {
+  color: var(--color-text-faint);
+}
+
+.cbd__search:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring), var(--shadow-sm);
+}
+
+.cbd__no-match {
+  color: var(--color-text-muted);
+  font-size: var(--text-body);
+}
