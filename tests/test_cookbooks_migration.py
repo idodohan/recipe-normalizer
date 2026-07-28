@@ -1,4 +1,4 @@
-"""Alembic migration test for the additive cookbooks-pivot revision.
+"""Alembic migration tests for the cookbooks-pivot and boards revisions.
 
 Every other test in the suite builds its schema with
 ``Base.metadata.create_all`` (model-driven), so the alembic scripts get zero
@@ -16,6 +16,11 @@ that actually runs alembic:
   inserts (no ORM — the ORM models already describe the post-migration
   world), then ``upgrade head`` runs the real thing and the assertions look
   at raw rows.
+
+It is also where ``test_orm_models_match_the_migration_chain`` lives — the
+``compare_metadata`` guard against the models and the migration chain drifting
+apart, which is what let ``cookbook_recipes`` exist in the ORM with no revision
+for three tasks.
 """
 
 from __future__ import annotations
@@ -28,11 +33,14 @@ from pathlib import Path
 import pytest
 import sqlalchemy as sa
 from alembic import command
+from alembic.autogenerate import compare_metadata
 from alembic.config import Config
+from alembic.migration import MigrationContext
 from sqlalchemy import Engine, create_engine, make_url, text
 from sqlalchemy.exc import IntegrityError
 
 from recipe_normalizer.config import settings
+from recipe_normalizer.db import Base
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = REPO_ROOT / "alembic.ini"
@@ -1066,3 +1074,93 @@ def test_boards_downgrade_restores_the_column_from_the_oldest_placement(
         )
         assert conn.execute(text("select to_regclass('collections')")).scalar_one() is None
         assert conn.execute(text("select to_regclass('cookbook_recipes')")).scalar_one() is not None
+
+
+# ---------------------------------------------------------------------------
+# The ORM models and the migration chain must not drift apart
+# ---------------------------------------------------------------------------
+
+#: Indexes created by RAW SQL in a migration and therefore deliberately absent
+#: from the ORM models, so ``compare_metadata`` always proposes dropping them.
+#: Every one is intentional — see the migration that creates it:
+#:
+#: * ``uq_cookbooks_default_per_owner`` — a PARTIAL unique index
+#:   (``cookbooks (owner_id) WHERE is_default``) from 4e1b7c9a52d8; it is the DB
+#:   backstop behind ``ensure_default_cookbook``'s read-then-insert race and is
+#:   kept out of the models on purpose.
+#: * ``ix_recipes_title_description_fts`` / ``ix_recipes_title_trgm`` —
+#:   expression/GIN indexes from 6b6111bf2366 that back ``list_recipes``' search;
+#:   several later revisions carry a comment about autogenerate proposing their
+#:   removal as a false positive.
+#:
+#: Anything NOT on this list is real drift and fails the test below.
+RAW_SQL_ONLY_INDEXES = frozenset(
+    {
+        "uq_cookbooks_default_per_owner",
+        "ix_recipes_title_description_fts",
+        "ix_recipes_title_trgm",
+    }
+)
+
+
+def _import_every_model_module() -> None:
+    """Populate ``Base.metadata`` with every table the app declares.
+
+    The same import list ``alembic/env.py`` carries, and for the same reason: a
+    model module nobody imports contributes nothing to ``Base.metadata``, so
+    both autogenerate and the test below would silently miss its tables. Keep
+    the two lists in sync when adding a module.
+    """
+    import recipe_normalizer.ai.models  # noqa: F401
+    import recipe_normalizer.catalog.models  # noqa: F401
+    import recipe_normalizer.cookbook.models  # noqa: F401
+    import recipe_normalizer.ingestion.models  # noqa: F401
+    import recipe_normalizer.llm.models  # noqa: F401
+    import recipe_normalizer.sharing.models  # noqa: F401
+    import recipe_normalizer.users.models  # noqa: F401
+
+
+def _is_known_raw_sql_index(entry: object) -> bool:
+    """True for a ``remove_index`` diff naming one of RAW_SQL_ONLY_INDEXES."""
+    if not (isinstance(entry, tuple) and len(entry) == 2 and entry[0] == "remove_index"):
+        return False
+    return getattr(entry[1], "name", None) in RAW_SQL_ONLY_INDEXES
+
+
+def _flatten_diff(diff: object) -> list[object]:
+    """One level of flattening — column-level diffs arrive as nested lists."""
+    out: list[object] = []
+    if isinstance(diff, list):
+        for entry in diff:
+            out.extend(_flatten_diff(entry))
+    else:
+        out.append(diff)
+    return out
+
+
+def test_orm_models_match_the_migration_chain(migration_engine: Engine) -> None:
+    """``upgrade head`` must produce exactly the schema the ORM models describe.
+
+    THE guard for the failure this phase actually hit: ``cookbook_recipes`` was
+    added to ``cookbook/models.py`` in Task 1 with no accompanying revision, and
+    nothing noticed for three tasks — every other test in the suite builds its
+    schema with ``Base.metadata.create_all``, so the models are trivially
+    self-consistent there and the alembic chain is never compared against them.
+
+    Runs ``alembic.autogenerate.compare_metadata`` against a real migrated
+    database and asserts the only differences are the three raw-SQL indexes that
+    are deliberately not in the models. A new/renamed/retyped table or column on
+    either side shows up here as an unexpected diff entry.
+    """
+    _upgrade(migration_engine, "head")
+
+    _import_every_model_module()
+
+    with migration_engine.connect() as conn:
+        diff = compare_metadata(MigrationContext.configure(conn), Base.metadata)
+
+    unexpected = [entry for entry in _flatten_diff(diff) if not _is_known_raw_sql_index(entry)]
+    assert unexpected == [], (
+        "ORM models and the alembic chain have drifted — either a migration is "
+        f"missing or a model changed without one:\n{unexpected}"
+    )

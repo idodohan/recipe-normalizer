@@ -2,7 +2,7 @@
 
 Recipe Normalizer ingests recipes from anywhere — URLs, PDFs, images, pasted text, manual entry — and normalizes them into one unified structure with **dual quantities**: the original text is always preserved and displayed alongside a normalized weight/volume (grams for solids, ml for liquids), with approximations flagged. Users build a personal, filterable cookbook; scale recipes deterministically; share recipes and cookbooks; and ask AI questions grounded in their recipes. Scope covers all recipes: food, baking, cocktails, smoothies.
 
-**v1 status:** all six phases have shipped — accounts, the global ingredient catalog with deterministic unit conversion, ingestion from URL/PDF/image/text/manual with a review gate, the cookbook with dual-quantity rendering and scaling, search/collections/favorites, sharing (copy-on-share, public links), and the AI layer (recipe chat, cookbook Q&A, transformations, recommendations). See [Roadmap](#roadmap) for non-goals.
+**v1 status:** all six phases have shipped — accounts, the global ingredient catalog with deterministic unit conversion, ingestion from URL/PDF/image/text/manual with a review gate, cookbooks with dual-quantity rendering and scaling, search/favorites, sharing (copy-on-share, public links), and the AI layer (recipe chat, cookbook Q&A, transformations, recommendations). Cookbooks are boards: a recipe can live in several at once, and the standalone "collections" feature has been folded into them. See [Roadmap](#roadmap) for non-goals.
 
 ## Quickstart
 
@@ -22,7 +22,7 @@ Modular monolith: one repo, one FastAPI app, backend modules under `src/recipe_n
 |---|---|---|---|
 | `users` | users, sessions | Accounts. Auth behind an `AuthProvider` interface: v1 = email+password (cookie sessions); SaaS swaps in OAuth without touching other modules. | shipped |
 | `catalog` | canonical ingredients, aliases, densities, units | Canonical ingredient entities, multilingual alias matching, deterministic unit conversion math. | shipped |
-| `cookbook` | cookbooks, memberships, recipes, ingredient lines, steps | Cookbooks (private/unlisted/public, owner + editor/viewer members) holding recipes; recipe CRUD, dual-quantity rendering, deterministic scaling. Every recipe lives in exactly one cookbook, and that cookbook is the sole source of who may read or edit it. | shipped |
+| `cookbook` | cookbooks, memberships, recipe↔cookbook placements, recipes, ingredient lines, steps | Cookbooks (private/unlisted/public, owner + editor/viewer members) holding recipes; recipe CRUD, dual-quantity rendering, deterministic scaling. A recipe may be placed in **many** cookbooks at once, and access is the highest level the caller holds across all of them. | shipped |
 | `ingestion` | inputs, jobs | Accept any input (URL / file / pasted text), extraction job lifecycle + review gate. | shipped |
 | `extraction` | (stateless) | The acquire+normalize pipeline; pluggable `Extractor` per source type, incl. tiered agentic web extraction. | shipped |
 | `sharing` | shares, public links | Copy-on-share, tokenized public links to a single recipe. (Co-owned cookbooks moved to `cookbook` in the cookbooks pivot.) | shipped |
@@ -32,6 +32,7 @@ Key invariants:
 
 - **Dual quantities (display rule):** every ingredient line renders original **and** normalized, e.g. `1 cup flour → ~120 g (approx.)`, `1 oz gin → 30 ml`; the original is never hidden, and unconvertible lines ("salt to taste") display as original only.
 - **Deterministic conversion & scaling:** unit parsing, conversion, and scaling are code in `catalog`/`cookbook` — never LLM math; scaling is a view, never a mutation.
+- **Cookbooks as boards:** the `cookbook_recipes` join is the only record of containment. A recipe is always in **at least one** cookbook (enforced in the service — removing the last placement is refused), and access derives from the whole set, plus an always-owner path through `recipes.owner_id`. Deleting a cookbook removes *placements*, never recipes: one placed solely there is re-filed into its owner's default cookbook first. Deleting the recipe is a separate, owner-only action.
 - **Global catalog:** canonical ingredients, aliases, and densities are shared by all users; alias/density/review work benefits everyone.
 
 Frontend is React + TypeScript (Vite, TanStack Query) in `web/`, talking to the API through a typed client generated from the OpenAPI schema (drift fails CI). The production deployment serves the built bundle via nginx, which proxies `/api/` to the FastAPI container (`docker/`).
@@ -119,7 +120,7 @@ CI gates (all must pass): `ruff check`, `mypy`, `lint-imports` (module boundarie
 Planned phases:
 
 - **Plan 2 — extraction pipeline (shipped):** ingestion jobs + worker; text/paste → normalize → review screen; URL tiers 1–2 (structured data, readable HTML) + tier 3 agentic browser; PDF (text layer + scanned vision); images.
-- **Plan 3 — search, collections, sharing (shipped):** filters and full-text search, collections, copy-on-share, public links, and co-owned cookbooks (originally `sharing`'s own shared-cookbook model; superseded by the first-class `Cookbook` entity in the cookbooks pivot).
+- **Plan 3 — search, organization, sharing (shipped):** filters and full-text search, copy-on-share, public links, and co-owned cookbooks (originally `sharing`'s own shared-cookbook model; superseded by the first-class `Cookbook` entity in the cookbooks pivot). Organization shipped as "collections", a second axis alongside one-cookbook-per-recipe; the boards pivot made cookbooks themselves many-to-many — which is what a collection was — so collections were folded into cookbooks and retired.
 - **Plan 4 — AI features (shipped):** per-recipe chat, cookbook Q&A, transformations, content-based recommendations.
 
 ## Documents
