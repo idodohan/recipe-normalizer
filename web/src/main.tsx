@@ -18,13 +18,13 @@ import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
 import { Toaster } from "./components/Toaster";
 import { AuthenticatedApp } from "./layouts/AuthenticatedApp";
 import { CatalogPage } from "./pages/CatalogPage";
-import { CookbookPage } from "./pages/CookbookPage";
-import { InboxPage } from "./pages/InboxPage";
+import { CookbooksHomePage } from "./pages/CookbooksHomePage";
+import { CookbookDetailPage } from "./pages/CookbookDetailPage";
+import { AddRecipeWizardPage } from "./pages/AddRecipeWizardPage";
 import { LoginPage } from "./pages/LoginPage";
 import { PublicRecipePage } from "./pages/PublicRecipePage";
 import { RecipeDetailPage } from "./pages/RecipeDetailPage";
 import { RecipeEditPage } from "./pages/RecipeEditPage";
-import { RecipeEditorPage } from "./pages/RecipeEditorPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { ReviewPage } from "./pages/ReviewPage";
 
@@ -56,10 +56,13 @@ const router = createBrowserRouter([
       {
         errorElement: <RouteErrorBoundary />,
         children: [
-          { index: true, element: <CookbookPage /> },
-          { path: "inbox", element: <InboxPage /> },
+          { index: true, element: <CookbooksHomePage /> },
+          { path: "cookbooks/:id", element: <CookbookDetailPage /> },
+          { path: "add", element: <AddRecipeWizardPage /> },
+          // Old ingestion entry points now live inside the wizard.
+          { path: "inbox", element: <Navigate to="/add" replace /> },
           { path: "jobs/:id/review", element: <ReviewPage /> },
-          { path: "recipes/new", element: <RecipeEditorPage /> },
+          { path: "recipes/new", element: <Navigate to="/add" replace /> },
           { path: "recipes/:id/edit", element: <RecipeEditPage /> },
           { path: "recipes/:id", element: <RecipeDetailPage /> },
           { path: "catalog", element: <CatalogPage /> },

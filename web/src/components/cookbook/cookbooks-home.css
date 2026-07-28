@@ -1,0 +1,85 @@
+/* ------------------------------------------------------------------ */
+/*  Cookbooks home — the kitchen. Photo-forward grid, airy, no filter   */
+/*  bar. Organized by cookbook, not one undifferentiated pile.          */
+/* ------------------------------------------------------------------ */
+
+.cb-home__masthead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-7);
+}
+
+.cb-home__overline {
+  font-family: var(--font-body);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--color-accent);
+  margin: 0 0 var(--space-2);
+}
+
+.cb-home__title {
+  font-family: var(--font-display);
+  font-size: var(--text-display);
+  font-weight: 560;
+  line-height: var(--leading-tight);
+  margin: 0;
+}
+
+.cb-home__actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.cb-home__section {
+  margin-bottom: var(--space-8);
+}
+
+.cb-home__section-title {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: var(--text-heading);
+  font-weight: 500;
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-4);
+}
+
+.cb-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: var(--space-5);
+}
+
+.cb-home__firstrun {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3);
+}
+
+@media (max-width: 560px) {
+  .cb-home__masthead {
+    align-items: flex-start;
+  }
+
+  .cb-home__actions {
+    width: 100%;
+  }
+
+  .cb-home__actions .btn {
+    flex: 1;
+  }
+
+  .cb-grid {
+    grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+    gap: var(--space-4);
+  }
+}
