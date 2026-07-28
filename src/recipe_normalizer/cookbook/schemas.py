@@ -139,16 +139,10 @@ class RecipeIn(BaseModel):
     steps: list[StepIn] = []
 
 
-class CollectionIn(BaseModel):
-    """Body for POST/PATCH /api/collections."""
+class RecipePlacementIn(BaseModel):
+    """Body for POST /api/recipes/{recipe_id}/cookbooks — save/pin a recipe into a cookbook."""
 
-    name: str = Field(min_length=1, max_length=120)
-
-
-class SetRecipeCollectionsIn(BaseModel):
-    """Body for PUT /api/recipes/{recipe_id}/collections — full-replace semantics."""
-
-    collection_ids: list[uuid.UUID] = []
+    cookbook_id: uuid.UUID
 
 
 class RecipePersonalPatch(BaseModel):
@@ -233,10 +227,11 @@ class StepOut(BaseModel):
 class RecipeOut(BaseModel):
     id: uuid.UUID
     owner_id: uuid.UUID
-    # Every recipe lives in exactly one cookbook — `recipes.cookbook_id` is
-    # NOT NULL in the database (finalize migration b7d3f0c11a94), so this is
-    # always present and clients may rely on it.
-    cookbook_id: uuid.UUID
+    # NOTE: no `cookbook_id`. A recipe lives in MANY cookbooks under the boards
+    # model, so there is no single containing cookbook to report here — clients
+    # ask ``GET /api/recipes/{id}/cookbooks`` (``RecipeCookbookOut``) for the
+    # placements they can see. Dropped alongside the column itself in migration
+    # a3f7c2d8e015.
     schema_version: int = 1
     title: str
     description: str | None = None
@@ -267,20 +262,8 @@ class RecipeOut(BaseModel):
     is_favorite: bool = False
     notes: str | None = None
     created_at: datetime
-    # ORM relationship attribute is `collections` (list of Collection objects);
-    # API field exposes just the ids. Detail-only (RecipeSummary does NOT get
-    # this) — see cookbook.service._RECIPE_FULL_OPTIONS for the selectinload
-    # that keeps this off the N+1 path for list_recipes.
-    collection_ids: list[uuid.UUID] = Field(default=[], validation_alias="collections")
 
     model_config = {"from_attributes": True}
-
-    @field_validator("collection_ids", mode="before")
-    @classmethod
-    def collections_to_ids(cls, v: Any) -> list[uuid.UUID]:
-        if not v:
-            return []
-        return [item.id if hasattr(item, "id") else item for item in v]
 
     @field_validator("image_ref", mode="after")
     @classmethod
@@ -344,6 +327,39 @@ class RecipePage(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class RecipePlacementOut(BaseModel):
+    """Response for POST /api/recipes/{recipe_id}/cookbooks.
+
+    ``recipe_id`` is the id actually placed in ``cookbook_id``: the SOURCE
+    recipe's own id for a reference placement (the caller's own recipe), or a
+    brand-new copy's id when ``copied`` is True (someone else's recipe) — see
+    ``cookbook.service.save_recipe_to_cookbook``.
+    """
+
+    cookbook_id: uuid.UUID
+    recipe_id: uuid.UUID
+    copied: bool = False
+
+
+class RecipeCookbookOut(BaseModel):
+    """One cookbook a recipe is placed in, as visible to the CALLER.
+
+    Row shape for ``GET /api/recipes/{recipe_id}/cookbooks`` — deliberately
+    lighter than ``CookbookSummary`` (no recipe_count/description/is_default/
+    cover_image_ref): this endpoint answers "which of the cookbooks THIS
+    recipe is in can I see", not "list my cookbooks". Only cookbooks the
+    caller can themselves read are ever included — see
+    ``cookbook.service.readable_cookbooks_for_recipe``.
+    """
+
+    id: uuid.UUID
+    name: str
+    visibility: str
+    role: str
+
+    model_config = {"from_attributes": True}
 
 
 class CookbookSummary(BaseModel):
@@ -456,19 +472,3 @@ class CookbookMemberOut(BaseModel):
     @classmethod
     def coerce_role(cls, v: Any) -> str:
         return str(v)
-
-
-class CollectionOut(BaseModel):
-    """Response shape for the collections endpoints — includes a recipe count.
-
-    Not built via ``from_attributes`` off the ORM ``Collection`` directly
-    (the count comes from a separate aggregate in the service layer), but
-    ``from_attributes`` is still enabled so ``Collection.id``/``.name`` can
-    be read off the ORM row when constructing this.
-    """
-
-    id: uuid.UUID
-    name: str
-    recipe_count: int
-
-    model_config = {"from_attributes": True}

@@ -1,7 +1,7 @@
 """Cookbook API routes: CRUD, visibility, and membership (Task 6).
 
 Kept in its own module rather than growing ``cookbook/router.py`` (which owns
-recipe/collection/vocab routes) further. Registered separately in main.py.
+recipe/placement/vocab routes) further. Registered separately in main.py.
 Every route here delegates to ``cookbook.service`` — the access-control
 choke point (``require_cookbook_access``/``cookbook_access``) and every
 ApiError this module can raise (404/409/422) already live there; this file
@@ -20,7 +20,13 @@ from sqlalchemy.orm import Session
 
 from recipe_normalizer.api_deps import get_current_user
 from recipe_normalizer.cookbook import service
-from recipe_normalizer.cookbook.models import Cookbook, CookbookRole, CookbookVisibility, Recipe
+from recipe_normalizer.cookbook.models import (
+    Cookbook,
+    CookbookRecipe,
+    CookbookRole,
+    CookbookVisibility,
+    Recipe,
+)
 from recipe_normalizer.cookbook.schemas import (
     CookbookDetailOut,
     CookbookIn,
@@ -42,8 +48,19 @@ router = APIRouter(prefix="/api/cookbooks", tags=["cookbooks"])
 
 
 def _recipe_count(db: Session, cookbook_id: uuid.UUID) -> int:
+    """Number of recipes PLACED in *cookbook_id* — one count over the boards join.
+
+    ``cookbook_recipes`` is the sole source of placement, and its composite PK
+    already guarantees one row per (cookbook, recipe) pair, so a plain COUNT is
+    exact. A recipe placed here via ``add_recipe_to_cookbook`` counts the same
+    as one created here.
+    """
     return (
-        db.scalar(select(func.count()).select_from(Recipe).where(Recipe.cookbook_id == cookbook_id))
+        db.scalar(
+            select(func.count())
+            .select_from(CookbookRecipe)
+            .where(CookbookRecipe.cookbook_id == cookbook_id)
+        )
         or 0
     )
 
@@ -118,13 +135,19 @@ def get_cookbook(
     db: Session = Depends(get_db),  # noqa: B008
     current_user: Any = Depends(get_current_user),  # noqa: B008
 ) -> CookbookDetailOut:
-    """Fetch a cookbook + its recipes. Viewer+ access required (404 otherwise)."""
+    """Fetch a cookbook + its recipes. Viewer+ access required (404 otherwise).
+
+    Recipes come from the ``cookbook_recipes`` join, the sole source of
+    placement — so a recipe merely PLACED into this cookbook via
+    ``add_recipe_to_cookbook`` shows up exactly like one created here.
+    """
     cookbook = service.require_cookbook_access(
         db, user_id=current_user.id, cookbook_id=cookbook_id, need=CookbookRole.viewer
     )
     recipe_ids = db.scalars(
         select(Recipe.id)
-        .where(Recipe.cookbook_id == cookbook.id)
+        .join(CookbookRecipe, CookbookRecipe.recipe_id == Recipe.id)
+        .where(CookbookRecipe.cookbook_id == cookbook.id)
         # Total order — see list_recipes' ORDER BY comment. Unpaginated here,
         # so ties could only jitter the order between requests, but the two
         # recipe listings should sort identically.

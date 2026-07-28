@@ -671,6 +671,49 @@ def test_public_cookbook_unlisted_also_readable(app_client: TestClient) -> None:
     assert resp.json()["name"] == "Unlisted Cookbook"
 
 
+def test_public_cookbook_shows_a_placed_not_created_here_recipe(app_client: TestClient) -> None:
+    """The public route's recipe source is the join, not `recipes.cookbook_id`.
+
+    A recipe merely PLACED into a cookbook (via `POST /recipes/{id}/cookbooks`)
+    — never created there — must still be visible to anonymous visitors once
+    that cookbook is made public.
+    """
+    created_in = app_client.post("/api/cookbooks", json={"name": "Created In (Public Join Test)"})
+    assert created_in.status_code == 201
+    created_in_id = created_in.json()["id"]
+
+    recipe_resp = app_client.post(
+        "/api/recipes",
+        params={"cookbook_id": created_in_id},
+        json={**RECIPE_PAYLOAD, "title": "Placed Not Created Here"},
+    )
+    assert recipe_resp.status_code == 201
+    recipe_id = recipe_resp.json()["id"]
+
+    placed_into = app_client.post("/api/cookbooks", json={"name": "Placed Into (Public Join Test)"})
+    assert placed_into.status_code == 201
+    placed_into_id = placed_into.json()["id"]
+
+    place_resp = app_client.post(
+        f"/api/recipes/{recipe_id}/cookbooks", json={"cookbook_id": placed_into_id}
+    )
+    assert place_resp.status_code == 201
+
+    patch_resp = app_client.patch(f"/api/cookbooks/{placed_into_id}", json={"visibility": "public"})
+    assert patch_resp.status_code == 200
+    token = patch_resp.json()["public_token"]
+    assert token
+
+    anon = TestClient(app_client.app, raise_server_exceptions=False)
+    resp = anon.get(f"/api/public/cookbooks/{token}")
+    assert resp.status_code == 200
+    assert [r["title"] for r in resp.json()["recipes"]] == ["Placed Not Created Here"]
+
+    # ...and the cookbook it was CREATED in never gained a phantom copy.
+    created_in_detail = app_client.get(f"/api/cookbooks/{created_in_id}")
+    assert [r["title"] for r in created_in_detail.json()["recipes"]] == ["Placed Not Created Here"]
+
+
 def test_public_cookbook_private_id_as_token_returns_404(app_client: TestClient) -> None:
     """A private cookbook's own id, passed as if it were a token, 404s.
 

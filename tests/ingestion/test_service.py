@@ -58,19 +58,32 @@ def make_draft_recipe(
     is_verified: bool = False,
 ) -> Recipe:
     """Create a minimal cookbook Recipe directly (bypassing service for speed)."""
-    from recipe_normalizer.cookbook.models import IngredientGroup, IngredientLine, SourceType
+    from recipe_normalizer.cookbook.models import (
+        CookbookRecipe,
+        IngredientGroup,
+        IngredientLine,
+        SourceType,
+    )
 
     recipe = Recipe(
         owner_id=owner_id,
-        # Every recipe lives in a cookbook (NOT NULL since the finalize
-        # migration), so even the bypass-the-service shortcut needs one.
-        cookbook_id=cookbook_service.ensure_default_cookbook(db, owner_id).id,
         title=title,
         source_type=SourceType.text,
         source_fingerprint=fingerprint,
         is_verified=is_verified,
     )
     db.add(recipe)
+    db.flush()
+    # Containment is the boards join, so even the bypass-the-service shortcut
+    # has to place the recipe somewhere — otherwise it lives on no board and
+    # only `recipes.owner_id` can reach it.
+    db.add(
+        CookbookRecipe(
+            cookbook_id=cookbook_service.ensure_default_cookbook(db, owner_id).id,
+            recipe_id=recipe.id,
+            added_by=owner_id,
+        )
+    )
     db.flush()
 
     group = IngredientGroup(recipe_id=recipe.id, name="Main", order_index=0)

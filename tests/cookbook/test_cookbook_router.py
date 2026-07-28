@@ -340,15 +340,16 @@ def test_delete_cookbook_happy_path(owner_client: TestClient) -> None:
     assert owner_client.get(f"/api/cookbooks/{cookbook['id']}").status_code == 404
 
 
-def test_delete_cookbook_with_recipes_returns_204_and_deletes_them(
+def test_delete_cookbook_with_recipes_returns_204_and_keeps_them(
     owner_client: TestClient,
 ) -> None:
-    """Deleting a NON-EMPTY cookbook is a 204, not a 500, and the recipes go too.
+    """Deleting a NON-EMPTY cookbook is a 204 and the recipes SURVIVE.
 
-    Regression for the missing ORM cascade on ``Cookbook.recipes``: the ORM
-    tried to NULL ``recipes.cookbook_id`` (NOT NULL) instead of letting the
-    FK's ON DELETE CASCADE run, so this endpoint 500'd for any cookbook that
-    actually held a recipe — i.e. the common case.
+    The boards inversion of the Phase-1 behavior: ``recipes.cookbook_id``'s ON
+    DELETE CASCADE used to destroy every recipe the cookbook held, and this test
+    asserted exactly that. With the column gone (migration a3f7c2d8e015) a
+    recipe placed only here is re-filed into the owner's default cookbook, so it
+    is still readable and still listed.
     """
     cookbook = _create_cookbook(owner_client, "Full")
     recipe_id = _create_recipe(owner_client, cookbook["id"])
@@ -358,11 +359,13 @@ def test_delete_cookbook_with_recipes_returns_204_and_deletes_them(
     assert resp.status_code == 204
 
     assert owner_client.get(f"/api/cookbooks/{cookbook['id']}").status_code == 404
-    # The recipe is gone, not merely unreachable: it no longer appears in the
-    # owner's own flat listing either.
-    assert owner_client.get(f"/api/recipes/{recipe_id}").status_code == 404
+    # The recipe is untouched — readable, listed, and now on the default board.
+    assert owner_client.get(f"/api/recipes/{recipe_id}").status_code == 200
     listed = owner_client.get("/api/recipes").json()
-    assert all(r["id"] != recipe_id for r in listed["items"])
+    assert any(r["id"] == recipe_id for r in listed["items"])
+    default_id = next(c["id"] for c in owner_client.get("/api/cookbooks").json() if c["is_default"])
+    placements = owner_client.get(f"/api/recipes/{recipe_id}/cookbooks").json()
+    assert [c["id"] for c in placements] == [default_id]
 
 
 def test_delete_cookbook_with_a_member_returns_204(
@@ -587,3 +590,183 @@ def test_leave_cookbook(owner_client: TestClient, db_session: Session) -> None:
     resp = member.post(f"/api/cookbooks/{cookbook['id']}/leave")
     assert resp.status_code == 204
     assert member.get(f"/api/cookbooks/{cookbook['id']}").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Recipe placements — POST/DELETE/GET /api/recipes/{id}/cookbooks (Task 2)
+# ---------------------------------------------------------------------------
+
+
+def test_save_own_recipe_to_another_cookbook_is_a_reference(owner_client: TestClient) -> None:
+    """Own recipe -> another of my cookbooks: a plain reference, no copy."""
+    cookbook = _create_cookbook(owner_client, "First")
+    second = _create_cookbook(owner_client, "Second")
+    recipe_id = _create_recipe(owner_client, cookbook["id"])
+
+    resp = owner_client.post(
+        f"/api/recipes/{recipe_id}/cookbooks", json={"cookbook_id": second["id"]}
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body == {"cookbook_id": second["id"], "recipe_id": recipe_id, "copied": False}
+
+    # ...and it now shows up in BOTH cookbooks' detail views.
+    first_detail = owner_client.get(f"/api/cookbooks/{cookbook['id']}").json()
+    second_detail = owner_client.get(f"/api/cookbooks/{second['id']}").json()
+    assert [r["id"] for r in first_detail["recipes"]] == [recipe_id]
+    assert [r["id"] for r in second_detail["recipes"]] == [recipe_id]
+    assert second_detail["recipe_count"] == 1
+
+
+def test_save_own_recipe_requires_editor_on_the_target_cookbook(
+    owner_client: TestClient, db_session: Session
+) -> None:
+    cookbook = _create_cookbook(owner_client, "Mine")
+    recipe_id = _create_recipe(owner_client, cookbook["id"])
+    stranger = _second_client(db_session, "stranger_save1@example.com")
+    strangers_cookbook = stranger.post("/api/cookbooks", json={"name": "Not Yours"}).json()
+
+    resp = owner_client.post(
+        f"/api/recipes/{recipe_id}/cookbooks", json={"cookbook_id": strangers_cookbook["id"]}
+    )
+    assert resp.status_code == 404
+
+
+def test_save_someone_elses_readable_recipe_makes_an_owned_copy(
+    owner_client: TestClient, db_session: Session
+) -> None:
+    """A public recipe, saved by someone else, is COPIED into their cookbook."""
+    cookbook = _create_cookbook(owner_client, "Public Book")
+    recipe_id = _create_recipe(owner_client, cookbook["id"])
+    visibility_resp = owner_client.patch(
+        f"/api/cookbooks/{cookbook['id']}", json={"visibility": "public"}
+    )
+    assert visibility_resp.status_code == 200
+
+    saver = _second_client(db_session, "saver@example.com")
+    mine = saver.post("/api/cookbooks", json={"name": "Mine"}).json()
+
+    resp = saver.post(f"/api/recipes/{recipe_id}/cookbooks", json={"cookbook_id": mine["id"]})
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["copied"] is True
+    assert body["cookbook_id"] == mine["id"]
+    assert body["recipe_id"] != recipe_id
+
+    # The copy lands in the CHOSEN cookbook, and only there.
+    mine_detail = saver.get(f"/api/cookbooks/{mine['id']}").json()
+    assert [r["id"] for r in mine_detail["recipes"]] == [body["recipe_id"]]
+    # The original is untouched.
+    original_detail = owner_client.get(f"/api/cookbooks/{cookbook['id']}").json()
+    assert [r["id"] for r in original_detail["recipes"]] == [recipe_id]
+    # The saver can read (and owns) their new copy; the original owner cannot
+    # be impersonated by it — a fresh row with a fresh id.
+    copy_resp = saver.get(f"/api/recipes/{body['recipe_id']}")
+    assert copy_resp.status_code == 200
+
+
+def test_save_unreadable_recipe_returns_404(owner_client: TestClient, db_session: Session) -> None:
+    cookbook = _create_cookbook(owner_client, "Private Book")
+    recipe_id = _create_recipe(owner_client, cookbook["id"])
+
+    stranger = _second_client(db_session, "stranger_save2@example.com")
+    mine = stranger.post("/api/cookbooks", json={"name": "Mine"}).json()
+
+    resp = stranger.post(f"/api/recipes/{recipe_id}/cookbooks", json={"cookbook_id": mine["id"]})
+    assert resp.status_code == 404
+
+
+def test_remove_recipe_placement(owner_client: TestClient) -> None:
+    cookbook = _create_cookbook(owner_client, "First")
+    second = _create_cookbook(owner_client, "Second")
+    recipe_id = _create_recipe(owner_client, cookbook["id"])
+    owner_client.post(f"/api/recipes/{recipe_id}/cookbooks", json={"cookbook_id": second["id"]})
+
+    resp = owner_client.delete(f"/api/recipes/{recipe_id}/cookbooks/{cookbook['id']}")
+    assert resp.status_code == 204
+
+    remaining = owner_client.get(f"/api/recipes/{recipe_id}/cookbooks").json()
+    assert [c["id"] for c in remaining] == [second["id"]]
+
+
+def test_remove_last_placement_returns_409(owner_client: TestClient) -> None:
+    cookbook = _create_cookbook(owner_client, "Only One")
+    recipe_id = _create_recipe(owner_client, cookbook["id"])
+
+    resp = owner_client.delete(f"/api/recipes/{recipe_id}/cookbooks/{cookbook['id']}")
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "last_placement"
+
+
+def test_list_recipe_cookbooks_scoped_to_readable(
+    owner_client: TestClient, db_session: Session
+) -> None:
+    """A recipe in my cookbook + a cookbook I've lost access to: only mine shows."""
+    mine = _create_cookbook(owner_client, "Mine")
+    recipe_id = _create_recipe(owner_client, mine["id"])
+
+    stranger = _second_client(db_session, "stranger_scope@example.com")
+    shared = stranger.post("/api/cookbooks", json={"name": "Stranger's Shared"}).json()
+    invite = stranger.post(
+        f"/api/cookbooks/{shared['id']}/members",
+        json={"email": "owner@example.com", "role": "editor"},
+    )
+    assert invite.status_code == 201
+    owner_user_id = invite.json()["user_id"]
+
+    place_resp = owner_client.post(
+        f"/api/recipes/{recipe_id}/cookbooks", json={"cookbook_id": shared["id"]}
+    )
+    assert place_resp.status_code == 201
+
+    before = owner_client.get(f"/api/recipes/{recipe_id}/cookbooks")
+    assert before.status_code == 200
+    assert {c["id"] for c in before.json()} == {mine["id"], shared["id"]}
+
+    # Revoke the owner's membership — the placement in `shared` survives, but
+    # the owner can no longer read that cookbook.
+    remove_resp = stranger.delete(f"/api/cookbooks/{shared['id']}/members/{owner_user_id}")
+    assert remove_resp.status_code == 204
+
+    after = owner_client.get(f"/api/recipes/{recipe_id}/cookbooks")
+    assert after.status_code == 200
+    assert [c["id"] for c in after.json()] == [mine["id"]]
+    # The recipe itself is still readable (they're its owner) — the router
+    # never 404s the whole GET just because one placement fell out of reach.
+    assert owner_client.get(f"/api/recipes/{recipe_id}").status_code == 200
+
+
+def test_list_recipe_cookbooks_unreadable_recipe_returns_404(
+    owner_client: TestClient, db_session: Session
+) -> None:
+    cookbook = _create_cookbook(owner_client, "Private Book")
+    recipe_id = _create_recipe(owner_client, cookbook["id"])
+    stranger = _second_client(db_session, "stranger_scope2@example.com")
+
+    resp = stranger.get(f"/api/recipes/{recipe_id}/cookbooks")
+    assert resp.status_code == 404
+
+
+def test_list_recipe_cookbooks_unauthenticated_returns_401(client: TestClient) -> None:
+    resp = client.get(f"/api/recipes/{uuid.uuid4()}/cookbooks")
+    assert resp.status_code == 401
+
+
+def test_cookbook_detail_shows_a_placed_not_created_here_recipe(
+    owner_client: TestClient,
+) -> None:
+    """GET /api/cookbooks/{id} recipes come from the join, not just cookbook_id."""
+    created_in = _create_cookbook(owner_client, "Created In")
+    placed_into = _create_cookbook(owner_client, "Placed Into")
+    recipe_id = _create_recipe(owner_client, created_in["id"])
+
+    resp = owner_client.post(
+        f"/api/recipes/{recipe_id}/cookbooks", json={"cookbook_id": placed_into["id"]}
+    )
+    assert resp.status_code == 201
+
+    detail = owner_client.get(f"/api/cookbooks/{placed_into['id']}")
+    assert detail.status_code == 200
+    body = detail.json()
+    assert [r["id"] for r in body["recipes"]] == [recipe_id]
+    assert body["recipe_count"] == 1

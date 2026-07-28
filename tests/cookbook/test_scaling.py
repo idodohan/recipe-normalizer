@@ -109,8 +109,6 @@ def _make_recipe(
     orm = SimpleNamespace(
         id=uuid.uuid4(),
         owner_id=uuid.uuid4(),
-        # Required, not optional: every recipe lives in exactly one cookbook.
-        cookbook_id=uuid.uuid4(),
         schema_version=1,
         title="Test Recipe",
         description=None,

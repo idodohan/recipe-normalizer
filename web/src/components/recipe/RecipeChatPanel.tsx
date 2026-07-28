@@ -12,8 +12,9 @@ type RecipeChatPanelProps = {
 };
 
 /**
- * "Ask about this recipe" — a disclosure section (matching CollectionsControl's
- * toggle pattern) that lazily loads or creates the user's `recipe_chat`
+ * "Ask about this recipe" — a disclosure section (a self-contained toggle
+ * panel, same lightweight pattern as the app's other menus) that lazily
+ * loads or creates the user's `recipe_chat`
  * conversation for this recipe and wires it to the shared `ChatPanel`.
  *
  * Data flow:

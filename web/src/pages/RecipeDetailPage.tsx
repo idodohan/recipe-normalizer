@@ -13,7 +13,7 @@ import { ErrorState } from "../components/ErrorState";
 import { Skeleton } from "../components/Skeleton";
 import { toast } from "../hooks/useToast";
 import { useUser } from "../hooks/useUser";
-import { CollectionsControl } from "../components/recipe/CollectionsControl";
+import { SaveToCookbooks } from "../components/recipe/SaveToCookbooks";
 import { FavoriteButton } from "../components/recipe/FavoriteButton";
 import { IngredientList } from "../components/recipe/IngredientList";
 import type { DisplayGroup } from "../components/recipe/IngredientList";
@@ -232,11 +232,14 @@ export function RecipeDetailPage() {
   // Which affordances a cookbook member gets is decided by the backend's
   // access rules (cookbook/service.py): reading and *editing* derive from the
   // recipe's COOKBOOK, so a viewer member can read it and an editor member
-  // can also edit it. The photo, favourites, notes and collections stay
-  // owner-scoped and 404 for any member — hidden rather than disabled, since
-  // a control a member can never use shouldn't be in their way. Delete is
-  // editor+ on the backend but stays owner-gated HERE: it's destructive, and
-  // this page has no role signal to tell an editor member from a viewer one.
+  // can also edit it. The photo, favourites and notes stay owner-scoped and
+  // 404 for any member — hidden rather than disabled, since a control a
+  // member can never use shouldn't be in their way. Save-to-cookbooks is the
+  // exception: it works for everyone, just differently (owner: multi-select
+  // placement checklist; non-owner: copy-on-save into one of their own).
+  // Delete is editor+ on the backend but stays owner-gated HERE: it's
+  // destructive, and this page has no role signal to tell an editor member
+  // from a viewer one.
   const isOwner = Boolean(user && user.id === data.owner_id);
   const provenance = formatProvenance(data.provenance);
 
@@ -256,16 +259,11 @@ export function RecipeDetailPage() {
           ← Cookbook
         </Link>
         <div className="rd__toolbar-actions">
+          <SaveToCookbooks recipeId={id!} isOwner={isOwner} />
           {isOwner ? (
-            <>
-              <CollectionsControl
-                recipeId={id!}
-                collectionIds={data.collection_ids}
-              />
-              <Button variant="secondary" onClick={() => setShareOpen(true)}>
-                Share
-              </Button>
-            </>
+            <Button variant="secondary" onClick={() => setShareOpen(true)}>
+              Share
+            </Button>
           ) : null}
           {/* Anyone who can read the recipe can transform it — same access
               check the backend uses for chat/Q&A — so this isn't gated to

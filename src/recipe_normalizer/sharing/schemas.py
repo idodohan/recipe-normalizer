@@ -66,8 +66,6 @@ class PublicRecipeOut(BaseModel):
     Explicitly excluded, per the phase plan:
     - ``notes`` / ``is_favorite`` — the owner's personal data, not the
       recipe's.
-    - ``collection_ids`` — the owner's personal organization, meaningless
-      (and mildly revealing) to a stranger.
     - ``extraction_meta`` — internal LLM/ingestion-job debugging internals.
     - ``provenance`` — contains ``shared_by`` = the sharer's EMAIL ADDRESS.
       That's the one field here that would leak PII, so it's excluded

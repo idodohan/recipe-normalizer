@@ -13,12 +13,14 @@ from sqlalchemy.orm import Session
 from recipe_normalizer.cookbook.models import (
     Cookbook,
     CookbookMember,
+    CookbookRecipe,
     CookbookRole,
     CookbookVisibility,
     Recipe,
     SourceType,
 )
 from recipe_normalizer.cookbook.service import (
+    cookbooks_for_recipe,
     create_cookbook,
     delete_cookbook,
     ensure_default_cookbook,
@@ -49,6 +51,21 @@ def make_user(db: Session, suffix: str = "") -> User:
     db.add(user)
     db.flush()
     return user
+
+
+def place_recipe(db: Session, cookbook: Cookbook, owner: User, title: str = "Pasta") -> Recipe:
+    """A recipe of *owner*'s, placed in *cookbook* via the boards join.
+
+    A ``Recipe`` row carries no cookbook of its own any more (migration
+    a3f7c2d8e015 dropped ``recipes.cookbook_id``), so containment has to be
+    written as a ``CookbookRecipe`` row.
+    """
+    recipe = Recipe(owner_id=owner.id, title=title, source_type=SourceType.manual)
+    db.add(recipe)
+    db.flush()
+    db.add(CookbookRecipe(cookbook_id=cookbook.id, recipe_id=recipe.id, added_by=owner.id))
+    db.flush()
+    return recipe
 
 
 def make_cookbook(
@@ -82,14 +99,7 @@ def test_create_cookbook_appears_in_list_with_owner_role_and_count(db_session: S
 
     created = create_cookbook(db_session, owner_id=owner.id, name="Family Favorites")
 
-    recipe = Recipe(
-        owner_id=owner.id,
-        title="Pasta",
-        source_type=SourceType.manual,
-        cookbook_id=created.id,
-    )
-    db_session.add(recipe)
-    db_session.flush()
+    place_recipe(db_session, created, owner)
 
     summaries = list_my_cookbooks(db_session, owner.id)
     matching = [s for s in summaries if s.id == created.id]
@@ -169,33 +179,78 @@ def test_delete_non_default_cookbook_ok(db_session: Session) -> None:
     assert db_session.get(Cookbook, cookbook.id) is None
 
 
-def test_delete_cookbook_with_recipes_deletes_the_recipes(db_session: Session) -> None:
-    """A non-empty cookbook deletes cleanly and takes its recipes with it.
+def test_delete_cookbook_never_deletes_a_recipe_placed_only_there(db_session: Session) -> None:
+    """The recipe SURVIVES, re-filed into its owner's default cookbook.
 
-    Regression: without ``passive_deletes=True`` on ``Cookbook.recipes``,
-    SQLAlchemy loads the children on parent delete and tries to NULL their
-    ``cookbook_id`` — which is NOT NULL — so this raised IntegrityError (a 500
-    on ``DELETE /api/cookbooks/{id}``) and deleted nothing.
+    Phase 1 did the opposite: ``recipes.cookbook_id``'s ON DELETE CASCADE
+    destroyed every recipe the cookbook held. Migration a3f7c2d8e015 dropped
+    that column, and ``_rescue_solely_placed_recipes`` now guarantees a recipe
+    whose ONLY placement is the doomed cookbook keeps a home instead of being
+    left on no board at all.
     """
     owner = make_user(db_session, "7a")
     cookbook = create_cookbook(db_session, owner_id=owner.id, name="Has Recipes")
-    recipe = Recipe(
-        owner_id=owner.id,
-        title="Doomed Pasta",
-        source_type=SourceType.manual,
-        cookbook_id=cookbook.id,
-    )
-    db_session.add(recipe)
-    db_session.flush()
+    recipe = place_recipe(db_session, cookbook, owner, title="Rescued Pasta")
     recipe_id = recipe.id
 
     delete_cookbook(db_session, cookbook.id, owner.id)
 
     db_session.expire_all()
     assert db_session.get(Cookbook, cookbook.id) is None
-    # Actually deleted, not orphaned with a dangling/NULLed cookbook_id.
-    assert db_session.get(Recipe, recipe_id) is None
-    assert db_session.scalars(select(Recipe).where(Recipe.id == recipe_id)).first() is None
+    # Fresh SELECT, not an identity-map hit: the row is really still there.
+    assert db_session.scalars(select(Recipe).where(Recipe.id == recipe_id)).first() is not None
+    # ...and it is in the owner's default cookbook, not floating placeless.
+    default = ensure_default_cookbook(db_session, owner.id)
+    assert cookbooks_for_recipe(db_session, recipe_id) == [default.id]
+
+
+def test_delete_cookbook_leaves_a_multi_placed_recipe_in_its_other_cookbook(
+    db_session: Session,
+) -> None:
+    """A recipe in C and D survives C's deletion in D — no rescue needed."""
+    owner = make_user(db_session, "7d")
+    cookbook_c = create_cookbook(db_session, owner_id=owner.id, name="C")
+    cookbook_d = create_cookbook(db_session, owner_id=owner.id, name="D")
+    recipe = place_recipe(db_session, cookbook_c, owner, title="Two Boards")
+    db_session.add(
+        CookbookRecipe(cookbook_id=cookbook_d.id, recipe_id=recipe.id, added_by=owner.id)
+    )
+    db_session.flush()
+    recipe_id = recipe.id
+
+    delete_cookbook(db_session, cookbook_c.id, owner.id)
+
+    db_session.expire_all()
+    assert db_session.scalars(select(Recipe).where(Recipe.id == recipe_id)).first() is not None
+    # Only D remains — and the owner's default was NOT dragged in, since the
+    # recipe never needed rescuing.
+    assert cookbooks_for_recipe(db_session, recipe_id) == [cookbook_d.id]
+
+
+def test_delete_cookbook_rescues_a_contributor_s_recipe_into_their_own_default(
+    db_session: Session,
+) -> None:
+    """A member's contributed recipe lands in THEIR default, not the deleter's.
+
+    Rescuing into the deleting owner's cookbook would hand them someone else's
+    recipe; ``_rescue_solely_placed_recipes`` keys off ``recipes.owner_id``.
+    """
+    owner = make_user(db_session, "7e")
+    contributor = make_user(db_session, "7f")
+    cookbook = create_cookbook(db_session, owner_id=owner.id, name="Shared Board")
+    add_member(db_session, cookbook, contributor, CookbookRole.editor)
+    recipe = place_recipe(db_session, cookbook, contributor, title="Their Recipe")
+    recipe_id = recipe.id
+
+    delete_cookbook(db_session, cookbook.id, owner.id)
+
+    db_session.expire_all()
+    assert db_session.scalars(select(Recipe).where(Recipe.id == recipe_id)).first() is not None
+    contributor_default = ensure_default_cookbook(db_session, contributor.id)
+    assert cookbooks_for_recipe(db_session, recipe_id) == [contributor_default.id]
+    # The deleter's own default did not silently acquire it.
+    owner_default = ensure_default_cookbook(db_session, owner.id)
+    assert owner_default.id != contributor_default.id
 
 
 def test_delete_cookbook_with_a_member_deletes_the_membership(db_session: Session) -> None:

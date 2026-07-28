@@ -1,4 +1,4 @@
-"""Alembic migration test for the additive cookbooks-pivot revision.
+"""Alembic migration tests for the cookbooks-pivot and boards revisions.
 
 Every other test in the suite builds its schema with
 ``Base.metadata.create_all`` (model-driven), so the alembic scripts get zero
@@ -16,6 +16,11 @@ that actually runs alembic:
   inserts (no ORM — the ORM models already describe the post-migration
   world), then ``upgrade head`` runs the real thing and the assertions look
   at raw rows.
+
+It is also where ``test_orm_models_match_the_migration_chain`` lives — the
+``compare_metadata`` guard against the models and the migration chain drifting
+apart, which is what let ``cookbook_recipes`` exist in the ORM with no revision
+for three tasks.
 """
 
 from __future__ import annotations
@@ -28,11 +33,14 @@ from pathlib import Path
 import pytest
 import sqlalchemy as sa
 from alembic import command
+from alembic.autogenerate import compare_metadata
 from alembic.config import Config
+from alembic.migration import MigrationContext
 from sqlalchemy import Engine, create_engine, make_url, text
 from sqlalchemy.exc import IntegrityError
 
 from recipe_normalizer.config import settings
+from recipe_normalizer.db import Base
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_INI = REPO_ROOT / "alembic.ini"
@@ -45,8 +53,12 @@ PREV_HEAD = "533866b8e4fb"
 #: tables in place).
 PIVOT_REV = "4e1b7c9a52d8"
 #: The FINALIZE revision: sweeps stragglers, flips cookbook_id NOT NULL, and
-#: drops the shared_cookbook* tables. Also the current head.
+#: drops the shared_cookbook* tables.
 FINALIZE_REV = "b7d3f0c11a94"
+#: The BOARDS finalize revision: backfills `cookbook_recipes` from
+#: `recipes.cookbook_id`, folds `collections` into cookbooks, then drops
+#: `recipes.cookbook_id` and the collections tables. The current head.
+BOARDS_REV = "a3f7c2d8e015"
 
 
 # ---------------------------------------------------------------------------
@@ -539,8 +551,7 @@ def test_upgrade_downgrade_upgrade_round_trips(migration_engine: Engine) -> None
 
     with migration_engine.connect() as conn:
         assert (
-            conn.execute(text("select version_num from alembic_version")).scalar_one()
-            == FINALIZE_REV
+            conn.execute(text("select version_num from alembic_version")).scalar_one() == BOARDS_REV
         )
         assert conn.execute(text("select to_regclass('cookbooks')")).scalar_one() is not None
 
@@ -606,7 +617,9 @@ def test_finalize_sweeps_stragglers_then_enforces_not_null(migration_engine: Eng
     _upgrade(migration_engine, PIVOT_REV)
     _seed_stragglers_after_the_additive_migration(migration_engine)
 
-    _upgrade(migration_engine, "head")
+    # Stops at FINALIZE_REV, not head: BOARDS_REV drops `recipes.cookbook_id`
+    # outright, and this is that column's contract.
+    _upgrade(migration_engine, FINALIZE_REV)
 
     with migration_engine.connect() as conn:
         assert (
@@ -683,7 +696,7 @@ def test_finalize_drops_the_shared_cookbook_tables(migration_engine: Engine) -> 
     """The old co-ownership tables are gone once nothing reads them."""
     _upgrade(migration_engine, PREV_HEAD)
     _seed_pre_migration_state(migration_engine)
-    _upgrade(migration_engine, "head")
+    _upgrade(migration_engine, FINALIZE_REV)
 
     with migration_engine.connect() as conn:
         for table in ("shared_cookbook_recipes", "shared_cookbook_members", "shared_cookbooks"):
@@ -731,6 +744,423 @@ def test_finalize_downgrade_restores_the_schema_but_not_the_data(migration_engin
     _upgrade(migration_engine, "head")
     with migration_engine.connect() as conn:
         assert (
-            conn.execute(text("select version_num from alembic_version")).scalar_one()
-            == FINALIZE_REV
+            conn.execute(text("select version_num from alembic_version")).scalar_one() == BOARDS_REV
         )
+
+
+# ---------------------------------------------------------------------------
+# The BOARDS finalize revision: create the join → backfill it → fold
+# collections in → drop `recipes.cookbook_id` + the collections tables
+# ---------------------------------------------------------------------------
+
+collections_t = sa.table(
+    "collections",
+    sa.column("id", sa.Uuid()),
+    sa.column("owner_id", sa.Uuid()),
+    sa.column("name", sa.String()),
+)
+collection_recipes_t = sa.table(
+    "collection_recipes",
+    sa.column("collection_id", sa.Uuid()),
+    sa.column("recipe_id", sa.Uuid()),
+)
+cookbook_recipes_t = sa.table(
+    "cookbook_recipes",
+    sa.column("cookbook_id", sa.Uuid()),
+    sa.column("recipe_id", sa.Uuid()),
+    sa.column("added_by", sa.Uuid()),
+    sa.column("added_at", sa.DateTime(timezone=True)),
+)
+
+#: Alice's collection, holding one of her OWN recipes and one of BOB's — the
+#: latter must NOT be folded in (collections are owner-scoped; see the
+#: migration's docstring).
+ALICE_WEEKNIGHTS = uuid.UUID("00000000-0000-0000-0000-0000000000c1")
+#: Carol's collection, empty — it still becomes a cookbook.
+CAROL_EMPTY = uuid.UUID("00000000-0000-0000-0000-0000000000c2")
+#: An `added_at` deliberately older than the migration's own transaction clock,
+#: so a placement stamped with it is unambiguously the oldest one.
+ANCIENT = datetime(2025, 1, 1, tzinfo=UTC)
+
+
+def _seed_collections(engine: Engine) -> None:
+    """Two collections as they look just before BOARDS_REV.
+
+    * ``ALICE_WEEKNIGHTS`` lists ``R_ALICE_SOLO`` (hers) and ``R_BOB_SHARED``
+      (Bob's) — the fold must take the first and skip the second, since
+      collections were owner-scoped personal organization and a cross-owner
+      link would hand Alice an editor-grade placement on Bob's recipe.
+    * ``CAROL_EMPTY`` lists nothing — it still has to become a cookbook.
+    """
+    with engine.begin() as conn:
+        conn.execute(
+            sa.insert(collections_t),
+            [
+                {"id": ALICE_WEEKNIGHTS, "owner_id": ALICE, "name": "Weeknights"},
+                {"id": CAROL_EMPTY, "owner_id": CAROL, "name": "Someday"},
+            ],
+        )
+        conn.execute(
+            sa.insert(collection_recipes_t),
+            [
+                {"collection_id": ALICE_WEEKNIGHTS, "recipe_id": R_ALICE_SOLO},
+                {"collection_id": ALICE_WEEKNIGHTS, "recipe_id": R_BOB_SHARED},
+            ],
+        )
+
+
+def _placements(conn: sa.Connection) -> dict[uuid.UUID, set[uuid.UUID]]:
+    """recipe_id -> the set of cookbook ids it is placed in."""
+    out: dict[uuid.UUID, set[uuid.UUID]] = {}
+    for row in conn.execute(text("select recipe_id, cookbook_id from cookbook_recipes")):
+        out.setdefault(row.recipe_id, set()).add(row.cookbook_id)
+    return out
+
+
+def test_boards_creates_and_backfills_the_join_table(migration_engine: Engine) -> None:
+    """`cookbook_recipes` is created here and gets one row per recipe.
+
+    Task 1 added the join to the ORM models only (the suite builds its schema
+    with ``create_all``), so a migrated database arrives at this revision with
+    no join table at all — creating it and seeding it from the legacy primary
+    placement is a single atomic step, and the backfill is where a real
+    database's every existing recipe gets its first placement.
+    """
+    _upgrade(migration_engine, PREV_HEAD)
+    _seed_pre_migration_state(migration_engine)
+    _upgrade(migration_engine, FINALIZE_REV)
+    _seed_collections(migration_engine)
+
+    with migration_engine.connect() as conn:
+        assert conn.execute(text("select to_regclass('cookbook_recipes')")).scalar_one() is None
+        legacy = {
+            row.id: (row.cookbook_id, row.owner_id)
+            for row in conn.execute(text("select id, cookbook_id, owner_id from recipes"))
+        }
+    assert len(legacy) == 5
+
+    _upgrade(migration_engine, "head")
+
+    with migration_engine.connect() as conn:
+        placements = _placements(conn)
+        for recipe_id, (cookbook_id, _owner_id) in legacy.items():
+            assert cookbook_id in placements[recipe_id], (
+                f"recipe {recipe_id} lost its primary placement {cookbook_id}"
+            )
+
+        # `added_by` is the recipe's own owner — the closest thing to "who put
+        # this here" the pre-boards schema recorded.
+        rows = conn.execute(
+            text("select cookbook_id, recipe_id, added_by from cookbook_recipes")
+        ).all()
+        for row in rows:
+            if row.cookbook_id == legacy[row.recipe_id][0]:
+                assert row.added_by == legacy[row.recipe_id][1]
+
+        # No duplicates anywhere (the composite PK forbids them, and
+        # ON CONFLICT DO NOTHING is what keeps the step re-runnable).
+        assert len(rows) == len({(row.cookbook_id, row.recipe_id) for row in rows})
+
+        # The standalone recipe_id index exists — THE access path of the model.
+        assert (
+            conn.execute(
+                text(
+                    "select count(*) from pg_indexes where tablename = 'cookbook_recipes' "
+                    "and indexname = 'ix_cookbook_recipes_recipe_id'"
+                )
+            ).scalar_one()
+            == 1
+        )
+
+
+def test_boards_folds_collections_into_owner_scoped_cookbooks(migration_engine: Engine) -> None:
+    """Each collection becomes a private, non-default cookbook with its OWNER's recipes."""
+    _upgrade(migration_engine, PREV_HEAD)
+    _seed_pre_migration_state(migration_engine)
+    _upgrade(migration_engine, FINALIZE_REV)
+    _seed_collections(migration_engine)
+
+    _upgrade(migration_engine, "head")
+
+    with migration_engine.connect() as conn:
+        weeknights = conn.execute(
+            text(
+                "select id, owner_id, is_default, visibility::text as visibility "
+                "from cookbooks where name = 'Weeknights'"
+            )
+        ).one()
+        assert (weeknights.owner_id, weeknights.is_default, weeknights.visibility) == (
+            ALICE,
+            False,
+            "private",
+        )
+
+        # Carol's empty collection is a cookbook too — no recipes, but her
+        # organization survives the fold.
+        someday = conn.execute(
+            text("select id, owner_id, is_default from cookbooks where name = 'Someday'")
+        ).one()
+        assert (someday.owner_id, someday.is_default) == (CAROL, False)
+
+        folded = conn.execute(
+            text(
+                "select recipe_id, added_by from cookbook_recipes where cookbook_id = :cb "
+                "order by recipe_id"
+            ),
+            {"cb": weeknights.id},
+        ).all()
+        # ONLY Alice's own recipe — R_BOB_SHARED was in her collection but is
+        # Bob's row, so folding it in would hand her a placement on his recipe.
+        assert [(row.recipe_id, row.added_by) for row in folded] == [(R_ALICE_SOLO, ALICE)]
+        assert (
+            conn.execute(
+                text("select count(*) from cookbook_recipes where cookbook_id = :cb"),
+                {"cb": someday.id},
+            ).scalar_one()
+            == 0
+        )
+
+        # The fold ADDS a placement — R_ALICE_SOLO is still in its original
+        # cookbook as well. That is the many-to-many win.
+        assert _placements(conn)[R_ALICE_SOLO] == {
+            weeknights.id,
+            conn.execute(
+                text("select id from cookbooks where is_default and owner_id = :o"), {"o": ALICE}
+            ).scalar_one(),
+        }
+
+
+def test_boards_logs_the_fold_and_the_skipped_link(
+    migration_engine: Engine, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """Counts are reported, and the skipped cross-owner link is accounted for."""
+    _upgrade(migration_engine, PREV_HEAD)
+    _seed_pre_migration_state(migration_engine)
+    _upgrade(migration_engine, FINALIZE_REV)
+    _seed_collections(migration_engine)
+    capfd.readouterr()  # drop everything the earlier upgrades emitted
+
+    _upgrade(migration_engine, "head")
+
+    err = capfd.readouterr().err
+    assert "5 join row(s) backfilled from recipes.cookbook_id" in err
+    assert "2 collection(s) folded into cookbooks" in err
+    assert "1 placement(s) written from 2 collection_recipes link(s) (1 skipped" in err
+
+
+def test_boards_drops_the_transition_scaffolding(migration_engine: Engine) -> None:
+    """`recipes.cookbook_id` and both collections tables are gone at head."""
+    _upgrade(migration_engine, PREV_HEAD)
+    _seed_pre_migration_state(migration_engine)
+    _upgrade(migration_engine, FINALIZE_REV)
+    _seed_collections(migration_engine)
+
+    _upgrade(migration_engine, "head")
+
+    with migration_engine.connect() as conn:
+        assert (
+            conn.execute(
+                text(
+                    "select count(*) from information_schema.columns "
+                    "where table_name = 'recipes' and column_name = 'cookbook_id'"
+                )
+            ).scalar_one()
+            == 0
+        )
+        for table in ("collection_recipes", "collections"):
+            assert (
+                conn.execute(text("select to_regclass(:t)"), {"t": table}).scalar_one() is None
+            ), f"{table} should be gone after the boards migration"
+
+        # Nothing was destroyed on the way: every recipe still exists and every
+        # one of them is still in at least one cookbook.
+        assert conn.execute(text("select count(*) from recipes")).scalar_one() == 5
+        assert (
+            conn.execute(
+                text(
+                    "select count(*) from recipes r where not exists ("
+                    "  select 1 from cookbook_recipes cr where cr.recipe_id = r.id)"
+                )
+            ).scalar_one()
+            == 0
+        ), "every recipe must keep >= 1 placement"
+
+
+def test_boards_downgrade_restores_the_column_from_the_oldest_placement(
+    migration_engine: Engine,
+) -> None:
+    """down(boards) rebuilds `recipes.cookbook_id` (oldest placement) + EMPTY collections."""
+    _upgrade(migration_engine, PREV_HEAD)
+    _seed_pre_migration_state(migration_engine)
+    _upgrade(migration_engine, FINALIZE_REV)
+    _seed_collections(migration_engine)
+    _upgrade(migration_engine, "head")
+
+    # A second placement for Alice's solo recipe, on Bob's "Bakers" board and
+    # stamped OLDER than anything the migration wrote — what
+    # `add_recipe_to_cookbook` produces once the boards model is live. The
+    # downgrade has to collapse the three placements down to this one.
+    # NB the cookbook's id is NOT ``BAKERS_CB`` (that was the old
+    # `shared_cookbooks` row's id); the pivot minted a fresh one.
+    with migration_engine.begin() as conn:
+        bakers_cb = conn.execute(
+            text("select id from cookbooks where name = 'Bakers'")
+        ).scalar_one()
+        conn.execute(
+            sa.insert(cookbook_recipes_t),
+            [
+                {
+                    "cookbook_id": bakers_cb,
+                    "recipe_id": R_ALICE_SOLO,
+                    "added_by": BOB,
+                    "added_at": ANCIENT,
+                }
+            ],
+        )
+
+    _downgrade(migration_engine, FINALIZE_REV)
+
+    with migration_engine.connect() as conn:
+        # The column is back, NOT NULL, and every recipe has one.
+        nullable = conn.execute(
+            text(
+                "select is_nullable from information_schema.columns "
+                "where table_name = 'recipes' and column_name = 'cookbook_id'"
+            )
+        ).scalar_one()
+        assert nullable == "NO"
+        assert (
+            conn.execute(
+                text("select count(*) from recipes where cookbook_id is null")
+            ).scalar_one()
+            == 0
+        )
+
+        # R_ALICE_SOLO sat on three boards; the hand-added Bakers placement is
+        # the oldest (2025 vs the migration's own now()), so it wins.
+        placement = dict(
+            conn.execute(text("select id, cookbook_id from recipes")).all()  # type: ignore[arg-type]
+        )
+        assert placement[R_ALICE_SOLO] == bakers_cb
+        # Everyone else keeps the cookbook they had before the upgrade.
+        family = conn.execute(text("select id from cookbooks where name = 'Family'")).scalar_one()
+        assert placement[R_ALICE_SHARED] == family
+
+        # The join table itself is gone, and the collections tables are back
+        # but EMPTY — documented, not restored.
+        assert conn.execute(text("select to_regclass('cookbook_recipes')")).scalar_one() is None
+        for table in ("collections", "collection_recipes"):
+            assert (
+                conn.execute(text("select to_regclass(:t)"), {"t": table}).scalar_one() is not None
+            ), f"{table} should be back after the downgrade"
+            assert conn.execute(text(f"select count(*) from {table}")).scalar_one() == 0, (
+                f"{table} comes back EMPTY — the data is not restored"
+            )
+
+        # The collection-derived cookbooks stay: deleting them would destroy
+        # placements the user may have curated since.
+        assert (
+            conn.execute(
+                text("select count(*) from cookbooks where name in ('Weeknights', 'Someday')")
+            ).scalar_one()
+            == 2
+        )
+
+    # ...and it goes straight back up again.
+    _upgrade(migration_engine, "head")
+    with migration_engine.connect() as conn:
+        assert (
+            conn.execute(text("select version_num from alembic_version")).scalar_one() == BOARDS_REV
+        )
+        assert conn.execute(text("select to_regclass('collections')")).scalar_one() is None
+        assert conn.execute(text("select to_regclass('cookbook_recipes')")).scalar_one() is not None
+
+
+# ---------------------------------------------------------------------------
+# The ORM models and the migration chain must not drift apart
+# ---------------------------------------------------------------------------
+
+#: Indexes created by RAW SQL in a migration and therefore deliberately absent
+#: from the ORM models, so ``compare_metadata`` always proposes dropping them.
+#: Every one is intentional — see the migration that creates it:
+#:
+#: * ``uq_cookbooks_default_per_owner`` — a PARTIAL unique index
+#:   (``cookbooks (owner_id) WHERE is_default``) from 4e1b7c9a52d8; it is the DB
+#:   backstop behind ``ensure_default_cookbook``'s read-then-insert race and is
+#:   kept out of the models on purpose.
+#: * ``ix_recipes_title_description_fts`` / ``ix_recipes_title_trgm`` —
+#:   expression/GIN indexes from 6b6111bf2366 that back ``list_recipes``' search;
+#:   several later revisions carry a comment about autogenerate proposing their
+#:   removal as a false positive.
+#:
+#: Anything NOT on this list is real drift and fails the test below.
+RAW_SQL_ONLY_INDEXES = frozenset(
+    {
+        "uq_cookbooks_default_per_owner",
+        "ix_recipes_title_description_fts",
+        "ix_recipes_title_trgm",
+    }
+)
+
+
+def _import_every_model_module() -> None:
+    """Populate ``Base.metadata`` with every table the app declares.
+
+    The same import list ``alembic/env.py`` carries, and for the same reason: a
+    model module nobody imports contributes nothing to ``Base.metadata``, so
+    both autogenerate and the test below would silently miss its tables. Keep
+    the two lists in sync when adding a module.
+    """
+    import recipe_normalizer.ai.models  # noqa: F401
+    import recipe_normalizer.catalog.models  # noqa: F401
+    import recipe_normalizer.cookbook.models  # noqa: F401
+    import recipe_normalizer.ingestion.models  # noqa: F401
+    import recipe_normalizer.llm.models  # noqa: F401
+    import recipe_normalizer.sharing.models  # noqa: F401
+    import recipe_normalizer.users.models  # noqa: F401
+
+
+def _is_known_raw_sql_index(entry: object) -> bool:
+    """True for a ``remove_index`` diff naming one of RAW_SQL_ONLY_INDEXES."""
+    if not (isinstance(entry, tuple) and len(entry) == 2 and entry[0] == "remove_index"):
+        return False
+    return getattr(entry[1], "name", None) in RAW_SQL_ONLY_INDEXES
+
+
+def _flatten_diff(diff: object) -> list[object]:
+    """One level of flattening — column-level diffs arrive as nested lists."""
+    out: list[object] = []
+    if isinstance(diff, list):
+        for entry in diff:
+            out.extend(_flatten_diff(entry))
+    else:
+        out.append(diff)
+    return out
+
+
+def test_orm_models_match_the_migration_chain(migration_engine: Engine) -> None:
+    """``upgrade head`` must produce exactly the schema the ORM models describe.
+
+    THE guard for the failure this phase actually hit: ``cookbook_recipes`` was
+    added to ``cookbook/models.py`` in Task 1 with no accompanying revision, and
+    nothing noticed for three tasks — every other test in the suite builds its
+    schema with ``Base.metadata.create_all``, so the models are trivially
+    self-consistent there and the alembic chain is never compared against them.
+
+    Runs ``alembic.autogenerate.compare_metadata`` against a real migrated
+    database and asserts the only differences are the three raw-SQL indexes that
+    are deliberately not in the models. A new/renamed/retyped table or column on
+    either side shows up here as an unexpected diff entry.
+    """
+    _upgrade(migration_engine, "head")
+
+    _import_every_model_module()
+
+    with migration_engine.connect() as conn:
+        diff = compare_metadata(MigrationContext.configure(conn), Base.metadata)
+
+    unexpected = [entry for entry in _flatten_diff(diff) if not _is_known_raw_sql_index(entry)]
+    assert unexpected == [], (
+        "ORM models and the alembic chain have drifted — either a migration is "
+        f"missing or a model changed without one:\n{unexpected}"
+    )

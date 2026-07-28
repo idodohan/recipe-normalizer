@@ -219,13 +219,12 @@ def test_share_recipe_missing_recipe_raises_404(
 def test_share_recipe_copy_lands_in_recipients_default_cookbook(
     db_session: Session, sharer: User, recipient: User
 ) -> None:
-    """The copy is filed in the RECIPIENT's default cookbook, never cookbook-less.
+    """The copy is filed in the RECIPIENT's default cookbook, never placement-less.
 
-    Copy-on-share used to insert a recipe with a NULL ``cookbook_id`` — the
-    last writer that could do so before the finalize migration's NOT NULL.
-    The copy must land in the recipient's own default cookbook (not the
-    sharer's), so the recipient's cookbook-derived access resolves to
-    "owner" and the copy shows up in their flat recipe list.
+    Copy-on-share used to be able to mint a cookbook-less recipe. The copy must
+    land in the recipient's own default cookbook (not the sharer's), so the
+    recipient's cookbook-derived access resolves to "owner" and the copy shows
+    up in their flat recipe list.
     """
     recipe = _create_recipe(db_session, sharer.id)
     sharer_default = cookbook_service.ensure_default_cookbook(db_session, sharer.id)
@@ -241,5 +240,6 @@ def test_share_recipe_copy_lands_in_recipients_default_cookbook(
     recipient_default = cookbook_service.ensure_default_cookbook(db_session, recipient.id)
     copy = db_session.get(Recipe, out.copied_recipe_id)
     assert copy is not None
-    assert copy.cookbook_id == recipient_default.id
-    assert copy.cookbook_id != sharer_default.id
+    placements = cookbook_service.cookbooks_for_recipe(db_session, out.copied_recipe_id)
+    assert placements == [recipient_default.id]
+    assert sharer_default.id not in placements

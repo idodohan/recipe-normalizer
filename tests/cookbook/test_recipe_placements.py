@@ -1,0 +1,899 @@
+"""Tests for the recipe↔cookbook join (`cookbook_recipes`) and set-based access.
+
+Covers the boards model's data foundation:
+
+* the join rows themselves — written by every code path that files a recipe
+  into a cookbook (`create_recipe`, `copy_recipe`), which is the ONLY record of
+  containment now that `recipes.cookbook_id` is gone (migration a3f7c2d8e015),
+* `add_recipe_to_cookbook` / `remove_recipe_from_cookbook` /
+  `cookbooks_for_recipe`,
+* and the SET-BASED recipe access: a recipe's access level is the HIGHEST role
+  its viewer holds across ALL the cookbooks holding it, plus an
+  always-`"owner"` path through `recipes.owner_id`.
+
+The placement set is purely `cookbook_recipes` — see
+`cookbook.service._recipe_cookbook_ids`. The transitional
+`∪ {recipes.cookbook_id}` leg it used to carry is gone with the column.
+"""
+
+from __future__ import annotations
+
+import uuid
+
+import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from recipe_normalizer.catalog.seed_loader import load_seed
+from recipe_normalizer.cookbook import service as cookbook_service
+from recipe_normalizer.cookbook.models import (
+    Cookbook,
+    CookbookMember,
+    CookbookRecipe,
+    CookbookRole,
+    CookbookVisibility,
+    Recipe,
+)
+from recipe_normalizer.cookbook.schemas import IngredientGroupIn, IngredientLineIn, RecipeIn
+from recipe_normalizer.errors import ApiError
+from recipe_normalizer.users.models import User
+
+# ---------------------------------------------------------------------------
+# Helpers / fixtures
+# ---------------------------------------------------------------------------
+
+
+def make_user(db: Session) -> User:
+    suffix = str(uuid.uuid4())[:8]
+    user = User(
+        email=f"chef{suffix}@example.com",
+        password_hash="hash",
+        display_name=f"Chef{suffix}",
+    )
+    db.add(user)
+    db.flush()
+    return user
+
+
+def make_cookbook(
+    db: Session,
+    owner: User,
+    *,
+    visibility: CookbookVisibility = CookbookVisibility.private,
+    name: str = "Cookbook",
+) -> Cookbook:
+    cookbook = Cookbook(owner_id=owner.id, name=name, visibility=visibility)
+    db.add(cookbook)
+    db.flush()
+    return cookbook
+
+
+def add_member(db: Session, cookbook: Cookbook, user: User, role: CookbookRole) -> CookbookMember:
+    member = CookbookMember(cookbook_id=cookbook.id, user_id=user.id, role=role)
+    db.add(member)
+    db.flush()
+    return member
+
+
+def _recipe_in(title: str = "Placement Cake") -> RecipeIn:
+    return RecipeIn(
+        title=title,
+        groups=[
+            IngredientGroupIn(
+                name="Main",
+                lines=[
+                    IngredientLineIn(
+                        original_text="1 cup flour",
+                        quantity=1,
+                        unit="cup",
+                        name="all-purpose flour",
+                    )
+                ],
+            )
+        ],
+        cuisines=[],
+        dish_types=[],
+        tags=[],
+        steps=[],
+    )
+
+
+def default_id(db: Session, user: User) -> uuid.UUID:
+    """*user*'s default cookbook id — where create_recipe/copy_recipe file by default."""
+    return cookbook_service.ensure_default_cookbook(db, user.id).id
+
+
+def placements(db: Session, recipe_id: uuid.UUID) -> set[uuid.UUID]:
+    """The raw join rows for *recipe_id*."""
+    return set(
+        db.scalars(
+            select(CookbookRecipe.cookbook_id).where(CookbookRecipe.recipe_id == recipe_id)
+        ).all()
+    )
+
+
+@pytest.fixture()
+def seeded(db_session: Session) -> Session:
+    load_seed(db_session)
+    return db_session
+
+
+@pytest.fixture()
+def owner(seeded: Session) -> User:
+    return make_user(seeded)
+
+
+# ---------------------------------------------------------------------------
+# Every path that files a recipe into a cookbook writes its join row — that row
+# IS the containment, so a missing one means a recipe on no board at all
+# ---------------------------------------------------------------------------
+
+
+def test_create_recipe_writes_its_join_row(seeded: Session, owner: User) -> None:
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+
+    default = default_id(seeded, owner)
+    row = seeded.get(CookbookRecipe, (default, created.id))
+    assert row is not None
+    assert row.added_by == owner.id
+    assert row.added_at is not None
+    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [default]
+
+
+def test_create_recipe_into_explicit_cookbook_writes_its_join_row(
+    seeded: Session, owner: User
+) -> None:
+    cookbook = make_cookbook(seeded, owner, name="Explicit")
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_recipe_in(), cookbook_id=cookbook.id
+    )
+
+    assert placements(seeded, created.id) == {cookbook.id}
+
+
+def test_copy_recipe_writes_its_join_row(seeded: Session, owner: User) -> None:
+    recipient = make_user(seeded)
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+
+    copy = cookbook_service.copy_recipe(
+        seeded, created.id, new_owner_id=recipient.id, provenance={}
+    )
+
+    recipient_default = default_id(seeded, recipient)
+    assert placements(seeded, copy.id) == {recipient_default}
+    row = seeded.get(CookbookRecipe, (recipient_default, copy.id))
+    assert row is not None and row.added_by == recipient.id
+
+
+# ---------------------------------------------------------------------------
+# cookbooks_for_recipe — the placement set, purely the join
+# ---------------------------------------------------------------------------
+
+
+def test_cookbooks_for_recipe_is_empty_without_any_join_row(seeded: Session, owner: User) -> None:
+    """No join row means no placement — there is no column left to fall back on.
+
+    The inverse of the transition-era behavior: while `recipes.cookbook_id`
+    existed, a recipe with no join row was still reported as placed in its
+    legacy cookbook. That leg is gone, so the set is empty and access falls to
+    `recipes.owner_id` alone.
+    """
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+    seeded.delete(seeded.get(CookbookRecipe, (default_id(seeded, owner), created.id)))
+    seeded.flush()
+
+    assert placements(seeded, created.id) == set()
+    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == []
+    # Still the owner's, via recipes.owner_id — the one non-cookbook path.
+    assert cookbook_service.recipe_access(seeded, user_id=owner.id, recipe_id=created.id) == "owner"
+
+
+def test_cookbooks_for_recipe_is_empty_for_a_nonexistent_recipe(seeded: Session) -> None:
+    assert cookbook_service.cookbooks_for_recipe(seeded, uuid.uuid4()) == []
+
+
+def test_cookbooks_for_recipe_lists_every_placement_once(seeded: Session, owner: User) -> None:
+    second = make_cookbook(seeded, owner, name="Second")
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
+    )
+
+    assert set(cookbook_service.cookbooks_for_recipe(seeded, created.id)) == {
+        default_id(seeded, owner),
+        second.id,
+    }
+    assert len(cookbook_service.cookbooks_for_recipe(seeded, created.id)) == 2
+
+
+# ---------------------------------------------------------------------------
+# add_recipe_to_cookbook
+# ---------------------------------------------------------------------------
+
+
+def test_add_recipe_to_cookbook_adds_a_placement(seeded: Session, owner: User) -> None:
+    second = make_cookbook(seeded, owner, name="Second")
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
+    )
+
+    assert placements(seeded, created.id) == {default_id(seeded, owner), second.id}
+    row = seeded.get(CookbookRecipe, (second.id, created.id))
+    assert row is not None and row.added_by == owner.id
+
+
+def test_add_recipe_to_cookbook_is_idempotent(seeded: Session, owner: User) -> None:
+    second = make_cookbook(seeded, owner, name="Second")
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+
+    for _ in range(3):
+        cookbook_service.add_recipe_to_cookbook(
+            seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
+        )
+
+    assert placements(seeded, created.id) == {default_id(seeded, owner), second.id}
+
+
+def test_add_recipe_to_a_cookbook_it_is_already_in_is_idempotent(
+    seeded: Session, owner: User
+) -> None:
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+    default = default_id(seeded, owner)
+
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=default
+    )
+
+    assert placements(seeded, created.id) == {default}
+
+
+def test_add_recipe_by_editor_member_ok(seeded: Session, owner: User) -> None:
+    editor = make_user(seeded)
+    target = make_cookbook(seeded, owner, name="Shared")
+    add_member(seeded, target, editor, CookbookRole.editor)
+    created = cookbook_service.create_recipe(seeded, owner_id=editor.id, data=_recipe_in())
+
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=editor.id, recipe_id=created.id, cookbook_id=target.id
+    )
+
+    assert target.id in placements(seeded, created.id)
+
+
+@pytest.mark.parametrize("role", [CookbookRole.viewer, None])
+def test_add_recipe_requires_editor_on_the_target_cookbook(
+    seeded: Session, owner: User, role: CookbookRole | None
+) -> None:
+    outsider = make_user(seeded)
+    target = make_cookbook(seeded, owner, name="Not Yours")
+    if role is not None:
+        add_member(seeded, target, outsider, role)
+    created = cookbook_service.create_recipe(seeded, owner_id=outsider.id, data=_recipe_in())
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.add_recipe_to_cookbook(
+            seeded, user_id=outsider.id, recipe_id=created.id, cookbook_id=target.id
+        )
+    assert exc_info.value.status_code == 404
+    assert placements(seeded, created.id) == {default_id(seeded, outsider)}
+
+
+def test_add_recipe_requires_read_access_to_the_recipe(seeded: Session, owner: User) -> None:
+    """Editor of the target cookbook, but the recipe itself is invisible to them."""
+    stranger = make_user(seeded)
+    own_cookbook = make_cookbook(seeded, stranger, name="Stranger's Own")
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.add_recipe_to_cookbook(
+            seeded, user_id=stranger.id, recipe_id=created.id, cookbook_id=own_cookbook.id
+        )
+    assert exc_info.value.status_code == 404
+    assert placements(seeded, created.id) == {default_id(seeded, owner)}
+
+
+def test_add_nonexistent_recipe_raises_404(seeded: Session, owner: User) -> None:
+    target = make_cookbook(seeded, owner, name="Target")
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.add_recipe_to_cookbook(
+            seeded, user_id=owner.id, recipe_id=uuid.uuid4(), cookbook_id=target.id
+        )
+    assert exc_info.value.status_code == 404
+
+
+def test_add_a_publicly_readable_recipe_to_my_own_cookbook(seeded: Session, owner: User) -> None:
+    """Read access is enough on the recipe side — here via a public cookbook."""
+    saver = make_user(seeded)
+    public = make_cookbook(seeded, owner, visibility=CookbookVisibility.public, name="Public")
+    mine = make_cookbook(seeded, saver, name="Mine")
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_recipe_in(), cookbook_id=public.id
+    )
+
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=saver.id, recipe_id=created.id, cookbook_id=mine.id
+    )
+
+    assert placements(seeded, created.id) == {public.id, mine.id}
+
+
+# ---------------------------------------------------------------------------
+# remove_recipe_from_cookbook
+# ---------------------------------------------------------------------------
+
+
+def test_remove_recipe_from_cookbook_drops_the_placement(seeded: Session, owner: User) -> None:
+    second = make_cookbook(seeded, owner, name="Second")
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
+    )
+
+    cookbook_service.remove_recipe_from_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
+    )
+
+    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [default_id(seeded, owner)]
+    # The recipe itself survives — removal is never a delete.
+    assert seeded.get(Recipe, created.id) is not None
+
+
+def test_remove_last_placement_raises_409_last_placement(seeded: Session, owner: User) -> None:
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.remove_recipe_from_cookbook(
+            seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=default_id(seeded, owner)
+        )
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.code == "last_placement"
+    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [default_id(seeded, owner)]
+
+
+def test_remove_drops_only_the_named_placement(seeded: Session, owner: User) -> None:
+    """Removal is surgical: the other placements — and the recipe — are untouched.
+
+    Replaces the transition-era pair of tests that asserted
+    ``recipes.cookbook_id`` was repointed at a surviving placement when the
+    removed one happened to be the primary. There is no primary any more, so
+    there is nothing to repoint: deleting the join row IS the removal.
+    """
+    default = default_id(seeded, owner)
+    second = make_cookbook(seeded, owner, name="Second")
+    third = make_cookbook(seeded, owner, name="Third")
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+    for cookbook_id in (second.id, third.id):
+        cookbook_service.add_recipe_to_cookbook(
+            seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=cookbook_id
+        )
+
+    cookbook_service.remove_recipe_from_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=default
+    )
+
+    assert placements(seeded, created.id) == {second.id, third.id}
+    assert seeded.get(Recipe, created.id) is not None
+
+
+@pytest.mark.parametrize("role", [CookbookRole.viewer, None])
+def test_remove_requires_editor_on_the_cookbook(
+    seeded: Session, owner: User, role: CookbookRole | None
+) -> None:
+    outsider = make_user(seeded)
+    shared = make_cookbook(seeded, owner, name="Shared")
+    if role is not None:
+        add_member(seeded, shared, outsider, role)
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_recipe_in(), cookbook_id=shared.id
+    )
+    second = make_cookbook(seeded, owner, name="Second")
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
+    )
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.remove_recipe_from_cookbook(
+            seeded, user_id=outsider.id, recipe_id=created.id, cookbook_id=shared.id
+        )
+    assert exc_info.value.status_code == 404
+    assert shared.id in placements(seeded, created.id)
+
+
+def test_remove_from_a_cookbook_the_recipe_is_not_in_raises_404(
+    seeded: Session, owner: User
+) -> None:
+    unrelated = make_cookbook(seeded, owner, name="Unrelated")
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.remove_recipe_from_cookbook(
+            seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=unrelated.id
+        )
+    assert exc_info.value.status_code == 404
+    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [default_id(seeded, owner)]
+
+
+def test_remove_nonexistent_recipe_raises_404(seeded: Session, owner: User) -> None:
+    cookbook = make_cookbook(seeded, owner, name="Target")
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.remove_recipe_from_cookbook(
+            seeded, user_id=owner.id, recipe_id=uuid.uuid4(), cookbook_id=cookbook.id
+        )
+    assert exc_info.value.status_code == 404
+
+
+def test_remove_gives_no_existence_oracle_for_recipes_outside_the_cookbook(
+    seeded: Session, owner: User
+) -> None:
+    """A real-but-elsewhere recipe and a made-up id must be indistinguishable.
+
+    Otherwise any editor of any cookbook could probe arbitrary recipe ids for
+    existence by watching which removal 404s and which silently succeeds.
+    """
+    stranger = make_user(seeded)
+    my_cookbook = make_cookbook(seeded, owner, name="Mine")
+    hidden = cookbook_service.create_recipe(seeded, owner_id=stranger.id, data=_recipe_in())
+
+    outcomes = []
+    for recipe_id in (hidden.id, uuid.uuid4()):
+        with pytest.raises(ApiError) as exc_info:
+            cookbook_service.remove_recipe_from_cookbook(
+                seeded, user_id=owner.id, recipe_id=recipe_id, cookbook_id=my_cookbook.id
+            )
+        outcomes.append((exc_info.value.status_code, exc_info.value.code))
+
+    assert outcomes[0] == outcomes[1] == (404, "not_found")
+
+
+def test_removing_the_same_placement_twice_raises_404(seeded: Session, owner: User) -> None:
+    """Not idempotent, by design — the second call can't tell "gone" from "never there"."""
+    second = make_cookbook(seeded, owner, name="Second")
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
+    )
+    cookbook_service.remove_recipe_from_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
+    )
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.remove_recipe_from_cookbook(
+            seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
+        )
+    assert exc_info.value.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Set-based recipe access — the highest role across ALL placements wins
+# ---------------------------------------------------------------------------
+
+
+def test_access_is_the_highest_role_across_placements(seeded: Session, owner: User) -> None:
+    """Viewer in cookbook A + editor in cookbook B ⇒ editor on the recipe."""
+    user = make_user(seeded)
+    book_a = make_cookbook(seeded, owner, name="A")
+    book_b = make_cookbook(seeded, owner, name="B")
+    add_member(seeded, book_a, user, CookbookRole.viewer)
+    add_member(seeded, book_b, user, CookbookRole.editor)
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_recipe_in(), cookbook_id=book_a.id
+    )
+
+    assert (
+        cookbook_service.recipe_access(seeded, user_id=user.id, recipe_id=created.id)
+        == CookbookRole.viewer
+    )
+
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=book_b.id
+    )
+
+    assert (
+        cookbook_service.recipe_access(seeded, user_id=user.id, recipe_id=created.id)
+        == CookbookRole.editor
+    )
+    # ...and edit rights follow the set-based level.
+    updated = cookbook_service.update_recipe(
+        seeded,
+        owner_id=user.id,
+        recipe_id=created.id,
+        data=_recipe_in(title="Edited via cookbook B"),
+        editor_id=user.id,
+    )
+    assert updated.title == "Edited via cookbook B"
+
+
+def test_access_via_a_second_cookbook_the_user_owns(seeded: Session, owner: User) -> None:
+    """Owning ANY cookbook holding the recipe resolves to "owner"-level access."""
+    saver = make_user(seeded)
+    public = make_cookbook(seeded, owner, visibility=CookbookVisibility.public, name="Public")
+    mine = make_cookbook(seeded, saver, name="Mine")
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_recipe_in(), cookbook_id=public.id
+    )
+
+    assert (
+        cookbook_service.recipe_access(seeded, user_id=saver.id, recipe_id=created.id)
+        == CookbookRole.viewer
+    )
+
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=saver.id, recipe_id=created.id, cookbook_id=mine.id
+    )
+
+    assert cookbook_service.recipe_access(seeded, user_id=saver.id, recipe_id=created.id) == "owner"
+    # ...but the RECIPE row's owner is unchanged — owner-only ops stay theirs.
+    assert cookbook_service.is_recipe_owner(seeded, saver.id, created.id) is False
+    assert cookbook_service.is_recipe_owner(seeded, owner.id, created.id) is True
+
+
+def test_recipe_owner_always_has_owner_access_even_with_no_readable_cookbook(
+    seeded: Session, owner: User
+) -> None:
+    """The boards model's fix for the Phase-1 removed-contributor hole."""
+    contributor = make_user(seeded)
+    shared = make_cookbook(seeded, owner, name="Shared")
+    add_member(seeded, shared, contributor, CookbookRole.editor)
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=contributor.id, data=_recipe_in(), cookbook_id=shared.id
+    )
+
+    cookbook_service.remove_cookbook_member(
+        seeded, cookbook_id=shared.id, owner_id=owner.id, member_user_id=contributor.id
+    )
+
+    assert (
+        cookbook_service.recipe_access(seeded, user_id=contributor.id, recipe_id=created.id)
+        == "owner"
+    )
+    assert (
+        cookbook_service.get_recipe(seeded, owner_id=contributor.id, recipe_id=created.id).id
+        == created.id
+    )
+
+
+def test_no_placement_the_user_can_read_and_not_the_owner_is_none(
+    seeded: Session, owner: User
+) -> None:
+    stranger = make_user(seeded)
+    private = make_cookbook(seeded, owner, name="Private")
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_recipe_in(), cookbook_id=private.id
+    )
+
+    assert cookbook_service.recipe_access(seeded, user_id=stranger.id, recipe_id=created.id) is None
+    assert cookbook_service.recipe_access(seeded, user_id=None, recipe_id=created.id) is None
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.get_recipe(seeded, owner_id=stranger.id, recipe_id=created.id)
+    assert exc_info.value.status_code == 404
+
+
+def test_a_single_public_placement_grants_anonymous_viewer(seeded: Session, owner: User) -> None:
+    """One readable cookbook in the set is enough — the others stay private."""
+    private = make_cookbook(seeded, owner, name="Private")
+    public = make_cookbook(seeded, owner, visibility=CookbookVisibility.public, name="Public")
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_recipe_in(), cookbook_id=private.id
+    )
+
+    assert cookbook_service.recipe_access(seeded, user_id=None, recipe_id=created.id) is None
+
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=public.id
+    )
+
+    assert (
+        cookbook_service.recipe_access(seeded, user_id=None, recipe_id=created.id)
+        == CookbookRole.viewer
+    )
+
+
+def test_removing_the_readable_placement_revokes_access(seeded: Session, owner: User) -> None:
+    """Access is derived, not granted — dropping the join row drops the access."""
+    reader = make_user(seeded)
+    private = make_cookbook(seeded, owner, name="Private")
+    shared = make_cookbook(seeded, owner, name="Shared")
+    add_member(seeded, shared, reader, CookbookRole.viewer)
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_recipe_in(), cookbook_id=private.id
+    )
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=shared.id
+    )
+    assert (
+        cookbook_service.recipe_access(seeded, user_id=reader.id, recipe_id=created.id)
+        == CookbookRole.viewer
+    )
+
+    cookbook_service.remove_recipe_from_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=shared.id
+    )
+
+    assert cookbook_service.recipe_access(seeded, user_id=reader.id, recipe_id=created.id) is None
+
+
+def test_nonexistent_recipe_access_is_none(seeded: Session, owner: User) -> None:
+    assert cookbook_service.recipe_access(seeded, user_id=owner.id, recipe_id=uuid.uuid4()) is None
+
+
+# ---------------------------------------------------------------------------
+# delete_recipe is owner-only now; "remove from cookbook" is the editor action
+# ---------------------------------------------------------------------------
+
+
+def test_editor_member_cannot_delete_the_recipe_but_can_remove_the_placement(
+    seeded: Session, owner: User
+) -> None:
+    editor = make_user(seeded)
+    shared = make_cookbook(seeded, owner, name="Shared")
+    add_member(seeded, shared, editor, CookbookRole.editor)
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_recipe_in(), cookbook_id=shared.id
+    )
+    second = make_cookbook(seeded, owner, name="Owner's Second")
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
+    )
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.delete_recipe(seeded, owner_id=editor.id, recipe_id=created.id)
+    assert exc_info.value.status_code == 404
+    assert seeded.get(Recipe, created.id) is not None
+
+    cookbook_service.remove_recipe_from_cookbook(
+        seeded, user_id=editor.id, recipe_id=created.id, cookbook_id=shared.id
+    )
+    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [second.id]
+
+
+def test_cookbook_owner_cannot_delete_someone_elses_recipe(seeded: Session, owner: User) -> None:
+    contributor = make_user(seeded)
+    shared = make_cookbook(seeded, owner, name="Shared")
+    add_member(seeded, shared, contributor, CookbookRole.editor)
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=contributor.id, data=_recipe_in(), cookbook_id=shared.id
+    )
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.delete_recipe(seeded, owner_id=owner.id, recipe_id=created.id)
+    assert exc_info.value.status_code == 404
+    assert seeded.get(Recipe, created.id) is not None
+
+
+def test_recipe_owner_can_delete_and_join_rows_cascade(seeded: Session, owner: User) -> None:
+    second = make_cookbook(seeded, owner, name="Second")
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
+    )
+
+    cookbook_service.delete_recipe(seeded, owner_id=owner.id, recipe_id=created.id)
+
+    assert seeded.get(Recipe, created.id) is None
+    assert placements(seeded, created.id) == set()
+
+
+def test_deleting_a_cookbook_cascades_its_join_rows(seeded: Session, owner: User) -> None:
+    """A cookbook delete takes its own placement rows with it — and nothing else."""
+    second = make_cookbook(seeded, owner, name="Second")
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
+    )
+
+    cookbook_service.delete_cookbook(seeded, second.id, owner.id)
+
+    assert placements(seeded, created.id) == {default_id(seeded, owner)}
+    assert seeded.get(Recipe, created.id) is not None
+
+
+# ---------------------------------------------------------------------------
+# save_recipe_to_cookbook — the "Save"/pin social action (Task 2)
+# ---------------------------------------------------------------------------
+
+
+def test_save_own_recipe_is_a_reference_not_a_copy(seeded: Session, owner: User) -> None:
+    second = make_cookbook(seeded, owner, name="Second")
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+
+    resulting_id, copied = cookbook_service.save_recipe_to_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
+    )
+
+    assert copied is False
+    assert resulting_id == created.id
+    assert placements(seeded, created.id) == {default_id(seeded, owner), second.id}
+
+
+def test_save_someone_elses_readable_recipe_copies_it(seeded: Session, owner: User) -> None:
+    saver = make_user(seeded)
+    public = make_cookbook(seeded, owner, visibility=CookbookVisibility.public, name="Public")
+    mine = make_cookbook(seeded, saver, name="Mine")
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_recipe_in(), cookbook_id=public.id
+    )
+
+    resulting_id, copied = cookbook_service.save_recipe_to_cookbook(
+        seeded, user_id=saver.id, recipe_id=created.id, cookbook_id=mine.id
+    )
+
+    assert copied is True
+    assert resulting_id != created.id
+    copy = seeded.get(Recipe, resulting_id)
+    assert copy is not None
+    assert copy.owner_id == saver.id
+    # The copy is filed in the CHOSEN cookbook, not the saver's default one.
+    assert placements(seeded, resulting_id) == {mine.id}
+    # The original is untouched — this is a copy, not a reference.
+    assert placements(seeded, created.id) == {public.id}
+
+
+def test_save_someone_elses_unreadable_recipe_raises_404(seeded: Session, owner: User) -> None:
+    stranger = make_user(seeded)
+    mine = make_cookbook(seeded, stranger, name="Mine")
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.save_recipe_to_cookbook(
+            seeded, user_id=stranger.id, recipe_id=created.id, cookbook_id=mine.id
+        )
+    assert exc_info.value.status_code == 404
+
+
+def test_save_someone_elses_recipe_requires_editor_on_the_target_cookbook(
+    seeded: Session, owner: User
+) -> None:
+    saver = make_user(seeded)
+    public = make_cookbook(seeded, owner, visibility=CookbookVisibility.public, name="Public")
+    not_mine = make_cookbook(seeded, owner, name="Owner's Other")
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_recipe_in(), cookbook_id=public.id
+    )
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.save_recipe_to_cookbook(
+            seeded, user_id=saver.id, recipe_id=created.id, cookbook_id=not_mine.id
+        )
+    assert exc_info.value.status_code == 404
+
+
+def test_save_nonexistent_recipe_raises_404(seeded: Session, owner: User) -> None:
+    target = make_cookbook(seeded, owner, name="Target")
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.save_recipe_to_cookbook(
+            seeded, user_id=owner.id, recipe_id=uuid.uuid4(), cookbook_id=target.id
+        )
+    assert exc_info.value.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# readable_cookbooks_for_recipe — the SCOPED "which boards is this on" read
+# ---------------------------------------------------------------------------
+
+
+def test_readable_cookbooks_for_recipe_hides_a_stranger_private_cookbook(
+    seeded: Session, owner: User
+) -> None:
+    """A recipe in my cookbook + a stranger's private cookbook: only mine is visible."""
+    stranger = make_user(seeded)
+    mine = make_cookbook(seeded, owner, name="Mine")
+    strangers_private = make_cookbook(seeded, stranger, name="Stranger's Private")
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_recipe_in(), cookbook_id=mine.id
+    )
+    # Simulate the recipe also sitting in a cookbook the CALLER can't see —
+    # e.g. the recipe's owner also placed it into a cookbook they're not (or
+    # no longer) a member of. Constructed directly since add_recipe_to_cookbook
+    # itself would correctly refuse this (it requires editor+ on the target).
+    seeded.add(CookbookRecipe(cookbook_id=strangers_private.id, recipe_id=created.id))
+    seeded.flush()
+
+    result = cookbook_service.readable_cookbooks_for_recipe(
+        seeded, user_id=owner.id, recipe_id=created.id
+    )
+
+    assert [r.id for r in result] == [mine.id]
+    assert result[0].visibility == "private"
+    assert result[0].role == "owner"
+
+
+def test_readable_cookbooks_for_recipe_includes_public_viewer_role(
+    seeded: Session, owner: User
+) -> None:
+    reader = make_user(seeded)
+    public = make_cookbook(seeded, owner, visibility=CookbookVisibility.public, name="Public")
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_recipe_in(), cookbook_id=public.id
+    )
+
+    result = cookbook_service.readable_cookbooks_for_recipe(
+        seeded, user_id=reader.id, recipe_id=created.id
+    )
+
+    assert [r.id for r in result] == [public.id]
+    assert result[0].role == "viewer"
+
+
+def test_readable_cookbooks_for_recipe_nonexistent_raises_404(seeded: Session, owner: User) -> None:
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.readable_cookbooks_for_recipe(
+            seeded, user_id=owner.id, recipe_id=uuid.uuid4()
+        )
+    assert exc_info.value.status_code == 404
+
+
+def test_readable_cookbooks_for_recipe_no_access_at_all_raises_404(
+    seeded: Session, owner: User
+) -> None:
+    stranger = make_user(seeded)
+    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+
+    with pytest.raises(ApiError) as exc_info:
+        cookbook_service.readable_cookbooks_for_recipe(
+            seeded, user_id=stranger.id, recipe_id=created.id
+        )
+    assert exc_info.value.status_code == 404
+
+
+def test_readable_cookbooks_for_recipe_owner_with_no_readable_placement_is_empty(
+    seeded: Session, owner: User
+) -> None:
+    """The removed-contributor case: the recipe is readable (owner), the
+    placement isn't."""
+    contributor = make_user(seeded)
+    shared = make_cookbook(seeded, owner, name="Shared")
+    add_member(seeded, shared, contributor, CookbookRole.editor)
+    created = cookbook_service.create_recipe(
+        seeded, owner_id=contributor.id, data=_recipe_in(), cookbook_id=shared.id
+    )
+    cookbook_service.remove_cookbook_member(
+        seeded, cookbook_id=shared.id, owner_id=owner.id, member_user_id=contributor.id
+    )
+
+    result = cookbook_service.readable_cookbooks_for_recipe(
+        seeded, user_id=contributor.id, recipe_id=created.id
+    )
+
+    assert result == []
+
+
+def test_deleting_a_cookbook_never_destroys_a_recipe(seeded: Session, owner: User) -> None:
+    """The data-safety invariant: a cookbook delete costs placements, never recipes.
+
+    Phase 1 was the opposite — ``recipes.cookbook_id``'s ON DELETE CASCADE
+    destroyed every recipe whose primary placement the doomed cookbook was, and
+    the service had to re-home multi-placed recipes to avoid silent data loss.
+    With the column gone (migration a3f7c2d8e015) there is no
+    recipe-destroying cascade at all: a recipe placed elsewhere too simply
+    loses this placement, and one placed ONLY here is rescued into its owner's
+    default cookbook by ``_rescue_solely_placed_recipes``.
+    """
+    book_a = make_cookbook(seeded, owner, name="A")
+    book_b = make_cookbook(seeded, owner, name="B")
+    shared_recipe = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_recipe_in(title="Lives in both"), cookbook_id=book_a.id
+    )
+    only_in_a = cookbook_service.create_recipe(
+        seeded, owner_id=owner.id, data=_recipe_in(title="Only in A"), cookbook_id=book_a.id
+    )
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=owner.id, recipe_id=shared_recipe.id, cookbook_id=book_b.id
+    )
+
+    cookbook_service.delete_cookbook(seeded, book_a.id, owner.id)
+
+    seeded.expire_all()
+    # Fresh SELECTs, not identity-map hits.
+    survivor = seeded.scalars(select(Recipe).where(Recipe.id == shared_recipe.id)).first()
+    assert survivor is not None
+    assert placements(seeded, shared_recipe.id) == {book_b.id}
+
+    rescued = seeded.scalars(select(Recipe).where(Recipe.id == only_in_a.id)).first()
+    assert rescued is not None, "a recipe placed only in the deleted cookbook must SURVIVE"
+    assert placements(seeded, only_in_a.id) == {default_id(seeded, owner)}
