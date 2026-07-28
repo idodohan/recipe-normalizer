@@ -229,12 +229,14 @@ export function RecipeDetailPage() {
   const total = formatMinutes(data.total_min);
   const quietTags = [...data.cuisines, ...data.tags];
 
-  // Which affordances a shared-cookbook member gets is decided by the
-  // backend's access widening (cookbook/service.py `user_recipe_access`):
-  // reading and *editing* a shared recipe are widened to members, everything
-  // else — delete, the photo, favourites, notes, collections — stays
-  // owner-only and 404s for a member. Those five are hidden rather than
-  // disabled: a control a member can never use shouldn't be in their way.
+  // Which affordances a cookbook member gets is decided by the backend's
+  // access rules (cookbook/service.py): reading and *editing* derive from the
+  // recipe's COOKBOOK, so a viewer member can read it and an editor member
+  // can also edit it. The photo, favourites, notes and collections stay
+  // owner-scoped and 404 for any member — hidden rather than disabled, since
+  // a control a member can never use shouldn't be in their way. Delete is
+  // editor+ on the backend but stays owner-gated HERE: it's destructive, and
+  // this page has no role signal to tell an editor member from a viewer one.
   const isOwner = Boolean(user && user.id === data.owner_id);
   const provenance = formatProvenance(data.provenance);
 
@@ -271,8 +273,8 @@ export function RecipeDetailPage() {
           <Button variant="secondary" onClick={() => setTransformOpen(true)}>
             Transform
           </Button>
-          {/* Editing is widened to shared-cookbook members, so it isn't
-              gated — deleting is not. */}
+          {/* Editing derives from the recipe's cookbook (editor members
+              included), so it isn't gated to the owner. */}
           <Button variant="secondary" onClick={() => navigate(`/recipes/${id}/edit`)}>
             Edit
           </Button>

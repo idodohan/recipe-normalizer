@@ -26,8 +26,8 @@ type RecipeChatPanelProps = {
  *    appear immediately; on success both are replaced by the server's
  *    messages (refetched); on failure the bubble is marked `failed` (with a
  *    retry) and a toast fires. A `not_found` failure means access to the
- *    recipe was lost since the conversation started (e.g. removed from a
- *    shared cookbook) — that's treated as "truly unavailable" and the panel
+ *    recipe was lost since the conversation started (e.g. removed from the
+ *    cookbook holding it) — that's treated as "truly unavailable" and the panel
  *    stops accepting new input rather than retrying against a recipe the
  *    user can no longer read.
  */

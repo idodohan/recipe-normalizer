@@ -113,14 +113,25 @@ def create_conversation(
     """Create a new conversation owned by *user_id*.
 
     When *recipe_id* is given, the caller must already have access to that
-    recipe — checked via `cookbook_service.recipe_access` (the SAME
-    cookbook-derived check `cookbook.service.get_recipe` uses: owner, member,
-    or public/unlisted viewer of the recipe's cookbook), 404 otherwise.
+    recipe — checked via `cookbook_service.recipe_access`, 404 otherwise.
     Validating an incoming recipe id before it's used as a foreign key both
     keeps "which recipes can I start a conversation about" identical to "which
     recipes can I read", and avoids an unhandled `IntegrityError` (FK
     violation) for a nonexistent recipe id surfacing as a 500 — this way it's
     a clean 404 instead.
+
+    WHAT "access" MEANS HERE (widened by the cookbooks pivot): access is now
+    purely cookbook-derived — owner of the recipe's cookbook, a member of it
+    (editor or viewer), OR **any caller at all when that cookbook is public or
+    unlisted**, since `cookbook_access` resolves those to viewer. The
+    pre-pivot check (`user_recipe_access`) was owner ∪ shared-cookbook-member
+    and admitted nobody on the strength of visibility alone. Deliberate, and
+    it keeps this identical to `get_recipe` — a reader who can open a recipe
+    can chat about it — but note the consequence: **a public/unlisted cookbook
+    now exposes an LLM-spend surface to strangers**, not just a read surface.
+    Bounded by the per-user rate limits on the ai routes and by the per-request
+    cost cap, so the blast radius is a stranger burning their OWN quota, not
+    the cookbook owner's.
 
     A recipe_id of ``None`` is valid (a cookbook-wide Q&A conversation) and
     skips this check entirely.
@@ -313,12 +324,17 @@ def chat_turn(
     `create_conversation` time:
       - conversation ownership, via `get_conversation` (404 for a missing or
         someone-else's conversation);
-      - CURRENT access to the conversation's recipe, via
-        `cookbook_service.recipe_access` (404 if access has since been
-        lost — e.g. the caller was removed from the cookbook holding it, or
-        the recipe was moved to a cookbook they can't read, after the
-        conversation was created; a stale `recipe_id` FK is not enough proof
-        of present-day access).
+      - CURRENT access to the conversation's recipe, via the
+        `cookbook_service.get_recipe` call that fetches the grounding JSON —
+        it applies the very same cookbook-derived check and raises the very
+        same 404, so a separate pre-check would be a duplicate query for an
+        identical answer. Access is re-derived on EVERY turn, not trusted from
+        `create_conversation` time: it 404s once access is lost (the caller
+        was removed from the cookbook holding the recipe, or the recipe moved
+        to a cookbook they can't read), because a stale `recipe_id` FK is no
+        proof of present-day access. "Access" here means the same widened,
+        cookbook-derived set `create_conversation` documents, public/unlisted
+        viewers included.
 
     A conversation with no recipe (`kind=cookbook_qa`) has nothing to ground
     a per-recipe chat on and is rejected with 422 — that's a different
@@ -342,10 +358,9 @@ def chat_turn(
     if detail.recipe_id is None:
         raise ApiError(422, "not_recipe_chat", "This conversation has no recipe to chat about.")
 
-    # Re-check access every turn — NOT just relying on the FK having resolved
-    # once at create_conversation time.
-    if cookbook_service.recipe_access(db, user_id=user_id, recipe_id=detail.recipe_id) is None:
-        raise ApiError(404, "not_found", f"Recipe {detail.recipe_id} not found.")
+    # Re-checks access every turn — NOT just relying on the FK having resolved
+    # once at create_conversation time. No separate pre-check: get_recipe runs
+    # the identical cookbook-derived gate and raises the identical 404.
     recipe = cookbook_service.get_recipe(db, owner_id=user_id, recipe_id=detail.recipe_id)
 
     if len(detail.messages) + 2 > MAX_MESSAGES_PER_CONVERSATION:
@@ -662,7 +677,16 @@ def transform_recipe(
     """Apply a qualitative instruction to a recipe, landing the result in the review gate.
 
     Access is checked with the SAME `cookbook_service.recipe_access` every other
-    per-recipe ai feature uses (404 for a missing recipe or one the caller can't read).
+    per-recipe ai feature uses (404 for a missing recipe or one the caller can't read):
+    cookbook-derived, meaning the cookbook's owner, a member of it, or — because
+    `cookbook_access` resolves public/unlisted visibility to viewer — ANY caller when
+    the recipe sits in a public or unlisted cookbook. That is wider than the pre-pivot
+    owner ∪ shared-member check, and this is the most expensive of the three ai
+    entry points, so it is the sharpest edge of the LLM-spend surface a public
+    cookbook opens up; see `create_conversation`'s docstring. It stays bounded by the
+    per-user transform rate limit and the per-request cost cap (the spend lands on the
+    CALLER's quota, never the cookbook owner's), and the output is a draft in the
+    caller's OWN review gate — nothing is written to the recipe or its cookbook.
 
     **Scaling boundary (mandatory, see the phase plan):** a PURE quantity-scale
     instruction ("halve it", "double it", "for 8 servings", "×3") is refused BEFORE any

@@ -9,8 +9,9 @@ type RecipeImageBannerProps = {
   imageUrl: string | null;
   /**
    * Whether to render the add/replace/remove controls. Setting the image is
-   * owner-only on the backend, so a shared-cookbook member viewing (or
-   * editing) the recipe still sees the photo but none of the affordances.
+   * owner-only on the backend, so someone reading (or editing) a recipe they
+   * reach through a shared cookbook still sees the photo but none of the
+   * affordances.
    */
   canManage: boolean;
 };

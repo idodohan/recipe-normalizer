@@ -143,8 +143,9 @@ function RecipeEditForm({ recipe }: { recipe: RecipeOut }) {
   }, [dirty]);
 
   // The recipe's photo is owner-only on the backend (set_recipe_image /
-  // clear_recipe_image never widen to shared-cookbook members), so members
-  // editing a shared recipe don't get the photo controls.
+  // clear_recipe_image are owner-scoped, not cookbook-derived like
+  // get/update), so a cookbook member editing someone else's recipe doesn't
+  // get the photo controls.
   const isOwner = Boolean(user && user.id === recipe.owner_id);
 
   // The blocker prompts on its own — Cancel just navigates.

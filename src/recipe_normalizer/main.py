@@ -257,7 +257,9 @@ def create_app() -> FastAPI:
         recipe_ids = db.scalars(
             select(Recipe.id)
             .where(Recipe.cookbook_id == cookbook.id)
-            .order_by(Recipe.created_at.desc())
+            # Total order — see cookbook.service.list_recipes' ORDER BY
+            # comment; all three recipe listings sort identically.
+            .order_by(Recipe.created_at.desc(), Recipe.id.desc())
         ).all()
         # `PublicRecipeOut.from_recipe_out`'s return annotation is fixed to
         # `PublicRecipeOut` (not `Self`), so calling it via the subclass still

@@ -116,9 +116,12 @@ def get_cookbook(
     recipe_ids = db.scalars(
         select(Recipe.id)
         .where(Recipe.cookbook_id == cookbook.id)
-        .order_by(Recipe.created_at.desc())
+        # Total order — see list_recipes' ORDER BY comment. Unpaginated here,
+        # so ties could only jitter the order between requests, but the two
+        # recipe listings should sort identically.
+        .order_by(Recipe.created_at.desc(), Recipe.id.desc())
     ).all()
-    summaries = service.recipe_summaries_for_ids(db, list(recipe_ids))
+    summaries = service.recipe_summaries_for_ids(db, list(recipe_ids), viewer_id=current_user.id)
     recipes = [summaries[rid] for rid in recipe_ids if rid in summaries]
     base = _to_cookbook_out(db, cookbook, user_id=current_user.id)
     return CookbookDetailOut(**base.model_dump(), recipes=recipes)

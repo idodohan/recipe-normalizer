@@ -314,10 +314,13 @@ class RecipeSummary(BaseModel):
     is_verified: bool = False
     is_favorite: bool = False
     created_at: datetime
-    # Already public on the detail view (RecipeOut); exposing it here too is
-    # not a new leak class — it's what lets sharing.service build shared-
-    # cookbook recipe rows ("last edited by X") off this same summary shape
-    # instead of a bespoke query. See cookbook.service.recipe_summaries_for_ids.
+    # Already public on the detail view (RecipeOut), so exposing it here is
+    # not a new leak class. It exists on the summary shape so a cookbook's
+    # recipe list can render "last edited by X" without a bespoke query — the
+    # one consumer today is cookbook_router's GET /api/cookbooks/{id}, via
+    # cookbook.service.recipe_summaries_for_ids. Deliberately NOT carried into
+    # the ANONYMOUS public-cookbook payload (PublicCookbookRecipeOut drops it):
+    # an editor member never consented to their account id reaching strangers.
     last_edited_by: uuid.UUID | None = None
 
     model_config = {"from_attributes": True}

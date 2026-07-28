@@ -150,6 +150,40 @@ def test_get_cookbook_detail_includes_recipes(owner_client: TestClient) -> None:
     assert body["recipe_count"] == 1
 
 
+def test_get_cookbook_masks_the_owners_favorite_flag_for_a_member(
+    owner_client: TestClient, db_session: Session
+) -> None:
+    """The cookbook's recipe list answers `is_favorite` exactly like the flat list.
+
+    Same recipe, two endpoints: `GET /api/cookbooks/{id}` and
+    `GET /api/recipes` must never disagree about whose favorite it is.
+    `is_favorite` is the OWNER's personal flag and `set_personal` is
+    owner-only, so a member seeing it as theirs would render a filled heart
+    whose toggle 404s.
+    """
+    cookbook = _create_cookbook(owner_client)
+    recipe_id = _create_recipe(owner_client, cookbook["id"])
+    assert (
+        owner_client.patch(f"/api/recipes/{recipe_id}/personal", json={"is_favorite": True})
+    ).status_code == 200
+
+    member = _second_client(db_session)
+    owner_client.post(
+        f"/api/cookbooks/{cookbook['id']}/members",
+        json={"email": "member@example.com", "role": "editor"},
+    )
+
+    owner_detail = owner_client.get(f"/api/cookbooks/{cookbook['id']}").json()
+    assert owner_detail["recipes"][0]["is_favorite"] is True
+    owner_flat = owner_client.get("/api/recipes").json()
+    assert next(r for r in owner_flat["items"] if r["id"] == recipe_id)["is_favorite"] is True
+
+    member_detail = member.get(f"/api/cookbooks/{cookbook['id']}").json()
+    assert member_detail["recipes"][0]["is_favorite"] is False
+    member_flat = member.get("/api/recipes").json()
+    assert next(r for r in member_flat["items"] if r["id"] == recipe_id)["is_favorite"] is False
+
+
 def test_get_cookbook_editor_member_sees_it(owner_client: TestClient, db_session: Session) -> None:
     cookbook = _create_cookbook(owner_client)
     member = _second_client(db_session)
