@@ -49,9 +49,18 @@ def _recipe_count(db: Session, cookbook_id: uuid.UUID) -> int:
 
 
 def _to_cookbook_out(db: Session, cookbook: Cookbook, *, user_id: uuid.UUID) -> CookbookOut:
-    """Build the CookbookOut response shape for an already-loaded, access-checked cookbook."""
+    """Build the CookbookOut response shape for an already-loaded, access-checked cookbook.
+
+    ``public_token`` is deliberately owner-only: for an unlisted cookbook the
+    token IS the shareable secret (anyone holding it can read the cookbook
+    anonymously, forever, without being a member), and only the owner may
+    decide who gets it. Anyone else who reaches this DTO — an editor/viewer
+    member, or a non-member who resolved to viewer because the cookbook is
+    unlisted/public — sees None.
+    """
     access = service.cookbook_access(db, user_id=user_id, cookbook_id=cookbook.id)
     assert access is not None  # caller already established access
+    is_owner = access == "owner"
     return CookbookOut(
         id=cookbook.id,
         name=cookbook.name,
@@ -61,7 +70,7 @@ def _to_cookbook_out(db: Session, cookbook: Cookbook, *, user_id: uuid.UUID) -> 
         recipe_count=_recipe_count(db, cookbook.id),
         is_default=cookbook.is_default,
         cover_image_ref=cookbook.cover_image_ref,
-        public_token=cookbook.public_token,
+        public_token=cookbook.public_token if is_owner else None,
     )
 
 

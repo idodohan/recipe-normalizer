@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy import exists, func, literal, literal_column, or_, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, selectinload
 
 from recipe_normalizer.catalog import service as catalog_service
@@ -351,6 +352,13 @@ def _require_recipe_access(
 DEFAULT_COOKBOOK_NAME = "My Cookbook"
 
 
+def _select_default_cookbook(db: Session, user_id: uuid.UUID) -> Cookbook | None:
+    """Return *user_id*'s ``is_default`` cookbook row, or None if they have none yet."""
+    return db.scalars(
+        select(Cookbook).where(Cookbook.owner_id == user_id, Cookbook.is_default.is_(True))
+    ).first()
+
+
 def ensure_default_cookbook(db: Session, user_id: uuid.UUID) -> Cookbook:
     """Return *user_id*'s default cookbook, creating it if none exists yet.
 
@@ -358,13 +366,43 @@ def ensure_default_cookbook(db: Session, user_id: uuid.UUID) -> Cookbook:
     calls return the same row rather than creating duplicates. The created
     cookbook is named "My Cookbook", private, and marked is_default=True.
     Flushes; caller owns commit.
+
+    Race-safe. This is read-then-insert, and ``GET /api/cookbooks`` calls it on
+    every request, so two concurrent first-ever requests for the same user both
+    miss the SELECT and then collide on the ``uq_cookbooks_default_per_owner``
+    partial unique index (``cookbooks (owner_id) WHERE is_default``, created in
+    migration 4e1b7c9a52d8 and deliberately absent from the ORM model). The
+    INSERT therefore carries ``ON CONFLICT DO NOTHING``, and the loser of the
+    race re-reads the winner's row instead of raising IntegrityError (a 500).
+    No conflict target is named on purpose: inferring the partial index would
+    mean repeating its predicate here, and the unqualified form covers it —
+    the table's only other unique keys are the freshly generated ``id`` and
+    ``public_token``, which is NULL on a cookbook this function creates.
     """
-    existing = db.scalars(
-        select(Cookbook).where(Cookbook.owner_id == user_id, Cookbook.is_default.is_(True))
-    ).first()
+    existing = _select_default_cookbook(db, user_id)
     if existing is not None:
         return existing
 
+    db.execute(
+        pg_insert(Cookbook)
+        .values(
+            owner_id=user_id,
+            name=DEFAULT_COOKBOOK_NAME,
+            visibility=CookbookVisibility.private,
+            is_default=True,
+        )
+        .on_conflict_do_nothing()
+    )
+    created = _select_default_cookbook(db, user_id)
+    if created is not None:
+        return created
+
+    # Unreachable at the READ COMMITTED isolation this app runs at: the INSERT
+    # is only skipped when a conflicting row is already committed, and the
+    # re-SELECT above takes a fresh snapshot that sees it. Under a stricter
+    # isolation level (a repeatable-read snapshot taken before the winner
+    # committed) it can be reached — fall back to the plain ORM insert, which
+    # surfaces the conflict as an error rather than returning None.
     cookbook = Cookbook(
         owner_id=user_id,
         name=DEFAULT_COOKBOOK_NAME,

@@ -461,7 +461,7 @@
         "type": "object"
       },
       "CookbookOut": {
-        "description": "CookbookSummary + ``public_token`` \u2014 the create/detail/PATCH response shape.\n\n``public_token`` is None for a private cookbook, and the minted token for\nan unlisted/public one (see ``cookbook.service.set_cookbook_visibility``).\nDeliberately NOT part of ``CookbookSummary``/the ``GET /api/cookbooks``\nlist response \u2014 the brief only calls for it on create/detail/PATCH.",
+        "description": "CookbookSummary + ``public_token`` \u2014 the create/detail/PATCH response shape.\n\n``public_token`` is None for a private cookbook, and the minted token for\nan unlisted/public one (see ``cookbook.service.set_cookbook_visibility``).\nDeliberately NOT part of ``CookbookSummary``/the ``GET /api/cookbooks``\nlist response \u2014 the brief only calls for it on create/detail/PATCH.\n\nIt is also OWNER-ONLY even on those three: the token is the shareable\nsecret behind an unlisted cookbook, so every non-owner caller gets None\nhere. The masking lives in the one place this DTO is built \u2014\n``cookbook_router._to_cookbook_out`` \u2014 which is the only code path that\nknows the caller's resolved role.",
         "properties": {
           "cover_image_ref": {
             "anyOf": [
@@ -2126,16 +2126,9 @@
             "title": "Cook Min"
           },
           "cookbook_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Cookbook Id"
+            "format": "uuid",
+            "title": "Cookbook Id",
+            "type": "string"
           },
           "created_at": {
             "format": "date-time",
@@ -2361,6 +2354,7 @@
         "required": [
           "id",
           "owner_id",
+          "cookbook_id",
           "title",
           "source_type",
           "created_at",

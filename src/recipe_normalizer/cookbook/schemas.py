@@ -233,9 +233,10 @@ class StepOut(BaseModel):
 class RecipeOut(BaseModel):
     id: uuid.UUID
     owner_id: uuid.UUID
-    # Nullable during the cookbooks-pivot transition (see Recipe.cookbook_id's
-    # docstring) — None only for legacy pre-migration rows.
-    cookbook_id: uuid.UUID | None = None
+    # Every recipe lives in exactly one cookbook — `recipes.cookbook_id` is
+    # NOT NULL in the database (finalize migration b7d3f0c11a94), so this is
+    # always present and clients may rely on it.
+    cookbook_id: uuid.UUID
     schema_version: int = 1
     title: str
     description: str | None = None
@@ -408,6 +409,12 @@ class CookbookOut(CookbookSummary):
     an unlisted/public one (see ``cookbook.service.set_cookbook_visibility``).
     Deliberately NOT part of ``CookbookSummary``/the ``GET /api/cookbooks``
     list response — the brief only calls for it on create/detail/PATCH.
+
+    It is also OWNER-ONLY even on those three: the token is the shareable
+    secret behind an unlisted cookbook, so every non-owner caller gets None
+    here. The masking lives in the one place this DTO is built —
+    ``cookbook_router._to_cookbook_out`` — which is the only code path that
+    knows the caller's resolved role.
     """
 
     public_token: str | None = None

@@ -212,6 +212,12 @@ class Recipe(TimestampMixin, Base):
     )
     # `Cookbook` (defined below) is referenced by class name here — resolved
     # lazily at mapper-configuration time, so definition order doesn't matter.
+    # Typed Optional even though `cookbook_id` is NOT NULL: the relationship is
+    # transiently None on a not-yet-flushed Recipe built by setting the FK
+    # column directly (how every caller in `service` does it), and it is set to
+    # None by the ORM when the parent cookbook is deleted out from under a
+    # loaded instance. The DTO (`schemas.RecipeOut.cookbook_id`) is not
+    # optional — a persisted recipe always has a cookbook.
     cookbook: Mapped["Cookbook | None"] = relationship(back_populates="recipes")
 
 
@@ -370,8 +376,22 @@ class Cookbook(TimestampMixin, Base):
     public_token: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
-    recipes: Mapped[list[Recipe]] = relationship(back_populates="cookbook")
-    members: Mapped[list["CookbookMember"]] = relationship(back_populates="cookbook")
+    # Deleting a cookbook deletes everything inside it. `passive_deletes=True`
+    # is what makes that work: without it SQLAlchemy loads the children on
+    # parent delete and tries to NULL out their `cookbook_id`, which now fails
+    # outright — `recipes.cookbook_id` is NOT NULL, and `cookbook_members`
+    # carries it as half of its composite PK. With it, no UPDATE/DELETE is
+    # emitted for the children at all and the FKs' `ON DELETE CASCADE` does the
+    # work in one statement. Every FK below `recipes` also cascades in the DB
+    # (ingredient_groups/steps, recipe_cuisines/dish_types/tags,
+    # collection_recipes, ai_conversations, public_links,
+    # shares.copied_recipe_id), so the whole subtree goes with it.
+    recipes: Mapped[list[Recipe]] = relationship(
+        back_populates="cookbook", cascade="all, delete-orphan", passive_deletes=True
+    )
+    members: Mapped[list["CookbookMember"]] = relationship(
+        back_populates="cookbook", cascade="all, delete-orphan", passive_deletes=True
+    )
 
 
 class CookbookMember(Base):

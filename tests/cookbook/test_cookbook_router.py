@@ -256,6 +256,56 @@ def test_update_cookbook_visibility_mints_public_token(owner_client: TestClient)
 
 
 @pytest.mark.parametrize("role", ["editor", "viewer"])
+def test_get_cookbook_hides_public_token_from_members(
+    owner_client: TestClient, db_session: Session, role: str
+) -> None:
+    """``public_token`` is the shareable secret — only the owner ever sees it.
+
+    For an unlisted cookbook the token grants anonymous, non-expiring read
+    access to anyone holding it, so a member (editor or viewer) must not be
+    handed it: only the owner decides who it goes to.
+    """
+    cookbook = _create_cookbook(owner_client, "Secret Book")
+    patch_resp = owner_client.patch(
+        f"/api/cookbooks/{cookbook['id']}", json={"visibility": "unlisted"}
+    )
+    token = patch_resp.json()["public_token"]
+    assert token is not None
+
+    member = _second_client(db_session)
+    assert (
+        owner_client.post(
+            f"/api/cookbooks/{cookbook['id']}/members",
+            json={"email": "member@example.com", "role": role},
+        )
+    ).status_code == 201
+
+    member_body = member.get(f"/api/cookbooks/{cookbook['id']}").json()
+    assert member_body["role"] == role
+    assert member_body["public_token"] is None
+
+    # The owner still gets the real token back from the same route.
+    owner_body = owner_client.get(f"/api/cookbooks/{cookbook['id']}").json()
+    assert owner_body["public_token"] == token
+
+
+def test_get_cookbook_hides_public_token_from_a_non_member_viewer(
+    owner_client: TestClient, db_session: Session
+) -> None:
+    """A stranger who resolves to viewer via `public` visibility gets no token."""
+    cookbook = _create_cookbook(owner_client, "Open Book")
+    token = owner_client.patch(
+        f"/api/cookbooks/{cookbook['id']}", json={"visibility": "public"}
+    ).json()["public_token"]
+    assert token is not None
+
+    stranger = _second_client(db_session, "stranger@example.com")
+    body = stranger.get(f"/api/cookbooks/{cookbook['id']}").json()
+    assert body["role"] == "viewer"
+    assert body["public_token"] is None
+
+
+@pytest.mark.parametrize("role", ["editor", "viewer"])
 def test_update_cookbook_member_forbidden_returns_404(
     owner_client: TestClient, db_session: Session, role: str
 ) -> None:
@@ -288,6 +338,53 @@ def test_delete_cookbook_happy_path(owner_client: TestClient) -> None:
     resp = owner_client.delete(f"/api/cookbooks/{cookbook['id']}")
     assert resp.status_code == 204
     assert owner_client.get(f"/api/cookbooks/{cookbook['id']}").status_code == 404
+
+
+def test_delete_cookbook_with_recipes_returns_204_and_deletes_them(
+    owner_client: TestClient,
+) -> None:
+    """Deleting a NON-EMPTY cookbook is a 204, not a 500, and the recipes go too.
+
+    Regression for the missing ORM cascade on ``Cookbook.recipes``: the ORM
+    tried to NULL ``recipes.cookbook_id`` (NOT NULL) instead of letting the
+    FK's ON DELETE CASCADE run, so this endpoint 500'd for any cookbook that
+    actually held a recipe — i.e. the common case.
+    """
+    cookbook = _create_cookbook(owner_client, "Full")
+    recipe_id = _create_recipe(owner_client, cookbook["id"])
+    assert owner_client.get(f"/api/recipes/{recipe_id}").status_code == 200
+
+    resp = owner_client.delete(f"/api/cookbooks/{cookbook['id']}")
+    assert resp.status_code == 204
+
+    assert owner_client.get(f"/api/cookbooks/{cookbook['id']}").status_code == 404
+    # The recipe is gone, not merely unreachable: it no longer appears in the
+    # owner's own flat listing either.
+    assert owner_client.get(f"/api/recipes/{recipe_id}").status_code == 404
+    listed = owner_client.get("/api/recipes").json()
+    assert all(r["id"] != recipe_id for r in listed["items"])
+
+
+def test_delete_cookbook_with_a_member_returns_204(
+    owner_client: TestClient, db_session: Session
+) -> None:
+    """Deleting a cookbook that has a member is a 204, and the member loses it."""
+    cookbook = _create_cookbook(owner_client, "Shared")
+    member = _second_client(db_session)
+    assert (
+        owner_client.post(
+            f"/api/cookbooks/{cookbook['id']}/members",
+            json={"email": "member@example.com", "role": "editor"},
+        )
+    ).status_code == 201
+    assert any(c["id"] == cookbook["id"] for c in member.get("/api/cookbooks").json())
+
+    resp = owner_client.delete(f"/api/cookbooks/{cookbook['id']}")
+    assert resp.status_code == 204
+
+    # Membership row went with the cookbook — it's no longer in the member's list.
+    assert all(c["id"] != cookbook["id"] for c in member.get("/api/cookbooks").json())
+    assert member.get(f"/api/cookbooks/{cookbook['id']}").status_code == 404
 
 
 def test_delete_default_cookbook_returns_409(owner_client: TestClient) -> None:

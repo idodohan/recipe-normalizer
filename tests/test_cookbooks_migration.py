@@ -435,6 +435,74 @@ def test_partial_unique_index_blocks_a_second_default_cookbook(migration_engine:
         )
 
 
+def test_ensure_default_cookbook_survives_losing_the_insert_race(
+    migration_engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The loser of the race gets the winner's row back, not an IntegrityError.
+
+    This is the one test in the module that drives the *service* rather than
+    raw rows: it needs the real ``uq_cookbooks_default_per_owner`` partial
+    index, and this fixture is the only place it exists (every other test
+    builds its schema with ``Base.metadata.create_all``, which doesn't know
+    about it). At head the ORM models match the schema, so that is safe here.
+
+    The interleaving is simulated by making the initial lookup miss exactly
+    once — precisely the state of a request that read before a concurrent
+    request inserted the default cookbook. Everything after that is the real
+    thing: a genuine unique violation on the INSERT, swallowed by
+    ``ON CONFLICT DO NOTHING``, then the re-SELECT that finds the live row.
+    """
+    _upgrade(migration_engine, "head")
+
+    from sqlalchemy.orm import Session
+
+    from recipe_normalizer.cookbook import service as cookbook_service
+    from recipe_normalizer.cookbook.models import Cookbook
+
+    with migration_engine.begin() as conn:
+        conn.execute(
+            sa.insert(users_t),
+            [
+                {
+                    "id": ALICE,
+                    "email": "alice@example.com",
+                    "password_hash": "x",
+                    "display_name": "Alice",
+                }
+            ],
+        )
+
+    with Session(migration_engine) as session:
+        winner = cookbook_service.ensure_default_cookbook(session, ALICE)
+        session.commit()
+        winner_id = winner.id
+
+        real_lookup = cookbook_service._select_default_cookbook
+        calls: list[int] = []
+
+        def lookup_blind_once(db: Session, user_id: uuid.UUID) -> Cookbook | None:
+            calls.append(1)
+            return None if len(calls) == 1 else real_lookup(db, user_id)
+
+        monkeypatch.setattr(cookbook_service, "_select_default_cookbook", lookup_blind_once)
+
+        loser = cookbook_service.ensure_default_cookbook(session, ALICE)
+
+        assert len(calls) == 2, "expected a missed lookup then a re-read after the conflict"
+        assert loser.id == winner_id
+        session.commit()
+
+    # Still exactly one default cookbook — the conflicting INSERT wrote nothing.
+    with migration_engine.connect() as conn:
+        assert (
+            conn.execute(
+                text("select count(*) from cookbooks where owner_id = :o and is_default"),
+                {"o": ALICE},
+            ).scalar_one()
+            == 1
+        )
+
+
 def test_upgrade_downgrade_upgrade_round_trips(migration_engine: Engine) -> None:
     """Reversible on an empty DB: head → PREV_HEAD → head leaves no debris.
 

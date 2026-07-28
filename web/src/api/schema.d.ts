@@ -1133,6 +1133,12 @@ export interface components {
          *     an unlisted/public one (see ``cookbook.service.set_cookbook_visibility``).
          *     Deliberately NOT part of ``CookbookSummary``/the ``GET /api/cookbooks``
          *     list response — the brief only calls for it on create/detail/PATCH.
+         *
+         *     It is also OWNER-ONLY even on those three: the token is the shareable
+         *     secret behind an unlisted cookbook, so every non-owner caller gets None
+         *     here. The masking lives in the one place this DTO is built —
+         *     ``cookbook_router._to_cookbook_out`` — which is the only code path that
+         *     knows the caller's resolved role.
          */
         CookbookOut: {
             /** Cover Image Ref */
@@ -1869,8 +1875,11 @@ export interface components {
             collection_ids: string[];
             /** Cook Min */
             cook_min?: number | null;
-            /** Cookbook Id */
-            cookbook_id?: string | null;
+            /**
+             * Cookbook Id
+             * Format: uuid
+             */
+            cookbook_id: string;
             /**
              * Created At
              * Format: date-time

@@ -7,6 +7,7 @@ test_cookbook_access.py's make_user/make_cookbook helpers.
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from recipe_normalizer.cookbook.models import (
@@ -166,6 +167,56 @@ def test_delete_non_default_cookbook_ok(db_session: Session) -> None:
 
     db_session.expire_all()
     assert db_session.get(Cookbook, cookbook.id) is None
+
+
+def test_delete_cookbook_with_recipes_deletes_the_recipes(db_session: Session) -> None:
+    """A non-empty cookbook deletes cleanly and takes its recipes with it.
+
+    Regression: without ``passive_deletes=True`` on ``Cookbook.recipes``,
+    SQLAlchemy loads the children on parent delete and tries to NULL their
+    ``cookbook_id`` — which is NOT NULL — so this raised IntegrityError (a 500
+    on ``DELETE /api/cookbooks/{id}``) and deleted nothing.
+    """
+    owner = make_user(db_session, "7a")
+    cookbook = create_cookbook(db_session, owner_id=owner.id, name="Has Recipes")
+    recipe = Recipe(
+        owner_id=owner.id,
+        title="Doomed Pasta",
+        source_type=SourceType.manual,
+        cookbook_id=cookbook.id,
+    )
+    db_session.add(recipe)
+    db_session.flush()
+    recipe_id = recipe.id
+
+    delete_cookbook(db_session, cookbook.id, owner.id)
+
+    db_session.expire_all()
+    assert db_session.get(Cookbook, cookbook.id) is None
+    # Actually deleted, not orphaned with a dangling/NULLed cookbook_id.
+    assert db_session.get(Recipe, recipe_id) is None
+    assert db_session.scalars(select(Recipe).where(Recipe.id == recipe_id)).first() is None
+
+
+def test_delete_cookbook_with_a_member_deletes_the_membership(db_session: Session) -> None:
+    """A cookbook with members deletes cleanly and takes the member rows with it.
+
+    Regression: ``cookbook_id`` is half of ``cookbook_members``' composite
+    primary key, so the ORM's default "NULL out the child FK" behavior raised
+    an AssertionError here.
+    """
+    owner = make_user(db_session, "7b")
+    member_user = make_user(db_session, "7c")
+    cookbook = create_cookbook(db_session, owner_id=owner.id, name="Has Members")
+    add_member(db_session, cookbook, member_user, CookbookRole.editor)
+
+    delete_cookbook(db_session, cookbook.id, owner.id)
+
+    db_session.expire_all()
+    assert db_session.get(Cookbook, cookbook.id) is None
+    assert db_session.get(CookbookMember, (cookbook.id, member_user.id)) is None
+    # The member's user account is untouched — only the membership row went.
+    assert db_session.get(User, member_user.id) is not None
 
 
 def test_delete_default_cookbook_raises_409(db_session: Session) -> None:
