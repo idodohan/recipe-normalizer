@@ -21,19 +21,11 @@ def make_user(db_session: Session, suffix: str = "") -> User:
     return user
 
 
-def make_cookbook_id(db_session: Session, owner: User) -> uuid.UUID:
-    """A cookbook for *owner* to hold the recipes these model tests build.
-
-    ``recipes.cookbook_id`` is NOT NULL (every recipe lives in exactly one
-    cookbook), so even tests that only care about groups/lines/steps need a
-    cookbook to hang the recipe off.
-    """
-    from recipe_normalizer.cookbook.models import Cookbook
-
-    cookbook = Cookbook(owner_id=owner.id, name="My Cookbook", is_default=True)
-    db_session.add(cookbook)
-    db_session.flush()
-    return cookbook.id
+# NOTE: these model tests build bare ``Recipe`` rows with no cookbook at all.
+# That is legal as of migration a3f7c2d8e015: containment lives in the
+# ``cookbook_recipes`` join, not on the recipe row, so nothing here needs a
+# cookbook to hang a recipe off. Placement behavior is covered in
+# tests/cookbook/test_recipe_placements.py.
 
 
 def test_recipe_aggregate_roundtrip(db_session: Session) -> None:
@@ -61,7 +53,6 @@ def test_recipe_aggregate_roundtrip(db_session: Session) -> None:
     # --- build recipe ---
     recipe = Recipe(
         owner_id=owner.id,
-        cookbook_id=make_cookbook_id(db_session, owner),
         title="Pizza Margherita",
         source_type=SourceType.manual,
     )
@@ -153,7 +144,6 @@ def test_recipe_cascade_delete(db_session: Session) -> None:
 
     recipe = Recipe(
         owner_id=owner.id,
-        cookbook_id=make_cookbook_id(db_session, owner),
         title="Temp",
         source_type=SourceType.text,
     )
@@ -209,10 +199,8 @@ def test_owner_fingerprint_partial_unique_index(db_session: Session) -> None:
 
     owner = make_user(db_session, suffix=str(uuid.uuid4())[:8])
 
-    owner_cookbook_id = make_cookbook_id(db_session, owner)
     first = Recipe(
         owner_id=owner.id,
-        cookbook_id=owner_cookbook_id,
         title="First",
         source_type=SourceType.web,
         source_fingerprint="fp-123",
@@ -224,7 +212,6 @@ def test_owner_fingerprint_partial_unique_index(db_session: Session) -> None:
     # Scope the rollback to a savepoint so the fixture's transaction survives.
     duplicate = Recipe(
         owner_id=owner.id,
-        cookbook_id=owner_cookbook_id,
         title="Duplicate",
         source_type=SourceType.web,
         source_fingerprint="fp-123",
@@ -235,16 +222,13 @@ def test_owner_fingerprint_partial_unique_index(db_session: Session) -> None:
 
     # two recipes with NULL fingerprints for the same owner -> allowed
     owner2 = make_user(db_session, suffix=str(uuid.uuid4())[:8])
-    owner2_cookbook_id = make_cookbook_id(db_session, owner2)
     null_a = Recipe(
         owner_id=owner2.id,
-        cookbook_id=owner2_cookbook_id,
         title="Null A",
         source_type=SourceType.manual,
     )
     null_b = Recipe(
         owner_id=owner2.id,
-        cookbook_id=owner2_cookbook_id,
         title="Null B",
         source_type=SourceType.manual,
     )
@@ -268,7 +252,6 @@ def test_out_of_order_inserts_returned_sorted(db_session: Session) -> None:
     owner = make_user(db_session, suffix=str(uuid.uuid4())[:8])
     recipe = Recipe(
         owner_id=owner.id,
-        cookbook_id=make_cookbook_id(db_session, owner),
         title="Unordered",
         source_type=SourceType.manual,
     )
@@ -301,59 +284,3 @@ def test_out_of_order_inserts_returned_sorted(db_session: Session) -> None:
     lines = loaded.ingredient_groups[0].ingredient_lines
     assert [ln.order_index for ln in lines] == [0, 1]
     assert [ln.original_text for ln in lines] == ["first", "second"]
-
-
-def test_collection_owner_name_unique_constraint(db_session: Session) -> None:
-    """Duplicate (owner_id, name) rejected; same name for a different owner is fine."""
-    from recipe_normalizer.cookbook.models import Collection
-
-    owner = make_user(db_session, suffix=str(uuid.uuid4())[:8])
-    first = Collection(owner_id=owner.id, name="Weeknight Dinners")
-    db_session.add(first)
-    db_session.flush()
-
-    duplicate = Collection(owner_id=owner.id, name="Weeknight Dinners")
-    with pytest.raises(IntegrityError), db_session.begin_nested():
-        db_session.add(duplicate)
-        db_session.flush()
-
-    other_owner = make_user(db_session, suffix=str(uuid.uuid4())[:8])
-    same_name_other_owner = Collection(owner_id=other_owner.id, name="Weeknight Dinners")
-    db_session.add(same_name_other_owner)
-    db_session.flush()  # no error
-
-
-def test_collection_recipes_m2m_and_delete_leaves_recipe(db_session: Session) -> None:
-    """collection_recipes cascades on collection delete; the recipe row survives."""
-    from recipe_normalizer.cookbook.models import Collection, Recipe, SourceType
-
-    owner = make_user(db_session, suffix=str(uuid.uuid4())[:8])
-    recipe = Recipe(
-        owner_id=owner.id,
-        cookbook_id=make_cookbook_id(db_session, owner),
-        title="Pancakes",
-        source_type=SourceType.manual,
-    )
-    collection = Collection(owner_id=owner.id, name="Breakfast")
-    db_session.add_all([recipe, collection])
-    db_session.flush()
-
-    collection.recipes.append(recipe)
-    db_session.flush()
-
-    recipe_id = recipe.id
-    collection_id = collection.id
-
-    db_session.expire_all()
-    loaded_recipe = db_session.get(Recipe, recipe_id)
-    assert loaded_recipe is not None
-    assert [c.id for c in loaded_recipe.collections] == [collection_id]
-
-    db_session.delete(collection)
-    db_session.flush()
-
-    db_session.expire_all()
-    assert db_session.get(Collection, collection_id) is None
-    still_there = db_session.get(Recipe, recipe_id)
-    assert still_there is not None
-    assert still_there.collections == []

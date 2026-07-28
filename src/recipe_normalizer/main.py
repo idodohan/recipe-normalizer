@@ -254,20 +254,13 @@ def create_app() -> FastAPI:
         token check above.
         """
         cookbook = _resolve_public_cookbook(db, token)
-        # Recipes come from the `cookbook_recipes` join (∪ the legacy
-        # `recipes.cookbook_id` for rows predating the dual-write — same
-        # transitional union as `cookbook_router._recipe_count`), so a
-        # recipe merely PLACED into this cookbook (not just created here)
-        # is visible to anonymous visitors too.
-        placed_recipe_ids = (
-            select(CookbookRecipe.recipe_id)
-            .where(CookbookRecipe.cookbook_id == cookbook.id)
-            .union(select(Recipe.id).where(Recipe.cookbook_id == cookbook.id))
-            .subquery()
-        )
+        # Recipes come from the `cookbook_recipes` join — the sole source of
+        # placement — so a recipe merely PLACED into this cookbook (not just
+        # created here) is visible to anonymous visitors too.
         recipe_ids = db.scalars(
             select(Recipe.id)
-            .join(placed_recipe_ids, placed_recipe_ids.c.recipe_id == Recipe.id)
+            .join(CookbookRecipe, CookbookRecipe.recipe_id == Recipe.id)
+            .where(CookbookRecipe.cookbook_id == cookbook.id)
             # Total order — see cookbook.service.list_recipes' ORDER BY
             # comment; all three recipe listings sort identically.
             .order_by(Recipe.created_at.desc(), Recipe.id.desc())

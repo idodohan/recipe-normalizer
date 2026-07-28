@@ -272,7 +272,7 @@ def _recipe_grounding_json(recipe: RecipeOut) -> str:
     Cooking content only — ingredients (both the original text and whatever
     normalization/catalog matching produced), steps, servings, times,
     cuisines/dish types/tags. Personal fields (favorites, notes, ownership,
-    provenance, collections, edit history) are irrelevant to "how do I cook
+    provenance, placements, edit history) are irrelevant to "how do I cook
     this" questions and are deliberately dropped to keep the prompt small and
     the model's attention on cooking content.
     """

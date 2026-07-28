@@ -28,7 +28,7 @@ from recipe_normalizer.cookbook.schemas import (
     RecipeIn,
     StepIn,
 )
-from recipe_normalizer.cookbook.service import DuplicateCollectionNameError, DuplicateRecipeError
+from recipe_normalizer.cookbook.service import DuplicateRecipeError
 from recipe_normalizer.errors import ApiError
 from recipe_normalizer.users.models import User
 
@@ -1375,319 +1375,6 @@ def test_recommendations_wrong_owner_raises_404(seeded: Session, owner: User) ->
 
 
 # ---------------------------------------------------------------------------
-# Collections — create/rename/delete/list
-# ---------------------------------------------------------------------------
-
-
-def test_create_collection_happy_path(seeded: Session, owner: User) -> None:
-    out = cookbook_service.create_collection(seeded, owner_id=owner.id, name="Weeknight Dinners")
-    assert out.name == "Weeknight Dinners"
-    assert out.recipe_count == 0
-    assert out.id is not None
-
-
-def test_create_collection_strips_whitespace(seeded: Session, owner: User) -> None:
-    out = cookbook_service.create_collection(seeded, owner_id=owner.id, name="  Brunch  ")
-    assert out.name == "Brunch"
-
-
-def test_create_collection_duplicate_name_same_owner_raises_409(
-    seeded: Session, owner: User
-) -> None:
-    cookbook_service.create_collection(seeded, owner_id=owner.id, name="Desserts")
-    with pytest.raises(DuplicateCollectionNameError) as exc_info:
-        cookbook_service.create_collection(seeded, owner_id=owner.id, name="Desserts")
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.code == "duplicate_name"
-
-
-def test_create_collection_same_name_different_owners_ok(seeded: Session, owner: User) -> None:
-    other = make_user(seeded, suffix=str(uuid.uuid4())[:8])
-    cookbook_service.create_collection(seeded, owner_id=owner.id, name="Favorites")
-    out = cookbook_service.create_collection(seeded, owner_id=other.id, name="Favorites")
-    assert out.name == "Favorites"
-
-
-def test_rename_collection_happy_path(seeded: Session, owner: User) -> None:
-    created = cookbook_service.create_collection(seeded, owner_id=owner.id, name="Old Name")
-    renamed = cookbook_service.rename_collection(
-        seeded, owner_id=owner.id, collection_id=created.id, name="New Name"
-    )
-    assert renamed.name == "New Name"
-    assert renamed.id == created.id
-
-
-def test_rename_collection_to_same_name_is_noop(seeded: Session, owner: User) -> None:
-    created = cookbook_service.create_collection(seeded, owner_id=owner.id, name="Same")
-    renamed = cookbook_service.rename_collection(
-        seeded, owner_id=owner.id, collection_id=created.id, name="Same"
-    )
-    assert renamed.name == "Same"
-
-
-def test_rename_collection_duplicate_name_raises_409(seeded: Session, owner: User) -> None:
-    cookbook_service.create_collection(seeded, owner_id=owner.id, name="Taken")
-    other = cookbook_service.create_collection(seeded, owner_id=owner.id, name="Free")
-    with pytest.raises(DuplicateCollectionNameError):
-        cookbook_service.rename_collection(
-            seeded, owner_id=owner.id, collection_id=other.id, name="Taken"
-        )
-
-
-def test_rename_collection_wrong_owner_raises_404(seeded: Session, owner: User) -> None:
-    other = make_user(seeded, suffix=str(uuid.uuid4())[:8])
-    created = cookbook_service.create_collection(seeded, owner_id=owner.id, name="Mine")
-    with pytest.raises(ApiError) as exc_info:
-        cookbook_service.rename_collection(
-            seeded, owner_id=other.id, collection_id=created.id, name="Stolen"
-        )
-    assert exc_info.value.status_code == 404
-
-
-def test_rename_collection_missing_raises_404(seeded: Session, owner: User) -> None:
-    with pytest.raises(ApiError) as exc_info:
-        cookbook_service.rename_collection(
-            seeded, owner_id=owner.id, collection_id=uuid.uuid4(), name="Whatever"
-        )
-    assert exc_info.value.status_code == 404
-
-
-def test_delete_collection_wrong_owner_raises_404(seeded: Session, owner: User) -> None:
-    other = make_user(seeded, suffix=str(uuid.uuid4())[:8])
-    created = cookbook_service.create_collection(seeded, owner_id=owner.id, name="Mine")
-    with pytest.raises(ApiError) as exc_info:
-        cookbook_service.delete_collection(seeded, owner_id=other.id, collection_id=created.id)
-    assert exc_info.value.status_code == 404
-
-
-def test_delete_collection_missing_raises_404(seeded: Session, owner: User) -> None:
-    with pytest.raises(ApiError) as exc_info:
-        cookbook_service.delete_collection(seeded, owner_id=owner.id, collection_id=uuid.uuid4())
-    assert exc_info.value.status_code == 404
-
-
-def test_delete_collection_leaves_recipes_intact(seeded: Session, owner: User) -> None:
-    """Deleting a collection removes membership only; the recipe itself survives."""
-    recipe = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_simple_recipe_in())
-    collection = cookbook_service.create_collection(seeded, owner_id=owner.id, name="Temp")
-    cookbook_service.set_recipe_collections(
-        seeded, owner_id=owner.id, recipe_id=recipe.id, collection_ids=[collection.id]
-    )
-
-    cookbook_service.delete_collection(seeded, owner_id=owner.id, collection_id=collection.id)
-
-    still_there = cookbook_service.get_recipe(seeded, owner_id=owner.id, recipe_id=recipe.id)
-    assert still_there.id == recipe.id
-    assert still_there.collection_ids == []
-    assert cookbook_service.list_collections(seeded, owner_id=owner.id) == []
-
-
-def test_list_collections_empty_for_new_owner(seeded: Session, owner: User) -> None:
-    assert cookbook_service.list_collections(seeded, owner_id=owner.id) == []
-
-
-def test_list_collections_includes_recipe_count(seeded: Session, owner: User) -> None:
-    r1 = cookbook_service.create_recipe(
-        seeded, owner_id=owner.id, data=_simple_recipe_in(title="R1")
-    )
-    r2 = cookbook_service.create_recipe(
-        seeded, owner_id=owner.id, data=_simple_recipe_in(title="R2")
-    )
-    collection = cookbook_service.create_collection(seeded, owner_id=owner.id, name="Batch")
-    cookbook_service.set_recipe_collections(
-        seeded, owner_id=owner.id, recipe_id=r1.id, collection_ids=[collection.id]
-    )
-    cookbook_service.set_recipe_collections(
-        seeded, owner_id=owner.id, recipe_id=r2.id, collection_ids=[collection.id]
-    )
-
-    listed = cookbook_service.list_collections(seeded, owner_id=owner.id)
-    assert len(listed) == 1
-    assert listed[0].id == collection.id
-    assert listed[0].recipe_count == 2
-
-
-def test_list_collections_only_owners_own(seeded: Session, owner: User) -> None:
-    other = make_user(seeded, suffix=str(uuid.uuid4())[:8])
-    cookbook_service.create_collection(seeded, owner_id=other.id, name="Not Mine")
-    assert cookbook_service.list_collections(seeded, owner_id=owner.id) == []
-
-
-# ---------------------------------------------------------------------------
-# set_recipe_collections — full-replace semantics + ownership
-# ---------------------------------------------------------------------------
-
-
-def test_set_recipe_collections_full_replace_semantics(seeded: Session, owner: User) -> None:
-    recipe = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_simple_recipe_in())
-    c1 = cookbook_service.create_collection(seeded, owner_id=owner.id, name="C1")
-    c2 = cookbook_service.create_collection(seeded, owner_id=owner.id, name="C2")
-
-    out = cookbook_service.set_recipe_collections(
-        seeded, owner_id=owner.id, recipe_id=recipe.id, collection_ids=[c1.id, c2.id]
-    )
-    assert set(out.collection_ids) == {c1.id, c2.id}
-
-    # Replacing with just c2 drops c1 entirely (full-replace, not additive).
-    out2 = cookbook_service.set_recipe_collections(
-        seeded, owner_id=owner.id, recipe_id=recipe.id, collection_ids=[c2.id]
-    )
-    assert out2.collection_ids == [c2.id]
-
-
-def test_set_recipe_collections_empty_list_clears(seeded: Session, owner: User) -> None:
-    recipe = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_simple_recipe_in())
-    c1 = cookbook_service.create_collection(seeded, owner_id=owner.id, name="C1")
-    cookbook_service.set_recipe_collections(
-        seeded, owner_id=owner.id, recipe_id=recipe.id, collection_ids=[c1.id]
-    )
-    out = cookbook_service.set_recipe_collections(
-        seeded, owner_id=owner.id, recipe_id=recipe.id, collection_ids=[]
-    )
-    assert out.collection_ids == []
-
-
-def test_set_recipe_collections_dedupes_ids(seeded: Session, owner: User) -> None:
-    recipe = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_simple_recipe_in())
-    c1 = cookbook_service.create_collection(seeded, owner_id=owner.id, name="C1")
-    out = cookbook_service.set_recipe_collections(
-        seeded, owner_id=owner.id, recipe_id=recipe.id, collection_ids=[c1.id, c1.id]
-    )
-    assert out.collection_ids == [c1.id]
-
-
-def test_set_recipe_collections_wrong_owner_recipe_raises_404(seeded: Session, owner: User) -> None:
-    other = make_user(seeded, suffix=str(uuid.uuid4())[:8])
-    recipe = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_simple_recipe_in())
-    with pytest.raises(ApiError) as exc_info:
-        cookbook_service.set_recipe_collections(
-            seeded, owner_id=other.id, recipe_id=recipe.id, collection_ids=[]
-        )
-    assert exc_info.value.status_code == 404
-
-
-def test_set_recipe_collections_foreign_collection_raises_404(seeded: Session, owner: User) -> None:
-    """A collection_id belonging to another user 404s rather than silently linking."""
-    other = make_user(seeded, suffix=str(uuid.uuid4())[:8])
-    recipe = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_simple_recipe_in())
-    foreign_collection = cookbook_service.create_collection(
-        seeded, owner_id=other.id, name="Not Yours"
-    )
-    with pytest.raises(ApiError) as exc_info:
-        cookbook_service.set_recipe_collections(
-            seeded,
-            owner_id=owner.id,
-            recipe_id=recipe.id,
-            collection_ids=[foreign_collection.id],
-        )
-    assert exc_info.value.status_code == 404
-
-    # And the recipe's membership set is unchanged (all-or-nothing, no partial apply).
-    reloaded = cookbook_service.get_recipe(seeded, owner_id=owner.id, recipe_id=recipe.id)
-    assert reloaded.collection_ids == []
-
-
-def test_set_recipe_collections_missing_collection_id_raises_404(
-    seeded: Session, owner: User
-) -> None:
-    recipe = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_simple_recipe_in())
-    with pytest.raises(ApiError) as exc_info:
-        cookbook_service.set_recipe_collections(
-            seeded, owner_id=owner.id, recipe_id=recipe.id, collection_ids=[uuid.uuid4()]
-        )
-    assert exc_info.value.status_code == 404
-
-
-def test_recipe_out_includes_collection_ids(seeded: Session, owner: User) -> None:
-    """create_recipe/get_recipe expose collection_ids ([] by default)."""
-    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_simple_recipe_in())
-    assert created.collection_ids == []
-    fetched = cookbook_service.get_recipe(seeded, owner_id=owner.id, recipe_id=created.id)
-    assert fetched.collection_ids == []
-
-
-def test_recipe_summary_does_not_include_collection_ids(seeded: Session, owner: User) -> None:
-    """RecipeSummary (the list_recipes item shape) never grows a collections field."""
-    cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_simple_recipe_in())
-    page = cookbook_service.list_recipes(seeded, owner_id=owner.id)
-    assert not hasattr(page.items[0], "collection_ids")
-
-
-# ---------------------------------------------------------------------------
-# list_recipes — collection filter
-# ---------------------------------------------------------------------------
-
-
-def test_list_recipes_filter_by_collection(seeded: Session, owner: User) -> None:
-    in_collection = cookbook_service.create_recipe(
-        seeded, owner_id=owner.id, data=_simple_recipe_in(title="In Collection")
-    )
-    cookbook_service.create_recipe(
-        seeded, owner_id=owner.id, data=_simple_recipe_in(title="Not In Collection")
-    )
-    collection = cookbook_service.create_collection(seeded, owner_id=owner.id, name="Picks")
-    cookbook_service.set_recipe_collections(
-        seeded, owner_id=owner.id, recipe_id=in_collection.id, collection_ids=[collection.id]
-    )
-
-    page = cookbook_service.list_recipes(seeded, owner_id=owner.id, collection=collection.id)
-    assert [r.title for r in page.items] == ["In Collection"]
-
-
-def test_list_recipes_filter_by_collection_anded_with_other_filters(
-    seeded: Session, owner: User
-) -> None:
-    matching = cookbook_service.create_recipe(
-        seeded,
-        owner_id=owner.id,
-        data=_simple_recipe_in(title="Matches Both", tags=["quick"]),
-    )
-    cookbook_service.create_recipe(
-        seeded,
-        owner_id=owner.id,
-        data=_simple_recipe_in(title="Right Collection Wrong Tag"),
-    )
-    collection = cookbook_service.create_collection(seeded, owner_id=owner.id, name="Picks")
-    other_in_collection = cookbook_service.create_recipe(
-        seeded,
-        owner_id=owner.id,
-        data=_simple_recipe_in(title="Right Tag Wrong Collection", tags=["quick"]),
-    )
-    cookbook_service.set_recipe_collections(
-        seeded, owner_id=owner.id, recipe_id=matching.id, collection_ids=[collection.id]
-    )
-    # Give the "wrong collection" recipe a *different* collection so it's a
-    # collection member (just not this one) — confirms the filter isn't a
-    # no-op tautology.
-    other_collection = cookbook_service.create_collection(seeded, owner_id=owner.id, name="Other")
-    cookbook_service.set_recipe_collections(
-        seeded,
-        owner_id=owner.id,
-        recipe_id=other_in_collection.id,
-        collection_ids=[other_collection.id],
-    )
-
-    page = cookbook_service.list_recipes(
-        seeded, owner_id=owner.id, collection=collection.id, tag="quick"
-    )
-    assert [r.title for r in page.items] == ["Matches Both"]
-
-
-def test_list_recipes_filter_by_foreign_collection_matches_nothing(
-    seeded: Session, owner: User
-) -> None:
-    other = make_user(seeded, suffix=str(uuid.uuid4())[:8])
-    cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_simple_recipe_in())
-    foreign_collection = cookbook_service.create_collection(
-        seeded, owner_id=other.id, name="Not Yours"
-    )
-    page = cookbook_service.list_recipes(
-        seeded, owner_id=owner.id, collection=foreign_collection.id
-    )
-    assert page.items == []
-
-
-# ---------------------------------------------------------------------------
 # copy_recipe — deep-copy fidelity (the copy-on-share primitive)
 # ---------------------------------------------------------------------------
 
@@ -1834,9 +1521,11 @@ def test_copy_recipe_not_copied_fields(seeded: Session, owner: User) -> None:
         source_fingerprint="fp-123",
         extraction_meta={"tier_used": 1, "confidence": 0.9},
     )
-    collection = cookbook_service.create_collection(seeded, owner_id=owner.id, name="Mine")
-    cookbook_service.set_recipe_collections(
-        seeded, owner_id=owner.id, recipe_id=created.id, collection_ids=[collection.id]
+    # A second placement on the SHARER's own board — the copy must not inherit
+    # it (placements are the sharer's organization, not the recipient's).
+    extra_board = cookbook_service.create_cookbook(seeded, owner_id=owner.id, name="Mine")
+    cookbook_service.add_recipe_to_cookbook(
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=extra_board.id
     )
     cookbook_service.set_personal(
         seeded, owner_id=owner.id, recipe_id=created.id, is_favorite=True, notes="delicious"
@@ -1853,7 +1542,6 @@ def test_copy_recipe_not_copied_fields(seeded: Session, owner: User) -> None:
     out = cookbook_service.get_recipe(seeded, owner_id=recipient.id, recipe_id=copied.id)
     assert out.is_favorite is False
     assert out.notes is None
-    assert out.collection_ids == []
     assert out.extraction_meta is None
     assert out.derived_from is None
     assert out.last_edited_by is None
@@ -1863,11 +1551,19 @@ def test_copy_recipe_not_copied_fields(seeded: Session, owner: User) -> None:
     assert copied_row is not None
     assert copied_row.source_fingerprint is None
 
+    # Exactly ONE placement — the recipient's default cookbook. Neither the
+    # source's own default nor its extra board came along.
+    recipient_default = cookbook_service.ensure_default_cookbook(seeded, recipient.id)
+    assert cookbook_service.cookbooks_for_recipe(seeded, copied.id) == [recipient_default.id]
+
     # The original is completely untouched by the copy.
     original = cookbook_service.get_recipe(seeded, owner_id=owner.id, recipe_id=created.id)
     assert original.is_favorite is True
     assert original.notes == "delicious"
-    assert original.collection_ids == [collection.id]
+    assert set(cookbook_service.cookbooks_for_recipe(seeded, created.id)) == {
+        cookbook_service.ensure_default_cookbook(seeded, owner.id).id,
+        extra_board.id,
+    }
 
 
 def test_copy_recipe_missing_recipe_raises_404(seeded: Session, owner: User) -> None:
@@ -1993,7 +1689,7 @@ def test_create_recipe_into_editable_cookbook_ok(seeded: Session, owner: User) -
     created = cookbook_service.create_recipe(
         seeded, owner_id=editor.id, data=_simple_recipe_in(), cookbook_id=cookbook.id
     )
-    assert created.cookbook_id == cookbook.id
+    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [cookbook.id]
 
 
 def test_create_recipe_into_viewer_only_cookbook_raises_404(seeded: Session, owner: User) -> None:
@@ -2024,7 +1720,7 @@ def test_create_recipe_into_cookbook_not_a_member_of_raises_404(
 def test_create_recipe_omitted_cookbook_id_lands_in_default(seeded: Session, owner: User) -> None:
     created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_simple_recipe_in())
     default_cookbook = cookbook_service.ensure_default_cookbook(seeded, owner.id)
-    assert created.cookbook_id == default_cookbook.id
+    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [default_cookbook.id]
 
 
 def test_viewer_of_shared_cookbook_can_get_but_not_update_or_delete(

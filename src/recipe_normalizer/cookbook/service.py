@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy import Subquery, and_, exists, func, literal, literal_column, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from recipe_normalizer.catalog import service as catalog_service
 from recipe_normalizer.catalog.service import convert_to_normalized
@@ -22,7 +22,6 @@ from recipe_normalizer.catalog.service import convert_to_normalized
 if TYPE_CHECKING:
     from recipe_normalizer.llm.client import LLMClient
 from recipe_normalizer.cookbook.models import (
-    Collection,
     Cookbook,
     CookbookMember,
     CookbookRecipe,
@@ -36,13 +35,11 @@ from recipe_normalizer.cookbook.models import (
     SourceType,
     Step,
     Tag,
-    collection_recipes,
     recipe_cuisines,
     recipe_dish_types,
     recipe_tags,
 )
 from recipe_normalizer.cookbook.schemas import (
-    CollectionOut,
     CookbookSummary,
     IngredientLineIn,
     RecipeCookbookOut,
@@ -60,7 +57,6 @@ __all__ = [
     "MAX_IMAGE_BYTES",
     "UNSET",
     "Access",
-    "DuplicateCollectionNameError",
     "DuplicateRecipeError",
     "SourceType",
     "add_recipe_to_cookbook",
@@ -69,10 +65,8 @@ __all__ = [
     "cookbook_access",
     "cookbooks_for_recipe",
     "copy_recipe",
-    "create_collection",
     "create_cookbook",
     "create_recipe",
-    "delete_collection",
     "delete_cookbook",
     "delete_recipe",
     "ensure_default_cookbook",
@@ -83,7 +77,6 @@ __all__ = [
     "invite_cookbook_member",
     "is_recipe_owner",
     "leave_cookbook",
-    "list_collections",
     "list_my_cookbooks",
     "list_recipes",
     "readable_cookbooks_for_recipe",
@@ -94,7 +87,6 @@ __all__ = [
     "register_hooks",
     "remove_cookbook_member",
     "remove_recipe_from_cookbook",
-    "rename_collection",
     "rename_cookbook",
     "repoint_ingredient_lines",
     "require_cookbook_access",
@@ -104,7 +96,6 @@ __all__ = [
     "set_cookbook_member_role",
     "set_cookbook_visibility",
     "set_personal",
-    "set_recipe_collections",
     "set_recipe_image",
     "update_recipe",
     "verify_recipe",
@@ -153,17 +144,6 @@ class DuplicateRecipeError(ApiError):
             extra={"existing_id": str(existing_id)},
         )
         self.existing_id = existing_id
-
-
-class DuplicateCollectionNameError(ApiError):
-    """Raised when a collection with the same (owner_id, name) already exists."""
-
-    def __init__(self, name: str) -> None:
-        super().__init__(
-            status_code=409,
-            code="duplicate_name",
-            message=f"A collection named {name!r} already exists.",
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -319,29 +299,25 @@ def require_cookbook_access(
 # dissolves the parked removed-contributor hole. Owner-only operations
 # (delete the recipe, mint a public link, be a copy-on-share source) still go
 # through `is_recipe_owner`, which is about the ROW's owner and nothing else.
-#
-# TRANSITION: `recipes.cookbook_id` is still NOT NULL and still dual-written,
-# and rows predating the backfill migration have no join row yet. So the
-# cookbook SET is `distinct(cookbook_recipes) ∪ {recipes.cookbook_id}` — see
-# `_recipe_cookbook_ids`. Reads therefore behave identically before and after
-# the migration; once `cookbook_id` is dropped, the union collapses to the
-# join table alone and nothing else here changes.
 # ---------------------------------------------------------------------------
 
 
 def _recipe_cookbook_ids(recipe_id: uuid.UUID) -> Subquery:
-    """A subquery of every cookbook id holding *recipe_id*, de-duplicated.
+    """A subquery of every cookbook id holding *recipe_id*.
 
-    The UNION (not UNION ALL — the dedupe is the point) of the recipe's join
-    rows and its transitional primary placement ``recipes.cookbook_id``. Empty
-    for a nonexistent recipe. Used both as a join target (``_resolve_recipe_access``)
-    and selected from directly (``cookbooks_for_recipe``).
+    Purely the recipe's ``cookbook_recipes`` join rows — the transitional
+    ``∪ {recipes.cookbook_id}`` leg is gone with the column itself (migration
+    a3f7c2d8e015). Already distinct: ``(cookbook_id, recipe_id)`` is the join's
+    composite PK, so one recipe can appear at most once per cookbook. Empty for
+    a nonexistent recipe. Used both as a join target
+    (``_resolve_recipe_access``) and selected from directly
+    (``cookbooks_for_recipe``).
     """
-    from_join = select(CookbookRecipe.cookbook_id.label("cookbook_id")).where(
-        CookbookRecipe.recipe_id == recipe_id
+    return (
+        select(CookbookRecipe.cookbook_id.label("cookbook_id"))
+        .where(CookbookRecipe.recipe_id == recipe_id)
+        .subquery()
     )
-    from_column = select(Recipe.cookbook_id.label("cookbook_id")).where(Recipe.id == recipe_id)
-    return from_join.union(from_column).subquery()
 
 
 def cookbooks_for_recipe(db: Session, recipe_id: uuid.UUID) -> list[uuid.UUID]:
@@ -526,32 +502,20 @@ def ensure_default_cookbook(db: Session, user_id: uuid.UUID) -> Cookbook:
 def _cookbook_recipe_counts(db: Session, cookbook_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
     """Map cookbook id -> number of recipes PLACED in it, for the given ids only.
 
-    A recipe placed into a cookbook via ``add_recipe_to_cookbook`` (not just
-    created there) must count too, matching what ``GET /api/cookbooks/{id}``'s
-    own recipe list now shows (see cookbook_router._recipe_count) — so this
-    counts the UNION (not union all — the dedupe is the point, same reasoning
-    as ``_recipe_cookbook_ids``) of ``cookbook_recipes`` placements and each
-    recipe's still-NOT-NULL legacy ``recipes.cookbook_id``, per (cookbook_id,
-    recipe_id) pair, so a dual-written recipe isn't counted twice and a
-    recipe predating the dual-write (no join row at all) still counts once.
+    One grouped count over ``cookbook_recipes`` — the join is the whole story
+    (its composite PK already guarantees one row per cookbook/recipe pair), and
+    it counts recipes merely PLACED into a cookbook via
+    ``add_recipe_to_cookbook`` exactly as it counts ones created there, matching
+    what ``GET /api/cookbooks/{id}``'s own recipe list shows (see
+    cookbook_router._recipe_count).
     """
     if not cookbook_ids:
         return {}
-    pairs = (
-        select(
-            CookbookRecipe.cookbook_id.label("cookbook_id"),
-            CookbookRecipe.recipe_id.label("recipe_id"),
-        )
+    rows = db.execute(
+        select(CookbookRecipe.cookbook_id, func.count())
         .where(CookbookRecipe.cookbook_id.in_(cookbook_ids))
-        .union(
-            select(
-                Recipe.cookbook_id.label("cookbook_id"),
-                Recipe.id.label("recipe_id"),
-            ).where(Recipe.cookbook_id.in_(cookbook_ids))
-        )
-        .subquery()
-    )
-    rows = db.execute(select(pairs.c.cookbook_id, func.count()).group_by(pairs.c.cookbook_id)).all()
+        .group_by(CookbookRecipe.cookbook_id)
+    ).all()
     return {cookbook_id: count for cookbook_id, count in rows}
 
 
@@ -647,56 +611,79 @@ def set_cookbook_cover(
     return cookbook
 
 
-def _rehome_multi_placed_recipes(db: Session, cookbook_id: uuid.UUID) -> None:
-    """Repoint ``recipes.cookbook_id`` off *cookbook_id* for recipes placed elsewhere too.
+def _rescue_solely_placed_recipes(db: Session, cookbook_id: uuid.UUID) -> None:
+    """Give every recipe placed ONLY in *cookbook_id* a second home before it goes.
 
-    Called just before a cookbook is deleted. ``recipes.cookbook_id`` carries
-    ON DELETE CASCADE, so a recipe whose PRIMARY placement is the doomed
-    cookbook would be destroyed even when it also lives in other cookbooks —
-    silent data loss now that a recipe can be in several. Each such recipe is
-    re-homed to its oldest remaining placement instead; recipes with no other
-    placement are left to cascade away exactly as before.
+    Called just before a cookbook is deleted. Deleting a cookbook cascades away
+    its ``cookbook_recipes`` rows (placements IN it), so a recipe whose ONLY
+    placement is the doomed cookbook would be left in ZERO cookbooks —
+    reachable by its owner (``recipes.owner_id`` short-circuits access and
+    ``list_recipes`` keeps listing it) but on no board at all, breaking the
+    ">= 1 placement" invariant the rest of the module assumes.
 
-    The doomed cookbook's own ``cookbook_recipes`` rows always cascade (they
-    are placements IN it, not of it), so nothing here has to delete them.
+    Each such recipe is therefore ALSO placed in its own OWNER's default
+    cookbook (created on first use) before the delete. Note "its own owner's",
+    not the caller's: a recipe contributed to this cookbook by an editor member
+    belongs to that member, and rescuing it into the *deleter's* cookbook would
+    hand them someone else's recipe.
+
+    Recipes with other placements need nothing — they simply lose this
+    cookbook's join row to the cascade.
+
+    NOTHING here (or in ``delete_cookbook``) ever deletes a recipe: with
+    ``recipes.cookbook_id`` gone there is no recipe-destroying cascade left, and
+    deleting a recipe is the separate, owner-only ``delete_recipe``.
     """
-    replacement = (
-        select(CookbookRecipe.cookbook_id)
+    elsewhere = aliased(CookbookRecipe)
+    solely_placed = db.execute(
+        select(Recipe.id, Recipe.owner_id)
+        .join(CookbookRecipe, CookbookRecipe.recipe_id == Recipe.id)
         .where(
-            CookbookRecipe.recipe_id == Recipe.id,
-            CookbookRecipe.cookbook_id != cookbook_id,
+            CookbookRecipe.cookbook_id == cookbook_id,
+            ~exists(
+                select(1).where(
+                    elsewhere.recipe_id == Recipe.id,
+                    elsewhere.cookbook_id != cookbook_id,
+                )
+            ),
         )
-        .order_by(CookbookRecipe.added_at, CookbookRecipe.cookbook_id)
-        .limit(1)
-        .correlate(Recipe)
-        .scalar_subquery()
-    )
-    rehomed = db.scalars(
-        update(Recipe)
-        .where(Recipe.cookbook_id == cookbook_id, replacement.is_not(None))
-        .values(cookbook_id=replacement)
-        .returning(Recipe.id)
     ).all()
-    if not rehomed:
-        return  # nothing multi-placed here — this delete is the pre-boards one
+    if not solely_placed:
+        return
+
+    # Group by owner so `ensure_default_cookbook` runs once per owner, not once
+    # per recipe (it is a read-then-insert; repeating it per row is pure waste).
+    default_for: dict[uuid.UUID, uuid.UUID] = {}
+    for recipe_id, owner_id in solely_placed:
+        if owner_id not in default_for:
+            default_for[owner_id] = ensure_default_cookbook(db, owner_id).id
+        db.execute(
+            _placement_insert(
+                cookbook_id=default_for[owner_id], recipe_id=recipe_id, added_by=owner_id
+            )
+        )
     db.flush()
-    # The ORM may hold a loaded `cookbook.recipes` collection whose
-    # delete-orphan cascade would still delete the rows we just re-homed;
-    # expiring drops it back to unloaded, where `passive_deletes` leaves every
-    # remaining child to the database's own CASCADE. Gated on rowcount so the
-    # overwhelmingly common delete (nothing multi-placed) doesn't invalidate the
-    # caller's whole identity map for nothing.
+    # The rescued recipes' `cookbook_placements` collections (and the doomed
+    # cookbook's `recipe_placements`) may be loaded and stale after those raw
+    # INSERTs; expiring drops them back to unloaded so the delete below sees the
+    # real placement graph. Gated on there being anything to rescue.
     db.expire_all()
 
 
 def delete_cookbook(db: Session, cookbook_id: uuid.UUID, user_id: uuid.UUID) -> None:
-    """Delete a cookbook. Owner-only (404 otherwise).
+    """Delete a cookbook. Owner-only (404 otherwise). NEVER deletes a recipe.
 
-    Recipes whose ONLY placement is this cookbook are deleted with it (FK
-    CASCADE, as before); recipes that also live in another cookbook survive,
-    re-homed to their oldest remaining placement — see
-    ``_rehome_multi_placed_recipes``. Membership rows and this cookbook's
-    ``cookbook_recipes`` placements always cascade away.
+    Only the cookbook itself goes, along with its membership rows and its
+    ``cookbook_recipes`` placements (both cascade in the database). Every recipe
+    survives: one that also lives in another cookbook simply loses this
+    placement, and one placed ONLY here is first re-filed into its OWNER's
+    default cookbook so it is never left board-less — see
+    ``_rescue_solely_placed_recipes``. Destroying a recipe is the separate,
+    owner-only ``delete_recipe``.
+
+    (Phase 1 behaved the opposite way: ``recipes.cookbook_id``'s ON DELETE
+    CASCADE meant deleting a cookbook destroyed the recipes it held. That column
+    is gone as of migration a3f7c2d8e015 and so is that behavior.)
 
     Raises ApiError(409, "cannot_delete_default", ...) if this is the user's
     default cookbook — every user must always have exactly one. Flushes;
@@ -709,8 +696,11 @@ def delete_cookbook(db: Session, cookbook_id: uuid.UUID, user_id: uuid.UUID) -> 
             "cannot_delete_default",
             "The default cookbook cannot be deleted.",
         )
-    _rehome_multi_placed_recipes(db, cookbook_id)
-    db.delete(cookbook)
+    _rescue_solely_placed_recipes(db, cookbook_id)
+    # Re-fetch: `_rescue_solely_placed_recipes` may have expired the session.
+    doomed = db.get(Cookbook, cookbook_id)
+    assert doomed is not None  # access was just established; nothing deletes it
+    db.delete(doomed)
     db.flush()
 
 
@@ -889,8 +879,9 @@ def add_recipe_to_cookbook(
     recipe" path, which for a *reference* (rather than copy-on-save) placement
     is the caller's decision to make, not this function's.
 
-    Leaves ``recipes.cookbook_id`` (the transitional primary placement) alone —
-    adding a placement never re-homes the recipe. Flushes; caller owns commit.
+    Purely ADDITIVE: the recipe's existing placements are untouched, so this
+    never moves a recipe out of a cookbook it is already in. Flushes; caller
+    owns commit.
     """
     require_cookbook_access(db, user_id=user_id, cookbook_id=cookbook_id, need=CookbookRole.editor)
     recipe = db.get(Recipe, recipe_id)
@@ -928,14 +919,9 @@ def remove_recipe_from_cookbook(
     oracle here: reaching it already required editor+ on a cookbook the recipe
     is in, so the caller can see the recipe anyway.)
 
-    TRANSITION: when the dropped placement is also the recipe's primary
-    (``recipes.cookbook_id``, still NOT NULL), that column is repointed at one
-    of the remaining placements — otherwise the transitional
-    ``join ∪ {cookbook_id}`` set would keep reporting the cookbook the recipe
-    was just removed from, and access would survive the removal. The remaining
-    placement is picked deterministically (oldest ``added_at``, then id), and
-    exists by construction: this line is only reached when the set had ≥ 2
-    entries. Flushes; caller owns commit.
+    Deleting the join row is the whole operation — the placement set IS the join
+    table, so access to the recipe via this cookbook stops the moment the row
+    goes. Flushes; caller owns commit.
     """
     require_cookbook_access(db, user_id=user_id, cookbook_id=cookbook_id, need=CookbookRole.editor)
 
@@ -944,8 +930,6 @@ def remove_recipe_from_cookbook(
     placements = cookbooks_for_recipe(db, recipe_id)
     if cookbook_id not in placements:
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found in this cookbook.")
-    recipe = db.get(Recipe, recipe_id)
-    assert recipe is not None  # it has a placement, so the row exists
     if len(placements) == 1:
         raise ApiError(
             409,
@@ -954,22 +938,8 @@ def remove_recipe_from_cookbook(
         )
 
     join_row = db.get(CookbookRecipe, (cookbook_id, recipe_id))
-    if join_row is not None:
-        db.delete(join_row)
-        db.flush()
-
-    if recipe.cookbook_id == cookbook_id:
-        replacement = db.scalar(
-            select(CookbookRecipe.cookbook_id)
-            .where(
-                CookbookRecipe.recipe_id == recipe_id,
-                CookbookRecipe.cookbook_id != cookbook_id,
-            )
-            .order_by(CookbookRecipe.added_at, CookbookRecipe.cookbook_id)
-            .limit(1)
-        )
-        assert replacement is not None  # guaranteed by the len(placements) > 1 check above
-        recipe.cookbook_id = replacement
+    assert join_row is not None  # cookbook_id is in the placement set, so it exists
+    db.delete(join_row)
     db.flush()
 
 
@@ -1099,7 +1069,6 @@ _RECIPE_FULL_OPTIONS = [
     selectinload(Recipe.cuisines),
     selectinload(Recipe.dish_types),
     selectinload(Recipe.tags),
-    selectinload(Recipe.collections),
 ]
 
 _RECIPE_SUMMARY_OPTIONS = [
@@ -1322,7 +1291,6 @@ def create_recipe(
 
     recipe = Recipe(
         owner_id=owner_id,
-        cookbook_id=target_cookbook.id,
         title=data.title,
         description=data.description,
         language=data.language,
@@ -1342,9 +1310,9 @@ def create_recipe(
     db.add(recipe)
     db.flush()  # get recipe.id
 
-    # DUAL-WRITE (transition): the recipe's placement lives both in
-    # `recipes.cookbook_id` above and as a `cookbook_recipes` join row, so
-    # set-based reads work for new rows before the backfill migration runs.
+    # The recipe's placement — the join row IS the containment, so this is not
+    # bookkeeping alongside a column but the thing itself. Without it the recipe
+    # would exist in zero cookbooks and only its owner could reach it.
     db.execute(
         _placement_insert(cookbook_id=target_cookbook.id, recipe_id=recipe.id, added_by=owner_id)
     )
@@ -1487,8 +1455,8 @@ def copy_recipe(
     own default cookbook (``ensure_default_cookbook``, created on first use)
     instead — NEVER the source recipe's cookbook, which belongs to the sharer
     and whose members must not silently gain access to the recipient's copy.
-    This is also what keeps copy-on-share from minting cookbook-less recipes
-    (``recipes.cookbook_id`` is NOT NULL as of the finalize migration).
+    This is also what keeps copy-on-share from minting a placement-less recipe,
+    which only its owner could ever reach.
 
     Copied verbatim: title/description/servings/prep_min/cook_min/total_min/
     language/source/source_type, image_ref (shared BY REFERENCE — the
@@ -1506,8 +1474,10 @@ def copy_recipe(
     live-linked twin:
       - favorites/notes: left at their model defaults (False/None) —
         personal metadata belongs to whoever owns the row, not the original.
-      - collections: left empty — collections are the new owner's own
-        organizational scheme, unrelated to the sharer's.
+      - placements: the copy gets exactly ONE, in *cookbook_id* (or the new
+        owner's default) — never the other cookbooks the source was on, which
+        are the sharer's own organization and mostly unreachable to the
+        recipient anyway.
       - source_fingerprint: forced to None, so the recipient can still
         independently import the same original source (e.g. re-scrape the
         same URL) later without tripping the (owner_id, source_fingerprint)
@@ -1549,7 +1519,6 @@ def copy_recipe(
 
     new_recipe = Recipe(
         owner_id=new_owner_id,
-        cookbook_id=target_cookbook.id,
         title=source.title,
         description=source.description,
         image_ref=source.image_ref,
@@ -1569,8 +1538,7 @@ def copy_recipe(
     db.add(new_recipe)
     db.flush()  # get new_recipe.id
 
-    # DUAL-WRITE (transition) — same reasoning as create_recipe: the copy is
-    # placed in the new owner's default cookbook both ways. `added_by` is the
+    # The copy's placement — same reasoning as create_recipe. `added_by` is the
     # RECIPIENT (they are the one placing this copy in their own cookbook), not
     # the sharer.
     db.execute(
@@ -1671,16 +1639,13 @@ def list_recipes(
     max_total_min: int | None = None,
     source_type: SourceType | str | None = None,
     favorites: bool | None = None,
-    collection: uuid.UUID | None = None,
     limit: int = 1000,
     offset: int = 0,
 ) -> RecipePage:
     """Return a page of recipes *owner_id* can READ, newest first, filters ANDed.
 
-    SCOPE (the flat compat list, boards-aware): every recipe that appears —
-    via the ``cookbook_recipes`` join, OR its still-NOT-NULL legacy
-    ``recipes.cookbook_id`` (the same transitional union used everywhere else
-    in this module, see ``_recipe_cookbook_ids``) — in ANY cookbook
+    SCOPE (the flat compat list, boards-aware): every recipe placed — via the
+    ``cookbook_recipes`` join, the sole source of placement — in ANY cookbook
     *owner_id* owns or is a member of (any role), PLUS every recipe
     *owner_id* owns outright even if its only current placement became
     unreadable to them (e.g. removed as a member of the cookbook holding
@@ -1732,11 +1697,6 @@ def list_recipes(
     behavior of returning every recipe; the search/filter UI (next task)
     passes explicit page sizes.
 
-    ``collection`` filters to recipes that are a member of the given
-    collection id (correlated EXISTS against ``collection_recipes``,
-    ANDed with the rest); an id that isn't the caller's own collection
-    simply matches zero recipes rather than raising.
-
     Raises ``ApiError`` 422 for an unrecognised *dietary* value.
     """
     placed_in_a_readable_cookbook = exists(
@@ -1748,9 +1708,6 @@ def list_recipes(
     conditions: list[Any] = [
         or_(
             placed_in_a_readable_cookbook,
-            # TRANSITION: a recipe predating the backfill migration has no
-            # join row at all — its legacy primary placement alone decides.
-            Recipe.cookbook_id.in_(_readable_cookbook_ids(owner_id)),
             # The caller's own recipes always show up here, even when their
             # only placement(s) became unreadable to them (e.g. removed as a
             # cookbook member) — see the design spec's access model.
@@ -1836,21 +1793,6 @@ def list_recipes(
         # favorited and cannot un-favorite.
         conditions.append(Recipe.owner_id == owner_id)
         conditions.append(Recipe.is_favorite == favorites)
-
-    if collection is not None:
-        # Correlated EXISTS against the association table, like the vocab
-        # filters above. No separate ownership check is needed: a recipe can
-        # only ever be linked to its own owner's collections (enforced by
-        # set_recipe_collections), so an id belonging to another user's
-        # collection simply matches nothing here.
-        conditions.append(
-            exists(
-                select(1).where(
-                    collection_recipes.c.recipe_id == Recipe.id,
-                    collection_recipes.c.collection_id == collection,
-                )
-            )
-        )
 
     total = db.scalar(select(func.count()).select_from(Recipe).where(*conditions)) or 0
 
@@ -2150,159 +2092,6 @@ def delete_recipe(
         raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
     db.delete(recipe)
     db.flush()
-
-
-# ---------------------------------------------------------------------------
-# Collections
-# ---------------------------------------------------------------------------
-
-
-def _get_owned_collection(db: Session, owner_id: uuid.UUID, collection_id: uuid.UUID) -> Collection:
-    """Fetch a collection by id, owner-scoped. Raises ApiError 404 if not found or wrong owner."""
-    collection = db.scalars(
-        select(Collection).where(Collection.id == collection_id, Collection.owner_id == owner_id)
-    ).first()
-    if collection is None:
-        raise ApiError(404, "not_found", f"Collection {collection_id} not found.")
-    return collection
-
-
-def _recipe_count(db: Session, collection_id: uuid.UUID) -> int:
-    return (
-        db.scalar(
-            select(func.count())
-            .select_from(collection_recipes)
-            .where(collection_recipes.c.collection_id == collection_id)
-        )
-        or 0
-    )
-
-
-def create_collection(db: Session, *, owner_id: uuid.UUID, name: str) -> CollectionOut:
-    """Create a new (empty) collection for owner_id.
-
-    Raises DuplicateCollectionNameError (409 duplicate_name) if the owner
-    already has a collection with this exact name (stripped, case-sensitive
-    — matches the DB-level unique constraint on (owner_id, name); this is a
-    check-then-insert like DuplicateRecipeError's fingerprint check, so it
-    carries the same narrow race window under concurrent identical requests).
-    Flushes; caller owns commit.
-    """
-    stripped = name.strip()
-    existing = db.scalars(
-        select(Collection).where(Collection.owner_id == owner_id, Collection.name == stripped)
-    ).first()
-    if existing is not None:
-        raise DuplicateCollectionNameError(stripped)
-
-    collection = Collection(owner_id=owner_id, name=stripped)
-    db.add(collection)
-    db.flush()
-    return CollectionOut(id=collection.id, name=collection.name, recipe_count=0)
-
-
-def rename_collection(
-    db: Session,
-    *,
-    owner_id: uuid.UUID,
-    collection_id: uuid.UUID,
-    name: str,
-) -> CollectionOut:
-    """Rename a collection. Owner-scoped: 404 if not found or wrong owner.
-
-    Raises DuplicateCollectionNameError (409) if another of the owner's
-    collections already has the new name. Renaming to the current name (a
-    no-op) is always allowed. Flushes; caller owns commit.
-    """
-    collection = _get_owned_collection(db, owner_id, collection_id)
-    stripped = name.strip()
-    if stripped != collection.name:
-        existing = db.scalars(
-            select(Collection).where(
-                Collection.owner_id == owner_id,
-                Collection.name == stripped,
-                Collection.id != collection_id,
-            )
-        ).first()
-        if existing is not None:
-            raise DuplicateCollectionNameError(stripped)
-        collection.name = stripped
-        db.flush()
-
-    return CollectionOut(
-        id=collection.id, name=collection.name, recipe_count=_recipe_count(db, collection_id)
-    )
-
-
-def delete_collection(db: Session, *, owner_id: uuid.UUID, collection_id: uuid.UUID) -> None:
-    """Delete a collection. Owner-scoped: 404 if not found or wrong owner.
-
-    Only the `collection_recipes` association rows are removed (cascade);
-    the recipes themselves are left entirely untouched. Flushes; caller owns
-    commit.
-    """
-    collection = _get_owned_collection(db, owner_id, collection_id)
-    db.delete(collection)
-    db.flush()
-
-
-def list_collections(db: Session, *, owner_id: uuid.UUID) -> list[CollectionOut]:
-    """List owner_id's collections, alphabetically, each with its recipe count.
-
-    Single aggregate query (LEFT JOIN + COUNT + GROUP BY) — no N+1.
-    """
-    stmt = (
-        select(Collection, func.count(collection_recipes.c.recipe_id))
-        .outerjoin(collection_recipes, collection_recipes.c.collection_id == Collection.id)
-        .where(Collection.owner_id == owner_id)
-        .group_by(Collection.id)
-        .order_by(func.lower(Collection.name))
-    )
-    rows = db.execute(stmt).all()
-    return [CollectionOut(id=c.id, name=c.name, recipe_count=count) for c, count in rows]
-
-
-def set_recipe_collections(
-    db: Session,
-    *,
-    owner_id: uuid.UUID,
-    recipe_id: uuid.UUID,
-    collection_ids: list[uuid.UUID],
-) -> RecipeOut:
-    """Replace the full set of collections a recipe belongs to (full-set semantics).
-
-    - The recipe must be owner_id's own (404 otherwise).
-    - Every id in collection_ids must be one of owner_id's own collections
-      (404 on the first one that isn't — mirrors the other ownership checks
-      in this module rather than silently dropping/ignoring foreign ids).
-    - Duplicate ids in the input are deduped; the previous membership set is
-      entirely replaced (recipe.collections = [...]) rather than diffed.
-    Flushes; caller owns commit.
-    """
-    recipe = db.scalars(
-        select(Recipe).where(Recipe.id == recipe_id, Recipe.owner_id == owner_id)
-    ).first()
-    if recipe is None:
-        raise ApiError(404, "not_found", f"Recipe {recipe_id} not found.")
-
-    unique_ids = list(dict.fromkeys(collection_ids))
-    collections: list[Collection] = []
-    if unique_ids:
-        owned = db.scalars(
-            select(Collection).where(Collection.owner_id == owner_id, Collection.id.in_(unique_ids))
-        ).all()
-        owned_by_id = {c.id: c for c in owned}
-        missing = [cid for cid in unique_ids if cid not in owned_by_id]
-        if missing:
-            raise ApiError(404, "not_found", f"Collection {missing[0]} not found.")
-        collections = [owned_by_id[cid] for cid in unique_ids]
-
-    recipe.collections = collections
-    db.flush()
-
-    loaded = _load_recipe_full(db, recipe_id)
-    assert loaded is not None
-    return RecipeOut.model_validate(loaded)
 
 
 # ---------------------------------------------------------------------------

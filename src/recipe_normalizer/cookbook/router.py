@@ -15,8 +15,6 @@ from recipe_normalizer.cookbook import service
 from recipe_normalizer.cookbook.models import Cuisine, DishType, SourceType, Tag
 from recipe_normalizer.cookbook.scaling import ScaledRecipeOut, scale_factor_for, scale_recipe
 from recipe_normalizer.cookbook.schemas import (
-    CollectionIn,
-    CollectionOut,
     RecipeCookbookOut,
     RecipeIn,
     RecipeOut,
@@ -25,7 +23,6 @@ from recipe_normalizer.cookbook.schemas import (
     RecipePlacementIn,
     RecipePlacementOut,
     RecipeSummary,
-    SetRecipeCollectionsIn,
 )
 from recipe_normalizer.db import get_db
 from recipe_normalizer.errors import ApiError
@@ -69,7 +66,6 @@ def list_recipes(
     max_total_min: int | None = Query(default=None, ge=0),
     source_type: SourceType | None = Query(default=None),  # noqa: B008
     favorites: bool | None = Query(default=None),
-    collection: uuid.UUID | None = Query(default=None),  # noqa: B008
     limit: int = Query(default=1000, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),  # noqa: B008
@@ -86,7 +82,6 @@ def list_recipes(
         max_total_min=max_total_min,
         source_type=source_type,
         favorites=favorites,
-        collection=collection,
         limit=limit,
         offset=offset,
     )
@@ -95,7 +90,6 @@ def list_recipes(
 _MEMBER_SCRUBBED_FIELDS: dict[str, Any] = {
     "notes": None,
     "is_favorite": False,
-    "collection_ids": [],
     "provenance": None,
     "extraction_meta": None,
 }
@@ -105,7 +99,7 @@ def _scrub_for_member(recipe: RecipeOut, current_user_id: uuid.UUID) -> RecipeOu
     """Scrub owner-only personal fields from a recipe response if the caller
     is a cookbook member (not the recipe's owner).
 
-    A member must never see the OWNER's notes/is_favorite/collection_ids/provenance/
+    A member must never see the OWNER's notes/is_favorite/provenance/
     extraction_meta in any response, whether from GET or PATCH. This mirrors the
     anonymous PublicRecipeOut, which already drops extraction_meta so outsiders
     can't see the owner's ingestion internals (tier_used, confidence, etc.).
@@ -124,7 +118,7 @@ def get_recipe(
 ) -> RecipeOut:
     """Fetch a recipe. ``service.get_recipe`` admits anyone with viewer+
     access to the recipe's COOKBOOK, but such a reader must never see the
-    OWNER's personal notes/favorites/collections or the owner-facing
+    OWNER's personal notes/favorites or the owner-facing
     provenance — those are scrubbed here for anyone who isn't the owner.
 
     No extra access-check call is needed: ``service.get_recipe`` already
@@ -180,26 +174,6 @@ def delete_recipe(
 ) -> Response:
     service.delete_recipe(db, owner_id=current_user.id, recipe_id=recipe_id)
     return Response(status_code=204)
-
-
-@router.put("/recipes/{recipe_id}/collections", response_model=RecipeOut)
-def set_recipe_collections(
-    recipe_id: uuid.UUID,
-    body: SetRecipeCollectionsIn,
-    db: Session = Depends(get_db),  # noqa: B008
-    current_user: Any = Depends(get_current_user),  # noqa: B008
-) -> RecipeOut:
-    """Full-replace the set of collections this recipe belongs to.
-
-    Returns the updated RecipeOut (rather than 204) so the client can render
-    the new collection_ids without a follow-up GET.
-    """
-    return service.set_recipe_collections(
-        db,
-        owner_id=current_user.id,
-        recipe_id=recipe_id,
-        collection_ids=body.collection_ids,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -372,50 +346,6 @@ def get_similar_recipes(
     return service.recommendations_for_recipe(
         db, user_id=current_user.id, recipe_id=recipe_id, limit=limit
     )
-
-
-# ---------------------------------------------------------------------------
-# Collections
-# ---------------------------------------------------------------------------
-
-
-@router.get("/collections", response_model=list[CollectionOut])
-def list_collections(
-    db: Session = Depends(get_db),  # noqa: B008
-    current_user: Any = Depends(get_current_user),  # noqa: B008
-) -> list[CollectionOut]:
-    return service.list_collections(db, owner_id=current_user.id)
-
-
-@router.post("/collections", status_code=201, response_model=CollectionOut)
-def create_collection(
-    body: CollectionIn,
-    db: Session = Depends(get_db),  # noqa: B008
-    current_user: Any = Depends(get_current_user),  # noqa: B008
-) -> CollectionOut:
-    return service.create_collection(db, owner_id=current_user.id, name=body.name)
-
-
-@router.patch("/collections/{collection_id}", response_model=CollectionOut)
-def rename_collection(
-    collection_id: uuid.UUID,
-    body: CollectionIn,
-    db: Session = Depends(get_db),  # noqa: B008
-    current_user: Any = Depends(get_current_user),  # noqa: B008
-) -> CollectionOut:
-    return service.rename_collection(
-        db, owner_id=current_user.id, collection_id=collection_id, name=body.name
-    )
-
-
-@router.delete("/collections/{collection_id}", status_code=204)
-def delete_collection(
-    collection_id: uuid.UUID,
-    db: Session = Depends(get_db),  # noqa: B008
-    current_user: Any = Depends(get_current_user),  # noqa: B008
-) -> Response:
-    service.delete_collection(db, owner_id=current_user.id, collection_id=collection_id)
-    return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------------

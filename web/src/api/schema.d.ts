@@ -235,42 +235,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/collections": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Collections */
-        get: operations["list_collections_api_collections_get"];
-        put?: never;
-        /** Create Collection */
-        post: operations["create_collection_api_collections_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/collections/{collection_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Delete Collection */
-        delete: operations["delete_collection_api_collections__collection_id__delete"];
-        options?: never;
-        head?: never;
-        /** Rename Collection */
-        patch: operations["rename_collection_api_collections__collection_id__patch"];
-        trace?: never;
-    };
     "/api/cookbooks": {
         parameters: {
             query?: never;
@@ -310,12 +274,9 @@ export interface paths {
          * Get Cookbook
          * @description Fetch a cookbook + its recipes. Viewer+ access required (404 otherwise).
          *
-         *     Recipes come from the ``cookbook_recipes`` join (∪ the legacy
-         *     ``recipes.cookbook_id`` for rows predating the dual-write, same
-         *     transitional union as ``_recipe_count`` above) — so a recipe merely
-         *     PLACED into this cookbook via ``add_recipe_to_cookbook`` (not just
-         *     created here) shows up too, not only ones whose primary placement this
-         *     cookbook is.
+         *     Recipes come from the ``cookbook_recipes`` join, the sole source of
+         *     placement — so a recipe merely PLACED into this cookbook via
+         *     ``add_recipe_to_cookbook`` shows up exactly like one created here.
          */
         get: operations["get_cookbook_api_cookbooks__cookbook_id__get"];
         put?: never;
@@ -717,7 +678,7 @@ export interface paths {
          * Get Recipe
          * @description Fetch a recipe. ``service.get_recipe`` admits anyone with viewer+
          *     access to the recipe's COOKBOOK, but such a reader must never see the
-         *     OWNER's personal notes/favorites/collections or the owner-facing
+         *     OWNER's personal notes/favorites or the owner-facing
          *     provenance — those are scrubbed here for anyone who isn't the owner.
          *
          *     No extra access-check call is needed: ``service.get_recipe`` already
@@ -735,29 +696,6 @@ export interface paths {
         head?: never;
         /** Update Recipe */
         patch: operations["update_recipe_api_recipes__recipe_id__patch"];
-        trace?: never;
-    };
-    "/api/recipes/{recipe_id}/collections": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Set Recipe Collections
-         * @description Full-replace the set of collections this recipe belongs to.
-         *
-         *     Returns the updated RecipeOut (rather than 204) so the client can render
-         *     the new collection_ids without a follow-up GET.
-         */
-        put: operations["set_recipe_collections_api_recipes__recipe_id__collections_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/api/recipes/{recipe_id}/cookbooks": {
@@ -987,34 +925,6 @@ export interface components {
         Body_upload_recipe_image_api_recipes__recipe_id__image_put: {
             /** File */
             file: string;
-        };
-        /**
-         * CollectionIn
-         * @description Body for POST/PATCH /api/collections.
-         */
-        CollectionIn: {
-            /** Name */
-            name: string;
-        };
-        /**
-         * CollectionOut
-         * @description Response shape for the collections endpoints — includes a recipe count.
-         *
-         *     Not built via ``from_attributes`` off the ORM ``Collection`` directly
-         *     (the count comes from a separate aggregate in the service layer), but
-         *     ``from_attributes`` is still enabled so ``Collection.id``/``.name`` can
-         *     be read off the ORM row when constructing this.
-         */
-        CollectionOut: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Name */
-            name: string;
-            /** Recipe Count */
-            recipe_count: number;
         };
         /**
          * ConversationCreateIn
@@ -1797,8 +1707,6 @@ export interface components {
          *     Explicitly excluded, per the phase plan:
          *     - ``notes`` / ``is_favorite`` — the owner's personal data, not the
          *       recipe's.
-         *     - ``collection_ids`` — the owner's personal organization, meaningless
-         *       (and mildly revealing) to a stranger.
          *     - ``extraction_meta`` — internal LLM/ingestion-job debugging internals.
          *     - ``provenance`` — contains ``shared_by`` = the sharer's EMAIL ADDRESS.
          *       That's the one field here that would leak PII, so it's excluded
@@ -1960,18 +1868,8 @@ export interface components {
         };
         /** RecipeOut */
         RecipeOut: {
-            /**
-             * Collection Ids
-             * @default []
-             */
-            collection_ids: string[];
             /** Cook Min */
             cook_min?: number | null;
-            /**
-             * Cookbook Id
-             * Format: uuid
-             */
-            cookbook_id: string;
             /**
              * Created At
              * Format: date-time
@@ -2267,17 +2165,6 @@ export interface components {
             amount?: number | null;
             /** Unit Text */
             unit_text?: string | null;
-        };
-        /**
-         * SetRecipeCollectionsIn
-         * @description Body for PUT /api/recipes/{recipe_id}/collections — full-replace semantics.
-         */
-        SetRecipeCollectionsIn: {
-            /**
-             * Collection Ids
-             * @default []
-             */
-            collection_ids: string[];
         };
         /** ShareOut */
         ShareOut: {
@@ -2842,123 +2729,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IngredientOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_collections_api_collections_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CollectionOut"][];
-                };
-            };
-        };
-    };
-    create_collection_api_collections_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CollectionIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CollectionOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_collection_api_collections__collection_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                collection_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    rename_collection_api_collections__collection_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                collection_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CollectionIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CollectionOut"];
                 };
             };
             /** @description Validation Error */
@@ -3726,7 +3496,6 @@ export interface operations {
                 max_total_min?: number | null;
                 source_type?: components["schemas"]["SourceType"] | null;
                 favorites?: boolean | null;
-                collection?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -3863,41 +3632,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RecipeIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecipeOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    set_recipe_collections_api_recipes__recipe_id__collections_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                recipe_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetRecipeCollectionsIn"];
             };
         };
         responses: {

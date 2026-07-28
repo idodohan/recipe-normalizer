@@ -47,47 +47,6 @@
         "title": "Body_upload_recipe_image_api_recipes__recipe_id__image_put",
         "type": "object"
       },
-      "CollectionIn": {
-        "description": "Body for POST/PATCH /api/collections.",
-        "properties": {
-          "name": {
-            "maxLength": 120,
-            "minLength": 1,
-            "title": "Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "name"
-        ],
-        "title": "CollectionIn",
-        "type": "object"
-      },
-      "CollectionOut": {
-        "description": "Response shape for the collections endpoints \u2014 includes a recipe count.\n\nNot built via ``from_attributes`` off the ORM ``Collection`` directly\n(the count comes from a separate aggregate in the service layer), but\n``from_attributes`` is still enabled so ``Collection.id``/``.name`` can\nbe read off the ORM row when constructing this.",
-        "properties": {
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "recipe_count": {
-            "title": "Recipe Count",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "recipe_count"
-        ],
-        "title": "CollectionOut",
-        "type": "object"
-      },
       "ConversationCreateIn": {
         "description": "Body for POST /api/ai/conversations.",
         "properties": {
@@ -1782,7 +1741,7 @@
         "type": "object"
       },
       "PublicRecipeOut": {
-        "description": "Recipe payload served at the unauthenticated ``GET /api/public/{token}``.\n\nDeliberately an ALLOWLIST (not a blocklist on top of ``RecipeOut``):\nevery field below is one this module has explicitly decided is safe to\nhand to an anonymous visitor holding a valid token. Anything on\n``RecipeOut`` not listed here is dropped, including future additions \u2014\n``from_recipe_out`` round-trips through ``RecipeOut.model_dump()`` and\npydantic silently ignores keys this model doesn't declare, so a new\nsensitive field added to ``RecipeOut`` later does NOT leak here by\ndefault; a maintainer must opt it in.\n\nExplicitly excluded, per the phase plan:\n- ``notes`` / ``is_favorite`` \u2014 the owner's personal data, not the\n  recipe's.\n- ``collection_ids`` \u2014 the owner's personal organization, meaningless\n  (and mildly revealing) to a stranger.\n- ``extraction_meta`` \u2014 internal LLM/ingestion-job debugging internals.\n- ``provenance`` \u2014 contains ``shared_by`` = the sharer's EMAIL ADDRESS.\n  That's the one field here that would leak PII, so it's excluded\n  outright rather than redacted field-by-field.\n\n``image_ref`` is deliberately NOT carried over as-is: ``RecipeOut``'s\nfield validator already turns the raw store ref into an authenticated\n``/api/files/{ref}`` URL, which a logged-out visitor can't fetch (see\n``main.py``'s ``serve_file`` \u2014 it requires ``get_current_user``). Instead\nthis model exposes ``image_url`` pointing at the token-scoped\n``/api/public/{token}/image`` route, which resolves the ref from the\nTOKEN's own recipe server-side \u2014 never a client-supplied ref \u2014 so one\ntoken can never be used to fetch a different recipe's image.",
+        "description": "Recipe payload served at the unauthenticated ``GET /api/public/{token}``.\n\nDeliberately an ALLOWLIST (not a blocklist on top of ``RecipeOut``):\nevery field below is one this module has explicitly decided is safe to\nhand to an anonymous visitor holding a valid token. Anything on\n``RecipeOut`` not listed here is dropped, including future additions \u2014\n``from_recipe_out`` round-trips through ``RecipeOut.model_dump()`` and\npydantic silently ignores keys this model doesn't declare, so a new\nsensitive field added to ``RecipeOut`` later does NOT leak here by\ndefault; a maintainer must opt it in.\n\nExplicitly excluded, per the phase plan:\n- ``notes`` / ``is_favorite`` \u2014 the owner's personal data, not the\n  recipe's.\n- ``extraction_meta`` \u2014 internal LLM/ingestion-job debugging internals.\n- ``provenance`` \u2014 contains ``shared_by`` = the sharer's EMAIL ADDRESS.\n  That's the one field here that would leak PII, so it's excluded\n  outright rather than redacted field-by-field.\n\n``image_ref`` is deliberately NOT carried over as-is: ``RecipeOut``'s\nfield validator already turns the raw store ref into an authenticated\n``/api/files/{ref}`` URL, which a logged-out visitor can't fetch (see\n``main.py``'s ``serve_file`` \u2014 it requires ``get_current_user``). Instead\nthis model exposes ``image_url`` pointing at the token-scoped\n``/api/public/{token}/image`` route, which resolves the ref from the\nTOKEN's own recipe server-side \u2014 never a client-supplied ref \u2014 so one\ntoken can never be used to fetch a different recipe's image.",
         "properties": {
           "cook_min": {
             "anyOf": [
@@ -2135,15 +2094,6 @@
       },
       "RecipeOut": {
         "properties": {
-          "collection_ids": {
-            "default": [],
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "title": "Collection Ids",
-            "type": "array"
-          },
           "cook_min": {
             "anyOf": [
               {
@@ -2154,11 +2104,6 @@
               }
             ],
             "title": "Cook Min"
-          },
-          "cookbook_id": {
-            "format": "uuid",
-            "title": "Cookbook Id",
-            "type": "string"
           },
           "created_at": {
             "format": "date-time",
@@ -2384,7 +2329,6 @@
         "required": [
           "id",
           "owner_id",
-          "cookbook_id",
           "title",
           "source_type",
           "created_at",
@@ -2821,22 +2765,6 @@
           }
         },
         "title": "ServingsOut",
-        "type": "object"
-      },
-      "SetRecipeCollectionsIn": {
-        "description": "Body for PUT /api/recipes/{recipe_id}/collections \u2014 full-replace semantics.",
-        "properties": {
-          "collection_ids": {
-            "default": [],
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "title": "Collection Ids",
-            "type": "array"
-          }
-        },
-        "title": "SetRecipeCollectionsIn",
         "type": "object"
       },
       "ShareOut": {
@@ -3710,157 +3638,6 @@
         ]
       }
     },
-    "/api/collections": {
-      "get": {
-        "operationId": "list_collections_api_collections_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/CollectionOut"
-                  },
-                  "title": "Response List Collections Api Collections Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "List Collections",
-        "tags": [
-          "recipes"
-        ]
-      },
-      "post": {
-        "operationId": "create_collection_api_collections_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CollectionIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CollectionOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Collection",
-        "tags": [
-          "recipes"
-        ]
-      }
-    },
-    "/api/collections/{collection_id}": {
-      "delete": {
-        "operationId": "delete_collection_api_collections__collection_id__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "collection_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Collection Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Delete Collection",
-        "tags": [
-          "recipes"
-        ]
-      },
-      "patch": {
-        "operationId": "rename_collection_api_collections__collection_id__patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "collection_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Collection Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CollectionIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CollectionOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Rename Collection",
-        "tags": [
-          "recipes"
-        ]
-      }
-    },
     "/api/cookbooks": {
       "get": {
         "description": "List every cookbook the caller has a claim on: owned + member-of.\n\nEnsures the caller's default cookbook exists first (a brand-new user who\nhasn't created a recipe yet would otherwise see an empty list). Ordering:\nowned cookbooks before shared ones \u2014 already the order\n``service.list_my_cookbooks`` returns, since it appends owned rows before\nmember rows \u2014 then alphabetically by name (case-insensitive) within each\ngroup; the service does not sort, so that secondary sort happens here.",
@@ -3963,7 +3740,7 @@
         ]
       },
       "get": {
-        "description": "Fetch a cookbook + its recipes. Viewer+ access required (404 otherwise).\n\nRecipes come from the ``cookbook_recipes`` join (\u222a the legacy\n``recipes.cookbook_id`` for rows predating the dual-write, same\ntransitional union as ``_recipe_count`` above) \u2014 so a recipe merely\nPLACED into this cookbook via ``add_recipe_to_cookbook`` (not just\ncreated here) shows up too, not only ones whose primary placement this\ncookbook is.",
+        "description": "Fetch a cookbook + its recipes. Viewer+ access required (404 otherwise).\n\nRecipes come from the ``cookbook_recipes`` join, the sole source of\nplacement \u2014 so a recipe merely PLACED into this cookbook via\n``add_recipe_to_cookbook`` shows up exactly like one created here.",
         "operationId": "get_cookbook_api_cookbooks__cookbook_id__get",
         "parameters": [
           {
@@ -5073,23 +4850,6 @@
           },
           {
             "in": "query",
-            "name": "collection",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "format": "uuid",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Collection"
-            }
-          },
-          {
-            "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
@@ -5235,7 +4995,7 @@
         ]
       },
       "get": {
-        "description": "Fetch a recipe. ``service.get_recipe`` admits anyone with viewer+\naccess to the recipe's COOKBOOK, but such a reader must never see the\nOWNER's personal notes/favorites/collections or the owner-facing\nprovenance \u2014 those are scrubbed here for anyone who isn't the owner.\n\nNo extra access-check call is needed: ``service.get_recipe`` already\nraises 404 unless the caller can read the recipe's cookbook, and the\nreturned ``RecipeOut.owner_id`` tells us whether the caller is the\nowner \u2014 a non-owner reader is exactly the case where\n``owner_id != current_user.id``.",
+        "description": "Fetch a recipe. ``service.get_recipe`` admits anyone with viewer+\naccess to the recipe's COOKBOOK, but such a reader must never see the\nOWNER's personal notes/favorites or the owner-facing\nprovenance \u2014 those are scrubbed here for anyone who isn't the owner.\n\nNo extra access-check call is needed: ``service.get_recipe`` already\nraises 404 unless the caller can read the recipe's cookbook, and the\nreturned ``RecipeOut.owner_id`` tells us whether the caller is the\nowner \u2014 a non-owner reader is exactly the case where\n``owner_id != current_user.id``.",
         "operationId": "get_recipe_api_recipes__recipe_id__get",
         "parameters": [
           {
@@ -5323,60 +5083,6 @@
           }
         },
         "summary": "Update Recipe",
-        "tags": [
-          "recipes"
-        ]
-      }
-    },
-    "/api/recipes/{recipe_id}/collections": {
-      "put": {
-        "description": "Full-replace the set of collections this recipe belongs to.\n\nReturns the updated RecipeOut (rather than 204) so the client can render\nthe new collection_ids without a follow-up GET.",
-        "operationId": "set_recipe_collections_api_recipes__recipe_id__collections_put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "recipe_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Recipe Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetRecipeCollectionsIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RecipeOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Set Recipe Collections",
         "tags": [
           "recipes"
         ]

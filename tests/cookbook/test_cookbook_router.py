@@ -340,15 +340,16 @@ def test_delete_cookbook_happy_path(owner_client: TestClient) -> None:
     assert owner_client.get(f"/api/cookbooks/{cookbook['id']}").status_code == 404
 
 
-def test_delete_cookbook_with_recipes_returns_204_and_deletes_them(
+def test_delete_cookbook_with_recipes_returns_204_and_keeps_them(
     owner_client: TestClient,
 ) -> None:
-    """Deleting a NON-EMPTY cookbook is a 204, not a 500, and the recipes go too.
+    """Deleting a NON-EMPTY cookbook is a 204 and the recipes SURVIVE.
 
-    Regression for the missing ORM cascade on ``Cookbook.recipes``: the ORM
-    tried to NULL ``recipes.cookbook_id`` (NOT NULL) instead of letting the
-    FK's ON DELETE CASCADE run, so this endpoint 500'd for any cookbook that
-    actually held a recipe — i.e. the common case.
+    The boards inversion of the Phase-1 behavior: ``recipes.cookbook_id``'s ON
+    DELETE CASCADE used to destroy every recipe the cookbook held, and this test
+    asserted exactly that. With the column gone (migration a3f7c2d8e015) a
+    recipe placed only here is re-filed into the owner's default cookbook, so it
+    is still readable and still listed.
     """
     cookbook = _create_cookbook(owner_client, "Full")
     recipe_id = _create_recipe(owner_client, cookbook["id"])
@@ -358,11 +359,13 @@ def test_delete_cookbook_with_recipes_returns_204_and_deletes_them(
     assert resp.status_code == 204
 
     assert owner_client.get(f"/api/cookbooks/{cookbook['id']}").status_code == 404
-    # The recipe is gone, not merely unreachable: it no longer appears in the
-    # owner's own flat listing either.
-    assert owner_client.get(f"/api/recipes/{recipe_id}").status_code == 404
+    # The recipe is untouched — readable, listed, and now on the default board.
+    assert owner_client.get(f"/api/recipes/{recipe_id}").status_code == 200
     listed = owner_client.get("/api/recipes").json()
-    assert all(r["id"] != recipe_id for r in listed["items"])
+    assert any(r["id"] == recipe_id for r in listed["items"])
+    default_id = next(c["id"] for c in owner_client.get("/api/cookbooks").json() if c["is_default"])
+    placements = owner_client.get(f"/api/recipes/{recipe_id}/cookbooks").json()
+    assert [c["id"] for c in placements] == [default_id]
 
 
 def test_delete_cookbook_with_a_member_returns_204(

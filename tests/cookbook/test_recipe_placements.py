@@ -2,18 +2,18 @@
 
 Covers the boards model's data foundation:
 
-* the join rows themselves — dual-written by every code path that files a
-  recipe into a cookbook (`create_recipe`, `copy_recipe`) while
-  `recipes.cookbook_id` is still NOT NULL,
+* the join rows themselves — written by every code path that files a recipe
+  into a cookbook (`create_recipe`, `copy_recipe`), which is the ONLY record of
+  containment now that `recipes.cookbook_id` is gone (migration a3f7c2d8e015),
 * `add_recipe_to_cookbook` / `remove_recipe_from_cookbook` /
   `cookbooks_for_recipe`,
-* and the reworked, SET-BASED recipe access: a recipe's access level is the
-  HIGHEST role its viewer holds across ALL the cookbooks holding it, plus an
+* and the SET-BASED recipe access: a recipe's access level is the HIGHEST role
+  its viewer holds across ALL the cookbooks holding it, plus an
   always-`"owner"` path through `recipes.owner_id`.
 
-The transition set is `distinct(cookbook_recipes) ∪ {recipes.cookbook_id}` —
-see `cookbook.service._recipe_cookbook_ids`; that union is what keeps rows
-predating the (later) data migration readable.
+The placement set is purely `cookbook_recipes` — see
+`cookbook.service._recipe_cookbook_ids`. The transitional
+`∪ {recipes.cookbook_id}` leg it used to carry is gone with the column.
 """
 
 from __future__ import annotations
@@ -98,8 +98,13 @@ def _recipe_in(title: str = "Placement Cake") -> RecipeIn:
     )
 
 
+def default_id(db: Session, user: User) -> uuid.UUID:
+    """*user*'s default cookbook id — where create_recipe/copy_recipe file by default."""
+    return cookbook_service.ensure_default_cookbook(db, user.id).id
+
+
 def placements(db: Session, recipe_id: uuid.UUID) -> set[uuid.UUID]:
-    """The raw join rows for *recipe_id* (NOT the transition set)."""
+    """The raw join rows for *recipe_id*."""
     return set(
         db.scalars(
             select(CookbookRecipe.cookbook_id).where(CookbookRecipe.recipe_id == recipe_id)
@@ -119,21 +124,25 @@ def owner(seeded: Session) -> User:
 
 
 # ---------------------------------------------------------------------------
-# Dual-write: every path that files a recipe into a cookbook writes a join row
+# Every path that files a recipe into a cookbook writes its join row — that row
+# IS the containment, so a missing one means a recipe on no board at all
 # ---------------------------------------------------------------------------
 
 
-def test_create_recipe_dual_writes_a_join_row(seeded: Session, owner: User) -> None:
+def test_create_recipe_writes_its_join_row(seeded: Session, owner: User) -> None:
     created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
 
-    row = seeded.get(CookbookRecipe, (created.cookbook_id, created.id))
+    default = default_id(seeded, owner)
+    row = seeded.get(CookbookRecipe, (default, created.id))
     assert row is not None
     assert row.added_by == owner.id
     assert row.added_at is not None
-    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [created.cookbook_id]
+    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [default]
 
 
-def test_create_recipe_into_explicit_cookbook_dual_writes(seeded: Session, owner: User) -> None:
+def test_create_recipe_into_explicit_cookbook_writes_its_join_row(
+    seeded: Session, owner: User
+) -> None:
     cookbook = make_cookbook(seeded, owner, name="Explicit")
     created = cookbook_service.create_recipe(
         seeded, owner_id=owner.id, data=_recipe_in(), cookbook_id=cookbook.id
@@ -142,7 +151,7 @@ def test_create_recipe_into_explicit_cookbook_dual_writes(seeded: Session, owner
     assert placements(seeded, created.id) == {cookbook.id}
 
 
-def test_copy_recipe_dual_writes_a_join_row(seeded: Session, owner: User) -> None:
+def test_copy_recipe_writes_its_join_row(seeded: Session, owner: User) -> None:
     recipient = make_user(seeded)
     created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
 
@@ -150,34 +159,40 @@ def test_copy_recipe_dual_writes_a_join_row(seeded: Session, owner: User) -> Non
         seeded, created.id, new_owner_id=recipient.id, provenance={}
     )
 
-    assert placements(seeded, copy.id) == {copy.cookbook_id}
-    row = seeded.get(CookbookRecipe, (copy.cookbook_id, copy.id))
+    recipient_default = default_id(seeded, recipient)
+    assert placements(seeded, copy.id) == {recipient_default}
+    row = seeded.get(CookbookRecipe, (recipient_default, copy.id))
     assert row is not None and row.added_by == recipient.id
 
 
 # ---------------------------------------------------------------------------
-# cookbooks_for_recipe — the transition set
+# cookbooks_for_recipe — the placement set, purely the join
 # ---------------------------------------------------------------------------
 
 
-def test_cookbooks_for_recipe_includes_legacy_cookbook_id_without_a_join_row(
-    seeded: Session, owner: User
-) -> None:
-    """Pre-migration rows (no join row at all) are still readable/placeable."""
+def test_cookbooks_for_recipe_is_empty_without_any_join_row(seeded: Session, owner: User) -> None:
+    """No join row means no placement — there is no column left to fall back on.
+
+    The inverse of the transition-era behavior: while `recipes.cookbook_id`
+    existed, a recipe with no join row was still reported as placed in its
+    legacy cookbook. That leg is gone, so the set is empty and access falls to
+    `recipes.owner_id` alone.
+    """
     created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
-    # Simulate a row that predates the dual-write: delete its join row.
-    seeded.delete(seeded.get(CookbookRecipe, (created.cookbook_id, created.id)))
+    seeded.delete(seeded.get(CookbookRecipe, (default_id(seeded, owner), created.id)))
     seeded.flush()
 
     assert placements(seeded, created.id) == set()
-    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [created.cookbook_id]
+    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == []
+    # Still the owner's, via recipes.owner_id — the one non-cookbook path.
+    assert cookbook_service.recipe_access(seeded, user_id=owner.id, recipe_id=created.id) == "owner"
 
 
 def test_cookbooks_for_recipe_is_empty_for_a_nonexistent_recipe(seeded: Session) -> None:
     assert cookbook_service.cookbooks_for_recipe(seeded, uuid.uuid4()) == []
 
 
-def test_cookbooks_for_recipe_dedupes_the_legacy_placement(seeded: Session, owner: User) -> None:
+def test_cookbooks_for_recipe_lists_every_placement_once(seeded: Session, owner: User) -> None:
     second = make_cookbook(seeded, owner, name="Second")
     created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
 
@@ -186,7 +201,7 @@ def test_cookbooks_for_recipe_dedupes_the_legacy_placement(seeded: Session, owne
     )
 
     assert set(cookbook_service.cookbooks_for_recipe(seeded, created.id)) == {
-        created.cookbook_id,
+        default_id(seeded, owner),
         second.id,
     }
     assert len(cookbook_service.cookbooks_for_recipe(seeded, created.id)) == 2
@@ -205,11 +220,9 @@ def test_add_recipe_to_cookbook_adds_a_placement(seeded: Session, owner: User) -
         seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
     )
 
-    assert placements(seeded, created.id) == {created.cookbook_id, second.id}
+    assert placements(seeded, created.id) == {default_id(seeded, owner), second.id}
     row = seeded.get(CookbookRecipe, (second.id, created.id))
     assert row is not None and row.added_by == owner.id
-    # ...and the recipe's primary (legacy) placement is untouched.
-    assert seeded.get(Recipe, created.id).cookbook_id == created.cookbook_id  # type: ignore[union-attr]
 
 
 def test_add_recipe_to_cookbook_is_idempotent(seeded: Session, owner: User) -> None:
@@ -221,17 +234,20 @@ def test_add_recipe_to_cookbook_is_idempotent(seeded: Session, owner: User) -> N
             seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
         )
 
-    assert placements(seeded, created.id) == {created.cookbook_id, second.id}
+    assert placements(seeded, created.id) == {default_id(seeded, owner), second.id}
 
 
-def test_add_recipe_to_its_own_legacy_cookbook_is_idempotent(seeded: Session, owner: User) -> None:
+def test_add_recipe_to_a_cookbook_it_is_already_in_is_idempotent(
+    seeded: Session, owner: User
+) -> None:
     created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
+    default = default_id(seeded, owner)
 
     cookbook_service.add_recipe_to_cookbook(
-        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=created.cookbook_id
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=default
     )
 
-    assert placements(seeded, created.id) == {created.cookbook_id}
+    assert placements(seeded, created.id) == {default}
 
 
 def test_add_recipe_by_editor_member_ok(seeded: Session, owner: User) -> None:
@@ -262,7 +278,7 @@ def test_add_recipe_requires_editor_on_the_target_cookbook(
             seeded, user_id=outsider.id, recipe_id=created.id, cookbook_id=target.id
         )
     assert exc_info.value.status_code == 404
-    assert placements(seeded, created.id) == {created.cookbook_id}
+    assert placements(seeded, created.id) == {default_id(seeded, outsider)}
 
 
 def test_add_recipe_requires_read_access_to_the_recipe(seeded: Session, owner: User) -> None:
@@ -276,7 +292,7 @@ def test_add_recipe_requires_read_access_to_the_recipe(seeded: Session, owner: U
             seeded, user_id=stranger.id, recipe_id=created.id, cookbook_id=own_cookbook.id
         )
     assert exc_info.value.status_code == 404
-    assert placements(seeded, created.id) == {created.cookbook_id}
+    assert placements(seeded, created.id) == {default_id(seeded, owner)}
 
 
 def test_add_nonexistent_recipe_raises_404(seeded: Session, owner: User) -> None:
@@ -321,7 +337,7 @@ def test_remove_recipe_from_cookbook_drops_the_placement(seeded: Session, owner:
         seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
     )
 
-    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [created.cookbook_id]
+    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [default_id(seeded, owner)]
     # The recipe itself survives — removal is never a delete.
     assert seeded.get(Recipe, created.id) is not None
 
@@ -331,52 +347,36 @@ def test_remove_last_placement_raises_409_last_placement(seeded: Session, owner:
 
     with pytest.raises(ApiError) as exc_info:
         cookbook_service.remove_recipe_from_cookbook(
-            seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=created.cookbook_id
+            seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=default_id(seeded, owner)
         )
     assert exc_info.value.status_code == 409
     assert exc_info.value.code == "last_placement"
-    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [created.cookbook_id]
+    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [default_id(seeded, owner)]
 
 
-def test_remove_the_primary_placement_repoints_cookbook_id(seeded: Session, owner: User) -> None:
-    """`recipes.cookbook_id` is still NOT NULL, so it must follow the set."""
+def test_remove_drops_only_the_named_placement(seeded: Session, owner: User) -> None:
+    """Removal is surgical: the other placements — and the recipe — are untouched.
+
+    Replaces the transition-era pair of tests that asserted
+    ``recipes.cookbook_id`` was repointed at a surviving placement when the
+    removed one happened to be the primary. There is no primary any more, so
+    there is nothing to repoint: deleting the join row IS the removal.
+    """
+    default = default_id(seeded, owner)
     second = make_cookbook(seeded, owner, name="Second")
+    third = make_cookbook(seeded, owner, name="Third")
     created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
-    cookbook_service.add_recipe_to_cookbook(
-        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
-    )
+    for cookbook_id in (second.id, third.id):
+        cookbook_service.add_recipe_to_cookbook(
+            seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=cookbook_id
+        )
 
     cookbook_service.remove_recipe_from_cookbook(
-        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=created.cookbook_id
+        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=default
     )
 
-    recipe = seeded.get(Recipe, created.id)
-    assert recipe is not None
-    assert recipe.cookbook_id == second.id
-    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [second.id]
-
-
-def test_remove_the_legacy_only_placement_repoints_cookbook_id(
-    seeded: Session, owner: User
-) -> None:
-    """A row predating the migration has no join row for its primary cookbook."""
-    second = make_cookbook(seeded, owner, name="Second")
-    created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
-    legacy_cookbook_id = created.cookbook_id
-    seeded.delete(seeded.get(CookbookRecipe, (legacy_cookbook_id, created.id)))
-    seeded.flush()
-    cookbook_service.add_recipe_to_cookbook(
-        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=second.id
-    )
-
-    cookbook_service.remove_recipe_from_cookbook(
-        seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=legacy_cookbook_id
-    )
-
-    recipe = seeded.get(Recipe, created.id)
-    assert recipe is not None
-    assert recipe.cookbook_id == second.id
-    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [second.id]
+    assert placements(seeded, created.id) == {second.id, third.id}
+    assert seeded.get(Recipe, created.id) is not None
 
 
 @pytest.mark.parametrize("role", [CookbookRole.viewer, None])
@@ -414,7 +414,7 @@ def test_remove_from_a_cookbook_the_recipe_is_not_in_raises_404(
             seeded, user_id=owner.id, recipe_id=created.id, cookbook_id=unrelated.id
         )
     assert exc_info.value.status_code == 404
-    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [created.cookbook_id]
+    assert cookbook_service.cookbooks_for_recipe(seeded, created.id) == [default_id(seeded, owner)]
 
 
 def test_remove_nonexistent_recipe_raises_404(seeded: Session, owner: User) -> None:
@@ -679,7 +679,7 @@ def test_recipe_owner_can_delete_and_join_rows_cascade(seeded: Session, owner: U
 
 
 def test_deleting_a_cookbook_cascades_its_join_rows(seeded: Session, owner: User) -> None:
-    """A cookbook delete takes its placements with it (and its own recipes)."""
+    """A cookbook delete takes its own placement rows with it — and nothing else."""
     second = make_cookbook(seeded, owner, name="Second")
     created = cookbook_service.create_recipe(seeded, owner_id=owner.id, data=_recipe_in())
     cookbook_service.add_recipe_to_cookbook(
@@ -688,7 +688,7 @@ def test_deleting_a_cookbook_cascades_its_join_rows(seeded: Session, owner: User
 
     cookbook_service.delete_cookbook(seeded, second.id, owner.id)
 
-    assert placements(seeded, created.id) == {created.cookbook_id}
+    assert placements(seeded, created.id) == {default_id(seeded, owner)}
     assert seeded.get(Recipe, created.id) is not None
 
 
@@ -707,7 +707,7 @@ def test_save_own_recipe_is_a_reference_not_a_copy(seeded: Session, owner: User)
 
     assert copied is False
     assert resulting_id == created.id
-    assert placements(seeded, created.id) == {created.cookbook_id, second.id}
+    assert placements(seeded, created.id) == {default_id(seeded, owner), second.id}
 
 
 def test_save_someone_elses_readable_recipe_copies_it(seeded: Session, owner: User) -> None:
@@ -863,14 +863,16 @@ def test_readable_cookbooks_for_recipe_owner_with_no_readable_placement_is_empty
     assert result == []
 
 
-def test_deleting_a_cookbook_rehomes_recipes_that_live_elsewhere_too(
-    seeded: Session, owner: User
-) -> None:
-    """Multi-placed recipes survive their PRIMARY cookbook being deleted.
+def test_deleting_a_cookbook_never_destroys_a_recipe(seeded: Session, owner: User) -> None:
+    """The data-safety invariant: a cookbook delete costs placements, never recipes.
 
-    ``recipes.cookbook_id`` cascades on cookbook delete, so without re-homing,
-    deleting cookbook A would destroy a recipe that also sits in cookbook B —
-    silent data loss the moment a recipe can be in two places.
+    Phase 1 was the opposite — ``recipes.cookbook_id``'s ON DELETE CASCADE
+    destroyed every recipe whose primary placement the doomed cookbook was, and
+    the service had to re-home multi-placed recipes to avoid silent data loss.
+    With the column gone (migration a3f7c2d8e015) there is no
+    recipe-destroying cascade at all: a recipe placed elsewhere too simply
+    loses this placement, and one placed ONLY here is rescued into its owner's
+    default cookbook by ``_rescue_solely_placed_recipes``.
     """
     book_a = make_cookbook(seeded, owner, name="A")
     book_b = make_cookbook(seeded, owner, name="B")
@@ -886,9 +888,12 @@ def test_deleting_a_cookbook_rehomes_recipes_that_live_elsewhere_too(
 
     cookbook_service.delete_cookbook(seeded, book_a.id, owner.id)
 
-    survivor = seeded.get(Recipe, shared_recipe.id)
+    seeded.expire_all()
+    # Fresh SELECTs, not identity-map hits.
+    survivor = seeded.scalars(select(Recipe).where(Recipe.id == shared_recipe.id)).first()
     assert survivor is not None
-    assert survivor.cookbook_id == book_b.id
     assert placements(seeded, shared_recipe.id) == {book_b.id}
-    # ...while a recipe that lived ONLY in the deleted cookbook is still gone.
-    assert seeded.get(Recipe, only_in_a.id) is None
+
+    rescued = seeded.scalars(select(Recipe).where(Recipe.id == only_in_a.id)).first()
+    assert rescued is not None, "a recipe placed only in the deleted cookbook must SURVIVE"
+    assert placements(seeded, only_in_a.id) == {default_id(seeded, owner)}

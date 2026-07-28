@@ -211,7 +211,6 @@ def test_get_public_recipe_happy_path(db_session: Session, owner: User) -> None:
 _FORBIDDEN_KEYS = {
     "notes",
     "is_favorite",
-    "collection_ids",
     "extraction_meta",
     "provenance",
     "fingerprint",
@@ -238,10 +237,10 @@ def test_public_recipe_payload_leak_audit(db_session: Session) -> None:
     """The public payload must carry no PII, no personal data, no internals.
 
     Sets up the worst case: a recipe that actually HAS notes, is_favorite,
-    a collection, extraction_meta, and (via a real copy-on-share)
-    provenance containing the sharer's email — then asserts every one of
-    those is absent from the serialized public payload, and that no value
-    anywhere looks like an email address.
+    extraction_meta, and (via a real copy-on-share) provenance containing the
+    sharer's email — then asserts every one of those is absent from the
+    serialized public payload, and that no value anywhere looks like an email
+    address.
     """
     sharer = make_user(db_session, suffix=str(uuid.uuid4())[:8])
     recipient = make_user(db_session, suffix=str(uuid.uuid4())[:8])
@@ -272,8 +271,8 @@ def test_public_recipe_payload_leak_audit(db_session: Session) -> None:
     copy_row.extraction_meta = {"tier_used": 2, "actions_log": ["scrolled", "clicked"]}
     db_session.flush()
 
-    # The recipient marks it a favorite, adds kitchen notes, and files it in
-    # a collection — all personal data that must never reach a stranger.
+    # The recipient marks it a favorite and adds kitchen notes — personal data
+    # that must never reach a stranger.
     cookbook_service.set_personal(
         db_session,
         owner_id=recipient.id,
@@ -281,17 +280,12 @@ def test_public_recipe_payload_leak_audit(db_session: Session) -> None:
         is_favorite=True,
         notes="Secret family notes — do not share!",
     )
-    collection = cookbook_service.create_collection(db_session, owner_id=recipient.id, name="Faves")
-    cookbook_service.set_recipe_collections(
-        db_session, owner_id=recipient.id, recipe_id=copy_id, collection_ids=[collection.id]
-    )
 
     # Sanity: the copy really does carry all this sensitive data before we
     # assert it's excluded — otherwise this test would pass vacuously.
     full = cookbook_service.get_recipe(db_session, owner_id=recipient.id, recipe_id=copy_id)
     assert full.notes is not None
     assert full.is_favorite is True
-    assert full.collection_ids == [collection.id]
     assert full.extraction_meta is not None
     assert full.provenance is not None
     assert full.provenance["shared_by"] == sharer.email
@@ -316,7 +310,6 @@ def test_public_recipe_payload_leak_audit(db_session: Session) -> None:
     # Belt-and-suspenders: explicit attribute-level assertions too.
     assert not hasattr(public, "notes")
     assert not hasattr(public, "is_favorite")
-    assert not hasattr(public, "collection_ids")
     assert not hasattr(public, "extraction_meta")
     assert not hasattr(public, "provenance")
 

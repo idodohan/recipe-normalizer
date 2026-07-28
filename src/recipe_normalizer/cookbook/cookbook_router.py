@@ -1,7 +1,7 @@
 """Cookbook API routes: CRUD, visibility, and membership (Task 6).
 
 Kept in its own module rather than growing ``cookbook/router.py`` (which owns
-recipe/collection/vocab routes) further. Registered separately in main.py.
+recipe/placement/vocab routes) further. Registered separately in main.py.
 Every route here delegates to ``cookbook.service`` — the access-control
 choke point (``require_cookbook_access``/``cookbook_access``) and every
 ApiError this module can raise (404/409/422) already live there; this file
@@ -48,20 +48,21 @@ router = APIRouter(prefix="/api/cookbooks", tags=["cookbooks"])
 
 
 def _recipe_count(db: Session, cookbook_id: uuid.UUID) -> int:
-    """Number of recipes PLACED in *cookbook_id* — join ∪ legacy primary placement.
+    """Number of recipes PLACED in *cookbook_id* — one count over the boards join.
 
-    Same transitional union ``cookbook.service._recipe_cookbook_ids`` uses,
-    so a recipe placed here via ``add_recipe_to_cookbook`` (not just created
-    here) counts too, and a recipe predating the dual-write (no join row)
-    still counts once via ``recipes.cookbook_id``.
+    ``cookbook_recipes`` is the sole source of placement, and its composite PK
+    already guarantees one row per (cookbook, recipe) pair, so a plain COUNT is
+    exact. A recipe placed here via ``add_recipe_to_cookbook`` counts the same
+    as one created here.
     """
-    recipe_ids = (
-        select(CookbookRecipe.recipe_id)
-        .where(CookbookRecipe.cookbook_id == cookbook_id)
-        .union(select(Recipe.id).where(Recipe.cookbook_id == cookbook_id))
-        .subquery()
+    return (
+        db.scalar(
+            select(func.count())
+            .select_from(CookbookRecipe)
+            .where(CookbookRecipe.cookbook_id == cookbook_id)
+        )
+        or 0
     )
-    return db.scalar(select(func.count()).select_from(recipe_ids)) or 0
 
 
 def _to_cookbook_out(db: Session, cookbook: Cookbook, *, user_id: uuid.UUID) -> CookbookOut:
@@ -136,25 +137,17 @@ def get_cookbook(
 ) -> CookbookDetailOut:
     """Fetch a cookbook + its recipes. Viewer+ access required (404 otherwise).
 
-    Recipes come from the ``cookbook_recipes`` join (∪ the legacy
-    ``recipes.cookbook_id`` for rows predating the dual-write, same
-    transitional union as ``_recipe_count`` above) — so a recipe merely
-    PLACED into this cookbook via ``add_recipe_to_cookbook`` (not just
-    created here) shows up too, not only ones whose primary placement this
-    cookbook is.
+    Recipes come from the ``cookbook_recipes`` join, the sole source of
+    placement — so a recipe merely PLACED into this cookbook via
+    ``add_recipe_to_cookbook`` shows up exactly like one created here.
     """
     cookbook = service.require_cookbook_access(
         db, user_id=current_user.id, cookbook_id=cookbook_id, need=CookbookRole.viewer
     )
-    placed_recipe_ids = (
-        select(CookbookRecipe.recipe_id)
-        .where(CookbookRecipe.cookbook_id == cookbook.id)
-        .union(select(Recipe.id).where(Recipe.cookbook_id == cookbook.id))
-        .subquery()
-    )
     recipe_ids = db.scalars(
         select(Recipe.id)
-        .join(placed_recipe_ids, placed_recipe_ids.c.recipe_id == Recipe.id)
+        .join(CookbookRecipe, CookbookRecipe.recipe_id == Recipe.id)
+        .where(CookbookRecipe.cookbook_id == cookbook.id)
         # Total order — see list_recipes' ORDER BY comment. Unpaginated here,
         # so ties could only jitter the order between requests, but the two
         # recipe listings should sort identically.
