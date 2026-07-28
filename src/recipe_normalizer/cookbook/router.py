@@ -39,13 +39,19 @@ router = APIRouter(prefix="/api", tags=["recipes"])
 @router.post("/recipes", status_code=201, response_model=RecipeOut)
 def create_recipe(
     body: RecipeIn,
+    cookbook_id: uuid.UUID | None = Query(default=None),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
     current_user: Any = Depends(get_current_user),  # noqa: B008
 ) -> RecipeOut:
+    """Create a recipe. ``cookbook_id`` (query param) is optional — when given,
+    the caller must have editor+ access to that cookbook (404 otherwise);
+    when omitted, the recipe lands in the caller's own default cookbook.
+    """
     return service.create_recipe(
         db,
         owner_id=current_user.id,
         data=body,
+        cookbook_id=cookbook_id,
         source_type=SourceType.manual,
     )
 
@@ -94,7 +100,7 @@ _MEMBER_SCRUBBED_FIELDS: dict[str, Any] = {
 
 def _scrub_for_member(recipe: RecipeOut, current_user_id: uuid.UUID) -> RecipeOut:
     """Scrub owner-only personal fields from a recipe response if the caller
-    is a shared-cookbook member (not the owner).
+    is a cookbook member (not the recipe's owner).
 
     A member must never see the OWNER's notes/is_favorite/collection_ids/provenance/
     extraction_meta in any response, whether from GET or PATCH. This mirrors the
@@ -113,15 +119,16 @@ def get_recipe(
     db: Session = Depends(get_db),  # noqa: B008
     current_user: Any = Depends(get_current_user),  # noqa: B008
 ) -> RecipeOut:
-    """Fetch a recipe. ``service.get_recipe`` is widened to shared-cookbook
-    members, but a member must never see the OWNER's personal
-    notes/favorites/collections or the owner-facing provenance — those are
-    scrubbed here for anyone who isn't the recipe's owner.
+    """Fetch a recipe. ``service.get_recipe`` admits anyone with viewer+
+    access to the recipe's COOKBOOK, but such a reader must never see the
+    OWNER's personal notes/favorites/collections or the owner-facing
+    provenance — those are scrubbed here for anyone who isn't the owner.
 
     No extra access-check call is needed: ``service.get_recipe`` already
-    raises 404 unless the caller is the owner or a shared-cookbook member,
-    and the returned ``RecipeOut.owner_id`` tells us which of those two it
-    was — a member is exactly the case where ``owner_id != current_user.id``.
+    raises 404 unless the caller can read the recipe's cookbook, and the
+    returned ``RecipeOut.owner_id`` tells us whether the caller is the
+    owner — a non-owner reader is exactly the case where
+    ``owner_id != current_user.id``.
     """
     recipe = service.get_recipe(db, owner_id=current_user.id, recipe_id=recipe_id)
     return _scrub_for_member(recipe, current_user.id)
@@ -291,8 +298,8 @@ def get_similar_recipes(
 ) -> list[RecipeSummary]:
     """ "More like this" — content-similar recipes from the CALLER's own cookbook.
 
-    Access to *recipe_id* is the same owner-or-shared-cookbook-member check
-    every other per-recipe read uses (404 otherwise), but the recommendations
+    Access to *recipe_id* is the same cookbook-derived check every other
+    per-recipe read uses (404 otherwise), but the recommendations
     themselves are always drawn from the caller's own cookbook — see
     `service.recommendations_for_recipe`'s docstring.
     """

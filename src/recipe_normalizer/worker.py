@@ -64,14 +64,6 @@ from recipe_normalizer.filestore import FileStore, get_file_store
 from recipe_normalizer.ingestion import queue
 from recipe_normalizer.ingestion.models import Job
 from recipe_normalizer.llm.client import CostCapExceeded, DbUsageRecorder, LLMClient
-
-# Importing sharing.service self-registers its shared-cookbook membership
-# checker into cookbook.service (bottom-of-module call, same idiom as
-# cookbook.service's own self-registration of the catalog merge hook above)
-# — the worker doesn't call get_recipe/update_recipe with member-widened
-# access today, but this keeps the hook wired everywhere cookbook.service is,
-# exactly like the existing merge-hook pattern.
-from recipe_normalizer.sharing import service as _sharing_service  # noqa: F401
 from recipe_normalizer.users.service import purge_expired_sessions
 
 __all__ = ["JobProcessingError", "main", "make_llm_for_job", "process_job", "run_worker"]

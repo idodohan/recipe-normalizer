@@ -2,7 +2,7 @@
 
 import enum
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -20,6 +20,7 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -176,6 +177,14 @@ class Recipe(TimestampMixin, Base):
     # there are rewritten; these two columns are deliberately left alone).
     is_favorite: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Every recipe lives in exactly one cookbook — the containment invariant
+    # of the cookbooks pivot, and the sole source of recipe access (see
+    # cookbook.service._recipe_access). Enforced in the database as of the
+    # finalize migration b7d3f0c11a94, which swept the last cookbook-less
+    # rows into their owners' default cookbooks before flipping this NOT NULL.
+    cookbook_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("cookbooks.id", ondelete="CASCADE"), index=True, nullable=False
+    )
 
     # Relationships
     ingredient_groups: Mapped[list["IngredientGroup"]] = relationship(
@@ -201,6 +210,15 @@ class Recipe(TimestampMixin, Base):
     collections: Mapped[list["Collection"]] = relationship(
         secondary="collection_recipes", back_populates="recipes"
     )
+    # `Cookbook` (defined below) is referenced by class name here — resolved
+    # lazily at mapper-configuration time, so definition order doesn't matter.
+    # Typed Optional even though `cookbook_id` is NOT NULL: the relationship is
+    # transiently None on a not-yet-flushed Recipe built by setting the FK
+    # column directly (how every caller in `service` does it), and it is set to
+    # None by the ORM when the parent cookbook is deleted out from under a
+    # loaded instance. The DTO (`schemas.RecipeOut.cookbook_id`) is not
+    # optional — a persisted recipe always has a cookbook.
+    cookbook: Mapped["Cookbook | None"] = relationship(back_populates="recipes")
 
 
 # ---------------------------------------------------------------------------
@@ -318,3 +336,94 @@ class Collection(TimestampMixin, Base):
     recipes: Mapped[list[Recipe]] = relationship(
         secondary=collection_recipes, back_populates="collections"
     )
+
+
+# ---------------------------------------------------------------------------
+# Cookbooks — owner-scoped containers with shared membership
+# ---------------------------------------------------------------------------
+
+
+class CookbookVisibility(enum.StrEnum):
+    private = "private"
+    unlisted = "unlisted"
+    public = "public"
+
+
+class CookbookRole(enum.StrEnum):
+    editor = "editor"
+    viewer = "viewer"
+
+
+class Cookbook(TimestampMixin, Base):
+    __tablename__ = "cookbooks"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cover_image_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    visibility: Mapped[CookbookVisibility] = mapped_column(
+        Enum(CookbookVisibility, name="cookbookvisibility"),
+        default=CookbookVisibility.private,
+        server_default=CookbookVisibility.private.value,
+        nullable=False,
+    )
+    # Minted lazily (secrets.token_urlsafe(24)) the first time a cookbook is
+    # made public/unlisted — that minting logic lands in a later task; here
+    # it's just a nullable, unique column.
+    public_token: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
+    # Deleting a cookbook deletes everything inside it. `passive_deletes=True`
+    # is what makes that work: without it SQLAlchemy loads the children on
+    # parent delete and tries to NULL out their `cookbook_id`, which now fails
+    # outright — `recipes.cookbook_id` is NOT NULL, and `cookbook_members`
+    # carries it as half of its composite PK. With it, no UPDATE/DELETE is
+    # emitted for the children at all and the FKs' `ON DELETE CASCADE` does the
+    # work in one statement. Every FK below `recipes` also cascades in the DB
+    # (ingredient_groups/steps, recipe_cuisines/dish_types/tags,
+    # collection_recipes, ai_conversations, public_links,
+    # shares.copied_recipe_id), so the whole subtree goes with it.
+    recipes: Mapped[list[Recipe]] = relationship(
+        back_populates="cookbook", cascade="all, delete-orphan", passive_deletes=True
+    )
+    members: Mapped[list["CookbookMember"]] = relationship(
+        back_populates="cookbook", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class CookbookMember(Base):
+    """A user's membership in someone else's cookbook.
+
+    The cookbook's OWNER is implicit and never has a row here — see
+    `cookbook.service.list_my_cookbooks`, which unions owned cookbooks with
+    member-of ones and would list an owner's own cookbook twice otherwise.
+    """
+
+    __tablename__ = "cookbook_members"
+    __table_args__ = (
+        # The composite PK (cookbook_id, user_id) can't serve a bare
+        # `WHERE user_id = X` lookup (list_my_cookbooks' "member of" query) —
+        # a standalone index on user_id is required for that access path.
+        Index("ix_cookbook_members_user_id", "user_id"),
+    )
+
+    cookbook_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("cookbooks.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    role: Mapped[CookbookRole] = mapped_column(
+        Enum(CookbookRole, name="cookbookrole"), nullable=False
+    )
+    added_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=func.now()
+    )
+
+    cookbook: Mapped[Cookbook] = relationship(back_populates="members")

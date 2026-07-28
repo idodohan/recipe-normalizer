@@ -7,7 +7,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from recipe_normalizer.api_deps import get_current_user, require_admin
+from recipe_normalizer.api_deps import require_admin
 from recipe_normalizer.catalog import service
 from recipe_normalizer.catalog.models import IngredientStatus
 from recipe_normalizer.catalog.schemas import IngredientOut, IngredientPatch, MergeIn
@@ -22,7 +22,7 @@ def list_ingredients(
     status: IngredientStatus | None = None,
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),  # noqa: B008
-    _user: object = Depends(get_current_user),  # noqa: B008
+    _user: object = Depends(require_admin),  # noqa: B008
 ) -> list[IngredientOut]:
     results = service.search(db, q, status=status, limit=limit)
     return [IngredientOut.model_validate(r) for r in results]
@@ -32,7 +32,7 @@ def list_ingredients(
 def get_ingredient(
     ingredient_id: uuid.UUID,
     db: Session = Depends(get_db),  # noqa: B008
-    _user: object = Depends(get_current_user),  # noqa: B008
+    _user: object = Depends(require_admin),  # noqa: B008
 ) -> IngredientOut:
     ing = service.get_ingredient(db, ingredient_id)
     return IngredientOut.model_validate(ing)

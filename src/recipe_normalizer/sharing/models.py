@@ -1,6 +1,8 @@
-"""Sharing models: `shares` (copy-on-share audit trail), `public_links`,
-and shared cookbooks (`shared_cookbooks` + `shared_cookbook_members` +
-`shared_cookbook_recipes`).
+"""Sharing models: `shares` (copy-on-share audit trail) and `public_links`.
+
+The `shared_cookbook*` tables that used to live here are gone — co-owned
+cookbooks are now the first-class `Cookbook`/`CookbookMember` model in
+`cookbook.models`, and the finalize migration drops the old tables.
 """
 
 import secrets
@@ -91,94 +93,6 @@ class PublicLink(Base):
         ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
     )
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=func.now()
-    )
-
-
-# ---------------------------------------------------------------------------
-# Shared cookbooks — live, co-owned collections of recipes (LWW editing)
-# ---------------------------------------------------------------------------
-
-
-class SharedCookbook(Base):
-    """A named, co-owned cookbook: a group of users who all get read/edit
-    access (via cookbook.service.user_recipe_access's membership-checker
-    hook — see sharing/service.py) to every recipe in it, regardless of who
-    originally owns that recipe.
-
-    The creator is auto-inserted as a ``SharedCookbookMember`` row at
-    creation time (see ``sharing.service.create_shared_cookbook``) — there
-    is no special-cased "owner" column on this table beyond ``created_by``,
-    which exists purely to answer "who may remove other members / is
-    blocked from leaving while others remain" (see
-    ``sharing.service.remove_member``).
-    """
-
-    __tablename__ = "shared_cookbooks"
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
-    name: Mapped[str] = mapped_column(String(120), nullable=False)
-    created_by: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=func.now()
-    )
-
-
-class SharedCookbookMember(Base):
-    """Membership row: one (cookbook, user) pair. Composite PK — a user is
-    either a member of a given cookbook or not, no duplicate rows possible.
-
-    ``added_by`` is an audit trail (who invited this member — the creator
-    for the auto-inserted row, or whichever member sent the invite; "any
-    member may invite" per the phase plan) and is not currently surfaced by
-    any API response.
-    """
-
-    __tablename__ = "shared_cookbook_members"
-
-    cookbook_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("shared_cookbooks.id", ondelete="CASCADE"), primary_key=True
-    )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
-    )
-    added_by: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=func.now()
-    )
-
-
-class SharedCookbookRecipe(Base):
-    """Link row: one recipe added to one shared cookbook. Composite PK — a
-    recipe can only be added to a given cookbook once (re-adding is a 409
-    ``already_added``, see sharing.service.add_recipe_to_shared_cookbook).
-
-    A recipe can belong to more than one shared cookbook simultaneously
-    (different rows, different cookbook_id) — removing it from one leaves
-    membership-derived access via any other intact, by design (see
-    sharing.service's membership-checker callback, which checks ANY
-    matching row, not a specific cookbook).
-
-    ``recipe_id`` cascades on delete: once the recipe itself is gone there's
-    nothing left to link.
-    """
-
-    __tablename__ = "shared_cookbook_recipes"
-
-    cookbook_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("shared_cookbooks.id", ondelete="CASCADE"), primary_key=True
-    )
-    recipe_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("recipes.id", ondelete="CASCADE"), primary_key=True
-    )
-    added_by: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default=func.now()
     )

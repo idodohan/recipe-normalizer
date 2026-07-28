@@ -38,8 +38,20 @@ forbidden_modules =
 ignore_imports =
     recipe_normalizer.catalog.service -> recipe_normalizer.catalog.models
     recipe_normalizer.cookbook.router -> recipe_normalizer.api_deps
+    # Task 6: cookbook_router (the separate cookbook-CRUD/membership router
+    # module) reads the authenticated user the same way cookbook.router does.
+    recipe_normalizer.cookbook.cookbook_router -> recipe_normalizer.api_deps
+    # Task 4: cookbook.service resolves email -> user for member invites via
+    # users.service.get_user_by_email (never users.models directly) — same
+    # pattern sharing.service already uses for its own recipient lookups.
+    recipe_normalizer.cookbook.service -> recipe_normalizer.users.service
 
 [importlinter:contract:cookbook-cannot-import-sharing]
+# Task 9: this used to be load-bearing for the shared-cookbook access-widening
+# hook (sharing registered a membership checker INTO cookbook to invert the
+# dependency). That hook is gone — co-ownership is now cookbook's own
+# Cookbook/CookbookMember model — but the direction still holds: sharing
+# (copy-on-share, public links) builds on cookbook, never the reverse.
 name = cookbook module must not import sharing (sharing depends on cookbook, never the reverse)
 type = forbidden
 source_modules =
@@ -76,6 +88,8 @@ forbidden_modules =
 ignore_imports =
     recipe_normalizer.cookbook.service -> recipe_normalizer.cookbook.models
     recipe_normalizer.catalog.service -> recipe_normalizer.catalog.models
+    # See the cookbook-cannot-import-sibling-models contract above — same edge.
+    recipe_normalizer.cookbook.service -> recipe_normalizer.users.service
 
 [importlinter:contract:ai-cannot-import-sibling-models]
 name = ai module must not import sibling models (only cookbook/ingestion/sharing/users service+schemas, extraction's stateless normalize+persist, and llm client+schema layers)
@@ -131,3 +145,5 @@ ignore_imports =
     recipe_normalizer.ingestion.router -> recipe_normalizer.api_deps
     recipe_normalizer.cookbook.service -> recipe_normalizer.cookbook.models
     recipe_normalizer.catalog.service -> recipe_normalizer.catalog.models
+    # See the cookbook-cannot-import-sibling-models contract above — same edge.
+    recipe_normalizer.cookbook.service -> recipe_normalizer.users.service

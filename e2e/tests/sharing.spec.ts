@@ -1,7 +1,6 @@
 /**
  * E2E coverage for Phase 2 sharing/search/collections: cookbook search,
- * collections, copy-share between two users, public links, shared
- * cookbooks, and an authz negative check (owner-only Share button).
+ * collections, copy-share between two users, and public links.
  *
  * Follows the happy-path/ux.spec convention: unique per-run registered
  * users, serial execution, no cleanup needed. Two users are needed here, so
@@ -25,8 +24,7 @@ let pageA: Page;
 let pageB: Page;
 
 // Recipe ids captured as they're created, for direct navigation later.
-let recipeIdA1: string; // "Zesty Lemon Curd" — search/collection/shared-cookbook/authz
-let cookbookUrl: string; // shared cookbook detail page URL
+let recipeIdA1: string; // "Zesty Lemon Curd" — search/collection
 
 /** Registers a fresh user on `page` and lands on the (empty) cookbook. */
 async function register(page: Page, name: string, email: string) {
@@ -192,56 +190,12 @@ test.describe("phase 2 sharing", () => {
   });
 
   // -----------------------------------------------------------------------
-  // 5. Shared cookbook: A creates + invites B; B sees it, adds own recipe;
-  //    A sees B's recipe too.
+  // 5. (removed) Shared cookbooks — the /shares pages and the
+  //    /api/shared-cookbooks endpoints they drove are gone; co-owned
+  //    cookbooks are now real Cookbooks (POST /api/cookbooks + member
+  //    invites), which have backend tests but no UI to drive yet. The
+  //    two tests that lived here (create/invite/both-members'-recipes, and
+  //    the authz negative "a non-owner member sees no Share button") come
+  //    back in Phase 2/3 against the cookbook-sharing UI.
   // -----------------------------------------------------------------------
-  test("shared cookbook: create, invite, both members' recipes visible", async () => {
-    await pageA.goto("/shares");
-    await pageA.getByLabel("New shared cookbook").fill("Family Feast");
-    await pageA.getByRole("button", { name: "Create" }).click();
-
-    await expect(pageA.getByRole("heading", { level: 1 })).toContainText("Family Feast");
-    cookbookUrl = pageA.url();
-
-    await pageA.getByLabel("Invite by email").fill(EMAIL_B);
-    await pageA.getByRole("button", { name: "Invite" }).click();
-    await expect(pageA.getByLabel("Invite by email")).toHaveValue("");
-
-    await pageA
-      .getByLabel("Add one of your recipes")
-      .selectOption({ label: "Zesty Lemon Curd" });
-    await pageA.getByRole("button", { name: "Add" }).click();
-    await expect(pageA.getByRole("link", { name: /Zesty Lemon Curd/ })).toBeVisible();
-
-    // B sees the invitation on /shares, opens it, sees A's recipe.
-    await pageB.goto("/shares");
-    await pageB.getByRole("link", { name: /Family Feast/ }).click();
-    await expect(pageB.getByRole("heading", { level: 1 })).toContainText("Family Feast");
-    await expect(pageB.getByRole("link", { name: /Zesty Lemon Curd/ })).toBeVisible();
-
-    // B adds one of their own recipes.
-    await createRecipe(pageB, "Berry Blondies");
-    await pageB.goto(cookbookUrl);
-    await pageB
-      .getByLabel("Add one of your recipes")
-      .selectOption({ label: "Berry Blondies" });
-    await pageB.getByRole("button", { name: "Add" }).click();
-    await expect(pageB.getByRole("link", { name: /Berry Blondies/ })).toBeVisible();
-
-    // A reloads and sees B's recipe too, plus both members listed.
-    await pageA.reload();
-    await expect(pageA.getByRole("link", { name: /Berry Blondies/ })).toBeVisible();
-    await expect(pageA.locator(".shc__member-list")).toContainText(NAME_A);
-    await expect(pageA.locator(".shc__member-list")).toContainText(NAME_B);
-  });
-
-  // -----------------------------------------------------------------------
-  // 6. Authz negative: B (non-owner member) opens A's shared recipe — the
-  //    owner-only Share button must not be present.
-  // -----------------------------------------------------------------------
-  test("authz: non-owner shared-cookbook member has no Share button", async () => {
-    await pageB.goto(`/recipes/${recipeIdA1}`);
-    await expect(pageB.getByRole("heading", { level: 1 })).toContainText("Zesty Lemon Curd");
-    await expect(pageB.getByRole("button", { name: "Share" })).toHaveCount(0);
-  });
 });

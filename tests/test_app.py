@@ -9,6 +9,7 @@ via a monkeypatched throwaway route.
 from __future__ import annotations
 
 import logging
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -531,8 +532,238 @@ def test_redact_path_no_match_if_not_public_api() -> None:
     assert _redact_path("/api/publicnot/abc") == "/api/publicnot/abc"
 
 
+def test_redact_path_cookbooks_token() -> None:
+    """_redact_path redacts /api/public/cookbooks/{token} to .../cookbooks/<token>.
+
+    Without the cookbooks-specific branch, the generic "redact the first
+    segment" rule would treat the literal "cookbooks" as the token and leave
+    the real token exposed right after it — this pins that it doesn't.
+    """
+    from recipe_normalizer.main import _redact_path
+
+    assert _redact_path("/api/public/cookbooks/realtoken123") == "/api/public/cookbooks/<token>"
+
+
 def test_redact_path_no_token_segment() -> None:
     """_redact_path leaves /api/public/ (no token) unchanged."""
     from recipe_normalizer.main import _redact_path
 
     assert _redact_path("/api/public/") == "/api/public/"
+
+
+# ---------------------------------------------------------------------------
+# Anonymous GET /api/public/cookbooks/{token} (Task 6)
+# ---------------------------------------------------------------------------
+
+
+def test_public_cookbook_happy_path(app_client: TestClient) -> None:
+    """A public cookbook is readable anonymously and never leaks owner_id/email."""
+    create_resp = app_client.post(
+        "/api/cookbooks", json={"name": "Public Cookbook", "description": "For anyone"}
+    )
+    assert create_resp.status_code == 201
+    cookbook = create_resp.json()
+
+    recipe_resp = app_client.post(
+        "/api/recipes", params={"cookbook_id": cookbook["id"]}, json=RECIPE_PAYLOAD
+    )
+    assert recipe_resp.status_code == 201
+
+    patch_resp = app_client.patch(f"/api/cookbooks/{cookbook['id']}", json={"visibility": "public"})
+    assert patch_resp.status_code == 200
+    token = patch_resp.json()["public_token"]
+    assert token
+
+    # A fresh, cookie-less TestClient sharing the same app/db — anonymous.
+    anon = TestClient(app_client.app, raise_server_exceptions=False)
+    resp = anon.get(f"/api/public/cookbooks/{token}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["name"] == "Public Cookbook"
+    assert body["description"] == "For anyone"
+    assert len(body["recipes"]) == 1
+    assert body["recipes"][0]["title"] == "Test Cocktail Bread"
+
+    # Strict allowlist: no owner id, email, public_token, or ingestion internals.
+    raw = resp.text
+    assert "owner_id" not in raw
+    assert "integration_test@example.com" not in raw
+    assert "public_token" not in raw
+    assert "extraction_meta" not in raw
+    assert "notes" not in raw
+
+
+def test_public_cookbook_hides_editor_member_last_edited_by(app_client: TestClient) -> None:
+    """A recipe last-edited by an EDITOR MEMBER (not the owner) must not leak
+    that member's user id via ``last_edited_by``.
+
+    ``last_edited_by`` is set to the EDITING user's id, not necessarily the
+    owner's (see ``cookbook.service.update_recipe``'s docstring) — a member
+    who edits a recipe in a cookbook the owner later makes public never
+    consented to their account id being exposed to anonymous visitors.
+    """
+    create_resp = app_client.post("/api/cookbooks", json={"name": "Leak Check Cookbook"})
+    assert create_resp.status_code == 201
+    cookbook = create_resp.json()
+
+    recipe_resp = app_client.post(
+        "/api/recipes", params={"cookbook_id": cookbook["id"]}, json=RECIPE_PAYLOAD
+    )
+    assert recipe_resp.status_code == 201
+    recipe_id = recipe_resp.json()["id"]
+
+    # A second client/cookie-jar over the SAME app+db, registered as a
+    # separate user, invited as an editor.
+    editor_email = "editor_leak_check@example.com"
+    editor_client = TestClient(app_client.app, raise_server_exceptions=False)
+    reg_resp = editor_client.post(
+        "/api/auth/register",
+        json={"email": editor_email, "password": "securepass1", "display_name": "Editor"},
+    )
+    assert reg_resp.status_code == 201
+    editor_user_id = reg_resp.json()["id"]
+    login_resp = editor_client.post(
+        "/api/auth/login", json={"email": editor_email, "password": "securepass1"}
+    )
+    assert login_resp.status_code == 200
+
+    invite_resp = app_client.post(
+        f"/api/cookbooks/{cookbook['id']}/members",
+        json={"email": editor_email, "role": "editor"},
+    )
+    assert invite_resp.status_code == 201
+
+    # The editor does a full-replace edit, setting last_edited_by to THEIR id.
+    edit_resp = editor_client.patch(
+        f"/api/recipes/{recipe_id}", json={**RECIPE_PAYLOAD, "title": "Edited By Member"}
+    )
+    assert edit_resp.status_code == 200
+    assert edit_resp.json()["last_edited_by"] == editor_user_id
+
+    # Make the cookbook public AFTER the member edit.
+    patch_resp = app_client.patch(f"/api/cookbooks/{cookbook['id']}", json={"visibility": "public"})
+    assert patch_resp.status_code == 200
+    token = patch_resp.json()["public_token"]
+    assert token
+
+    anon = TestClient(app_client.app, raise_server_exceptions=False)
+    resp = anon.get(f"/api/public/cookbooks/{token}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["recipes"][0]["title"] == "Edited By Member"
+
+    raw = resp.text
+    assert editor_user_id not in raw
+    assert "last_edited_by" not in raw
+
+
+def test_public_cookbook_unlisted_also_readable(app_client: TestClient) -> None:
+    create_resp = app_client.post("/api/cookbooks", json={"name": "Unlisted Cookbook"})
+    cookbook = create_resp.json()
+    patch_resp = app_client.patch(
+        f"/api/cookbooks/{cookbook['id']}", json={"visibility": "unlisted"}
+    )
+    token = patch_resp.json()["public_token"]
+
+    anon = TestClient(app_client.app, raise_server_exceptions=False)
+    resp = anon.get(f"/api/public/cookbooks/{token}")
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Unlisted Cookbook"
+
+
+def test_public_cookbook_private_id_as_token_returns_404(app_client: TestClient) -> None:
+    """A private cookbook's own id, passed as if it were a token, 404s.
+
+    Private cookbooks never have a public_token set, so the id can't
+    coincidentally resolve to a real token — this pins that a caller can't
+    probe cookbook ids this way.
+    """
+    create_resp = app_client.post("/api/cookbooks", json={"name": "Private Cookbook"})
+    cookbook = create_resp.json()
+    assert cookbook["visibility"] == "private"
+
+    anon = TestClient(app_client.app, raise_server_exceptions=False)
+    resp = anon.get(f"/api/public/cookbooks/{cookbook['id']}")
+    assert resp.status_code == 404
+
+
+def test_public_cookbook_unknown_token_returns_404(app_client: TestClient) -> None:
+    anon = TestClient(app_client.app, raise_server_exceptions=False)
+    resp = anon.get("/api/public/cookbooks/totally-bogus-token-xyz")
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# The flat compat shim: GET /api/recipes spans every readable cookbook, and
+# the retired /api/shared-cookbooks* surface is gone (Task 9)
+# ---------------------------------------------------------------------------
+
+
+def test_flat_recipe_list_includes_a_cookbook_shared_to_me(app_client: TestClient) -> None:
+    """GET /api/recipes is "my stuff + shared-with-me", so the current
+    (pre-rebuild) frontend's flat cookbook page still shows everything the
+    user can reach — including recipes in someone else's cookbook they were
+    invited into as a mere VIEWER.
+    """
+    create_resp = app_client.post("/api/cookbooks", json={"name": "Compat Shim Cookbook"})
+    assert create_resp.status_code == 201
+    cookbook = create_resp.json()
+
+    recipe_resp = app_client.post(
+        "/api/recipes",
+        params={"cookbook_id": cookbook["id"]},
+        json={**RECIPE_PAYLOAD, "title": "Shared Into My Flat List"},
+    )
+    assert recipe_resp.status_code == 201
+
+    viewer_email = "flat_list_viewer@example.com"
+    viewer_client = TestClient(app_client.app, raise_server_exceptions=False)
+    assert (
+        viewer_client.post(
+            "/api/auth/register",
+            json={"email": viewer_email, "password": "securepass1", "display_name": "Viewer"},
+        ).status_code
+        == 201
+    )
+    assert (
+        viewer_client.post(
+            "/api/auth/login", json={"email": viewer_email, "password": "securepass1"}
+        ).status_code
+        == 200
+    )
+
+    # Before the invite the viewer's flat list can't see it.
+    before = viewer_client.get("/api/recipes")
+    assert before.status_code == 200
+    assert "Shared Into My Flat List" not in [r["title"] for r in before.json()["items"]]
+
+    invite_resp = app_client.post(
+        f"/api/cookbooks/{cookbook['id']}/members",
+        json={"email": viewer_email, "role": "viewer"},
+    )
+    assert invite_resp.status_code == 201
+
+    after = viewer_client.get("/api/recipes")
+    assert after.status_code == 200
+    assert "Shared Into My Flat List" in [r["title"] for r in after.json()["items"]]
+
+
+def test_retired_shared_cookbook_routes_are_gone(app_client: TestClient) -> None:
+    """The /api/shared-cookbooks* surface 404s at the ROUTER level.
+
+    Not a 500 from a dropped table, and not a stale route: the paths are
+    simply not registered any more, so an old client hitting them gets a
+    clean 404 (co-owned cookbooks live at /api/cookbooks now).
+    """
+    routes = {getattr(route, "path", "") for route in app_client.app.routes}  # type: ignore[attr-defined]
+    assert not any(path.startswith("/api/shared-cookbooks") for path in routes)
+
+    for method, path in (
+        ("GET", "/api/shared-cookbooks"),
+        ("POST", "/api/shared-cookbooks"),
+        ("GET", f"/api/shared-cookbooks/{uuid.uuid4()}"),
+        ("POST", f"/api/shared-cookbooks/{uuid.uuid4()}/recipes"),
+        ("DELETE", f"/api/shared-cookbooks/{uuid.uuid4()}/members/{uuid.uuid4()}"),
+    ):
+        resp = app_client.request(method, path, json={"name": "x"})
+        assert resp.status_code == 404, f"{method} {path} -> {resp.status_code}"

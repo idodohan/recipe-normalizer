@@ -19,9 +19,9 @@ const EXAMPLES = ["Make it vegan", "Make it gluten-free", "Adapt for an air frye
 /**
  * "Transform" — a qualitative rewrite of the recipe (substitution, dietary
  * adaptation, cooking method), not a quantity change. Anyone who can read
- * the recipe (owner or shared-cookbook member) can transform it — the same
- * access check the backend uses for chat/Q&A — so this dialog is offered
- * unconditionally on RecipeDetailPage, not gated to the owner.
+ * the recipe can transform it — the same cookbook-derived access check the
+ * backend uses for chat/Q&A — so this dialog is offered unconditionally on
+ * RecipeDetailPage, not gated to the owner.
  *
  * `POST /api/ai/recipes/{recipe_id}/transform` never returns the draft
  * itself: on success it hands back `{job_id, recipe_id}` for the SAME

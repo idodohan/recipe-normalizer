@@ -2,7 +2,7 @@
 
 Recipe Normalizer ingests recipes from anywhere — URLs, PDFs, images, pasted text, manual entry — and normalizes them into one unified structure with **dual quantities**: the original text is always preserved and displayed alongside a normalized weight/volume (grams for solids, ml for liquids), with approximations flagged. Users build a personal, filterable cookbook; scale recipes deterministically; share recipes and cookbooks; and ask AI questions grounded in their recipes. Scope covers all recipes: food, baking, cocktails, smoothies.
 
-**v1 status:** all six phases have shipped — accounts, the global ingredient catalog with deterministic unit conversion, ingestion from URL/PDF/image/text/manual with a review gate, the cookbook with dual-quantity rendering and scaling, search/collections/favorites, sharing (copy-on-share, shared cookbooks, public links), and the AI layer (recipe chat, cookbook Q&A, transformations, recommendations). See [Roadmap](#roadmap) for non-goals.
+**v1 status:** all six phases have shipped — accounts, the global ingredient catalog with deterministic unit conversion, ingestion from URL/PDF/image/text/manual with a review gate, the cookbook with dual-quantity rendering and scaling, search/collections/favorites, sharing (copy-on-share, public links), and the AI layer (recipe chat, cookbook Q&A, transformations, recommendations). See [Roadmap](#roadmap) for non-goals.
 
 ## Quickstart
 
@@ -22,10 +22,10 @@ Modular monolith: one repo, one FastAPI app, backend modules under `src/recipe_n
 |---|---|---|---|
 | `users` | users, sessions | Accounts. Auth behind an `AuthProvider` interface: v1 = email+password (cookie sessions); SaaS swaps in OAuth without touching other modules. | shipped |
 | `catalog` | canonical ingredients, aliases, densities, units | Canonical ingredient entities, multilingual alias matching, deterministic unit conversion math. | shipped |
-| `cookbook` | recipes, ingredient lines, steps | Recipe CRUD, dual-quantity rendering, deterministic scaling. | shipped |
+| `cookbook` | cookbooks, memberships, recipes, ingredient lines, steps | Cookbooks (private/unlisted/public, owner + editor/viewer members) holding recipes; recipe CRUD, dual-quantity rendering, deterministic scaling. Every recipe lives in exactly one cookbook, and that cookbook is the sole source of who may read or edit it. | shipped |
 | `ingestion` | inputs, jobs | Accept any input (URL / file / pasted text), extraction job lifecycle + review gate. | shipped |
 | `extraction` | (stateless) | The acquire+normalize pipeline; pluggable `Extractor` per source type, incl. tiered agentic web extraction. | shipped |
-| `sharing` | shares, shared cookbooks, public links | Copy-on-share, co-owned cookbooks, tokenized public links. | shipped |
+| `sharing` | shares, public links | Copy-on-share, tokenized public links to a single recipe. (Co-owned cookbooks moved to `cookbook` in the cookbooks pivot.) | shipped |
 | `ai` | conversations, recommendations | Per-recipe chat, cookbook Q&A, transformations, recommendations. | shipped |
 
 Key invariants:
@@ -119,7 +119,7 @@ CI gates (all must pass): `ruff check`, `mypy`, `lint-imports` (module boundarie
 Planned phases:
 
 - **Plan 2 — extraction pipeline (shipped):** ingestion jobs + worker; text/paste → normalize → review screen; URL tiers 1–2 (structured data, readable HTML) + tier 3 agentic browser; PDF (text layer + scanned vision); images.
-- **Plan 3 — search, collections, sharing (shipped):** filters and full-text search, collections, copy-on-share, public links, shared cookbooks.
+- **Plan 3 — search, collections, sharing (shipped):** filters and full-text search, collections, copy-on-share, public links, and co-owned cookbooks (originally `sharing`'s own shared-cookbook model; superseded by the first-class `Cookbook` entity in the cookbooks pivot).
 - **Plan 4 — AI features (shipped):** per-recipe chat, cookbook Q&A, transformations, content-based recommendations.
 
 ## Documents

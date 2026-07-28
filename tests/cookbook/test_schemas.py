@@ -248,6 +248,8 @@ def _make_orm_recipe() -> object:
     return SimpleNamespace(
         id=uuid.uuid4(),
         owner_id=uuid.uuid4(),
+        # Required, not optional: every recipe lives in exactly one cookbook.
+        cookbook_id=uuid.uuid4(),
         schema_version=1,
         title="Test Recipe",
         description="A test",
@@ -320,6 +322,7 @@ def test_recipe_out_from_persisted_orm_recipe(db_session: Session) -> None:
     from sqlalchemy import select
 
     from recipe_normalizer.cookbook.models import (
+        Cookbook,
         Cuisine,
         DishType,
         IngredientGroup,
@@ -345,8 +348,14 @@ def test_recipe_out_from_persisted_orm_recipe(db_session: Session) -> None:
     db_session.add_all([cuisine, dish_type, tag])
     db_session.flush()
 
+    cookbook = Cookbook(owner_id=owner.id, name="My Cookbook", is_default=True)
+    db_session.add(cookbook)
+    db_session.flush()
+
     recipe = Recipe(
         owner_id=owner.id,
+        # NOT NULL since the finalize migration — every recipe has a cookbook.
+        cookbook_id=cookbook.id,
         title="Persisted Recipe",
         source_type=SourceType.manual,
         servings_amount=4.0,

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from recipe_normalizer.cookbook import service as cookbook_service
+from recipe_normalizer.cookbook.models import Recipe
 from recipe_normalizer.cookbook.schemas import (
     IngredientGroupIn,
     IngredientLineIn,
@@ -213,3 +214,32 @@ def test_share_recipe_missing_recipe_raises_404(
             to_email=recipient.email,
         )
     assert exc_info.value.status_code == 404
+
+
+def test_share_recipe_copy_lands_in_recipients_default_cookbook(
+    db_session: Session, sharer: User, recipient: User
+) -> None:
+    """The copy is filed in the RECIPIENT's default cookbook, never cookbook-less.
+
+    Copy-on-share used to insert a recipe with a NULL ``cookbook_id`` — the
+    last writer that could do so before the finalize migration's NOT NULL.
+    The copy must land in the recipient's own default cookbook (not the
+    sharer's), so the recipient's cookbook-derived access resolves to
+    "owner" and the copy shows up in their flat recipe list.
+    """
+    recipe = _create_recipe(db_session, sharer.id)
+    sharer_default = cookbook_service.ensure_default_cookbook(db_session, sharer.id)
+
+    out = sharing_service.share_recipe(
+        db_session,
+        from_user_id=sharer.id,
+        from_email=sharer.email,
+        recipe_id=recipe.id,
+        to_email=recipient.email,
+    )
+
+    recipient_default = cookbook_service.ensure_default_cookbook(db_session, recipient.id)
+    copy = db_session.get(Recipe, out.copied_recipe_id)
+    assert copy is not None
+    assert copy.cookbook_id == recipient_default.id
+    assert copy.cookbook_id != sharer_default.id
