@@ -55,7 +55,7 @@ class NormalizedStep(BaseModel):
 class NormalizedRecipe(BaseModel):
     title: str
     description: str | None = None
-    language: str = "en"  # BCP-47 of the ORIGINAL text
+    language: str = "en"  # Always "en" — the stored recipe is English (translated when the source is not English).
     servings_amount: float | None = None
     servings_unit_text: str | None = None
     prep_min: int | None = None
@@ -103,35 +103,45 @@ separately.
 - Do NOT split one recipe's sub-components (sauce, dough, frosting) into separate recipes; those \
 are ingredient groups within the single recipe.
 
-## Verbatim preservation (critical)
-- Every original_text field (ingredient lines and steps) MUST be copied VERBATIM from the \
-source: same language (Hebrew stays Hebrew), same wording, same units, same qualifiers, same \
-spelling. Never translate, paraphrase, normalize, abbreviate, or correct the original wording.
-- Group names are also kept verbatim in the source language.
-- language: the BCP-47 code of the ORIGINAL recipe text (e.g. "en", "he", "fr").
+## English output (critical)
+- The stored recipe is ALWAYS in English: title, description, group names, \
+per-ingredient original_text, steps, servings_unit_text, and cuisines/tags are \
+translated into natural, fluent English when the source is not English (Hebrew, \
+French, etc. → English). Never leave non-English recipe text in the output.
+- original_text fields: keep the MEANING and full detail of the source line \
+(quantities, units, qualifiers, preparation notes) but render it in English. \
+Only numbers, decimals and unicode fractions stay as-is.
+- Keep the structure of the source: the same number of ingredient lines and \
+steps, in the same order — translate, do not merge, split, or rewrite content.
+- Group names are translated too ("לציפוי" → "For the glaze").
+- language: always "en".
 
 ## Per ingredient line
-- original_text: the complete line, verbatim.
-- name: the canonical ingredient name in ENGLISH — this is used for catalog matching, not \
-display. Translate to English when the source is non-English (קמח לכל מטרה → "all-purpose \
-flour"). Keep it minimal: drop quantities, units, and preparation ("chopped", "sifted", "cold"). \
-Null only when the line names no identifiable ingredient.
+- original_text: the complete line translated into English (e.g. "2 כוסות קמח \
+לכל מטרה" → "2 cups all-purpose flour"). Keep quantities, units, and qualifiers.
+- name: the canonical ingredient name in ENGLISH — this is used for catalog \
+matching, not display. Translate to English when the source is non-English \
+(קמח לכל מטרה → "all-purpose flour"). Keep it minimal: drop quantities, units, \
+and preparation ("chopped", "sifted", "cold"). Null only when the line names no \
+identifiable ingredient.
 - quantity: a number. Convert fractions and unicode fractions to decimals (1/2 → 0.5, 1½ → 1.5, \
 ¾ → 0.75). For ranges ("2-3 cloves") use the lower bound and record the range in note. Null when \
 no quantity is given ("salt to taste").
-- unit: the unit from the source as a short singular token ("cups" → cup, "tablespoons" → tbsp, \
-"grams" → g); keep non-English units in their source language (e.g. כוס). Null when there is no \
-unit (count items like "2 eggs").
-- note: qualifiers and preparation ("finely chopped", "room temperature", "or to taste", "2-3"). \
-Null if none.
+- unit: the unit in English as a short singular token ("cups" → cup, \
+"tablespoons" → tbsp, "grams" → g; "כוס" → cup). Null when there is no unit \
+(count items like "2 eggs").
+- note: qualifiers and preparation, in English ("finely chopped", "room \
+temperature", "or to taste", "2-3"). Null if none.
 - is_optional: true when the source marks the ingredient optional ("optional", "if desired", \
 "אופציונלי").
 
 ## Structure
-- groups: preserve the source's ingredient groupings ("For the dough", "לציפוי"). When the \
-source has no groupings, return exactly one group with name=null containing all lines.
-- steps: split the instructions into individual steps, each verbatim. Numbered/paragraph breaks \
-in the source define the split. Do not merge, reorder, summarize, or rewrite steps.
+- groups: preserve the source's ingredient groupings, translated to English \
+("For the dough", "לציפוי" → "For the glaze"). When the source has no \
+groupings, return exactly one group with name=null containing all lines.
+- steps: split the instructions into individual steps, each translated to \
+English. Numbered/paragraph breaks in the source define the split. Do not \
+merge, reorder, summarize, or rewrite steps.
 
 ## Metadata
 - servings_amount / servings_unit_text: the stated yield ("Serves 4" → 4 + "servings"; "makes \
@@ -143,8 +153,9 @@ main, dessert, side, breakfast, soup, salad, bread, sauce, snack. Use the empty 
 clearly applies.
 - cuisines and tags: free-form but conservative — include only what the source clearly supports \
 (stated cuisine, prominent dietary labels). Empty lists are fine.
-- title: required, in the source language. description: a short description from the source \
-when present; null otherwise — do not write your own.
+- title: required, in English (translate from the source when needed). description: a short \
+description from the source translated into English when present; null otherwise — do not write \
+your own.
 """
 
 

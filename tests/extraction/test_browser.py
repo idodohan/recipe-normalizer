@@ -298,24 +298,31 @@ def test_loop_setup_budget_and_initial_screenshot(store: LocalFileStore) -> None
     assert llm.loop_kwargs["max_iterations"] == 15
     assert [tool["name"] for tool in llm.loop_kwargs["tools"]] == [
         "screenshot",
+        "read_page",
         "click",
         "press_escape",
         "scroll",
         "wait",
         "capture_content",
     ]
-    # Opening screenshot + goal text.
+    # Initial content is a text snapshot + goal (no image — the model is text-only).
     initial = llm.loop_kwargs["initial_content"]
-    assert initial[0]["type"] == "image"
-    assert initial[0]["source"]["media_type"] == "image/png"
-    assert "https://x.test/r" in initial[1]["text"]
+    assert len(initial) == 1
+    assert initial[0]["type"] == "text"
+    assert "https://x.test/r" in initial[0]["text"]
+    # The snapshot contains the page's recipe text (extracted by trafilatura).
+    assert "all-purpose flour" in initial[0]["text"].lower()
     # System prompt covers the goal, obstacles, strategy and the budget.
     system = llm.loop_kwargs["system"]
-    for needle in ("recipe", "cookie", "Jump to Recipe", "screenshot", "15 actions"):
+    for needle in ("recipe", "cookie", "Jump to Recipe", "read_page", "15 actions"):
         assert needle.lower() in system.lower()
 
 
-def test_screenshot_tool_returns_image_block(store: LocalFileStore) -> None:
+def test_screenshot_tool_returns_text_not_image_for_textonly_model(
+    store: LocalFileStore,
+) -> None:
+    """The screenshot tool no longer ships image bytes to a text-only model:
+    it saves the shot for artifacts and tells the model to use read_page."""
     page = FakePage([RECIPE_HTML])
     llm = ScriptedLLM([("screenshot", {}), ("capture_content", {})])
 
@@ -326,15 +333,55 @@ def test_screenshot_tool_returns_image_block(store: LocalFileStore) -> None:
         page_factory=_factory_for(page),  # type: ignore[arg-type]
     )
 
-    block = llm.results[0]
-    assert isinstance(block, list)
-    assert block[0]["type"] == "image"
-    assert base64.standard_b64decode(block[0]["source"]["data"]) == TINY_PNG
+    result = llm.results[0]
+    assert isinstance(result, str)
+    assert "read_page" in result
+    assert "image" not in result.lower() or "cannot see images" in result.lower()
+
+
+def test_read_page_returns_rendered_text(store: LocalFileStore) -> None:
+    """read_page hands the model the page's readable text to steer the loop."""
+    page = FakePage([RECIPE_HTML])
+    llm = ScriptedLLM([("read_page", {}), ("capture_content", {})])
+
+    browse_for_recipe(
+        "https://x.test/r",
+        llm=llm,
+        store=store,
+        page_factory=_factory_for(page),  # type: ignore[arg-type]
+    )
+
+    result = llm.results[0]
+    assert isinstance(result, str)
+    assert result.startswith("PAGE_TEXT:")
+    assert "all-purpose flour" in result
+    assert ("content",) in page.calls  # read the real page HTML for the snapshot
+
+
+def test_read_page_empty_page_guides_model(store: LocalFileStore) -> None:
+    page = FakePage(["<html><body></body></html>"])
+    llm = ScriptedLLM([("read_page", {})])
+
+    with pytest.raises(TierFailed):
+        browse_for_recipe(
+            "https://x.test/r",
+            llm=llm,  # type: ignore[arg-type]
+            store=store,
+            page_factory=_factory_for(page),
+        )
+
+    result = llm.results[0]
+    assert isinstance(result, str)
+    assert result.startswith("PAGE_TEXT_EMPTY:")
 
 
 def test_insufficient_capture_keeps_loop_going(store: LocalFileStore) -> None:
-    """First capture is an essay → INSUFFICIENT result string; second succeeds."""
-    page = FakePage([ARTICLE_HTML, RECIPE_HTML])
+    """First capture is an essay → INSUFFICIENT result string; second succeeds.
+
+    The initial page-text snapshot consumes one page.content() call at startup,
+    so we need three HTMLs: init, first capture (essay), second capture (recipe).
+    """
+    page = FakePage([ARTICLE_HTML, ARTICLE_HTML, RECIPE_HTML])
     llm = ScriptedLLM([("capture_content", {}), ("capture_content", {})])
 
     acquired = browse_for_recipe(
@@ -466,9 +513,7 @@ def test_failure_screenshot_save_is_best_effort(store: LocalFileStore) -> None:
 
         def screenshot(self, *, type: str = "png") -> bytes:  # noqa: A002
             self._shots += 1
-            if self._shots > 1:  # opening screenshot works; final one is broken
-                raise RuntimeError("page closed")
-            return TINY_PNG
+            raise RuntimeError("page closed")  # every screenshot is broken
 
     page = BrokenScreenshotPage()
     llm = ScriptedLLM([("scroll", {"pixels": 100})], exhaust=True)
@@ -715,8 +760,11 @@ def test_navigation_to_private_url_after_click_is_blocked(store: LocalFileStore)
             page_factory=_factory_for(page),
         )
 
-    # The page content was never captured/exfiltrated after the bad navigation.
-    assert not any(call[0] == "content" for call in page.calls)
+    # No page content was captured/exfiltrated AFTER the bad navigation
+    # (the initial opening snapshot happens before any click and is fine).
+    content_calls = [i for i, call in enumerate(page.calls) if call[0] == "content"]
+    click_call = next(i for i, call in enumerate(page.calls) if call[0] == "click_text")
+    assert all(i < click_call for i in content_calls)
     assert len(llm.results) == 0
 
 

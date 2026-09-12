@@ -2,8 +2,11 @@
 
 When tiers 1+2 fail (JS-rendered pages, "jump to recipe" walls, cookie/overlay
 gates), the model operates a headless Chromium through a small tool set —
-screenshot / click / press_escape / scroll / wait / capture_content — until it
-captures readable recipe text. Hard budgets bound the run: at most 15 tool-loop
+read_page / click / press_escape / scroll / wait / capture_content (plus
+screenshot for artifact review) — until it captures readable recipe text. The
+model reads rendered page text via read_page (no screenshots needed, so a
+text-only model such as oc/nemotron-3-ultra-free can run the tier without a
+vision-capable model). Hard budgets bound the run: at most 15 tool-loop
 iterations AND 90s wall clock. On exhaustion the final screenshot + action log
 are retained so the user sees why the tier gave up (spec §6.1).
 
@@ -40,7 +43,7 @@ from urllib.parse import urlparse
 import trafilatura
 
 from recipe_normalizer.extraction.base import Acquired, TierFailed
-from recipe_normalizer.llm.client import BudgetExceeded, image_block
+from recipe_normalizer.llm.client import BudgetExceeded
 from recipe_normalizer.netguard import UnsafeUrlError, assert_public_url
 
 if TYPE_CHECKING:
@@ -78,35 +81,47 @@ drink recipe on the page you have been given. The page may hide the recipe \
 behind obstacles: cookie banners, newsletter pop-ups, overlay ads, a "Jump to \
 Recipe" link near the top, or collapsed/"show more" sections.
 
+IMPORTANT: this model can only read TEXT — not images. Do not call screenshot; \
+it cannot help you. Work from page-text snapshots instead.
+
 Strategy:
-- Start from the screenshot you are given; take a fresh screenshot whenever you \
-need to see the current state.
+- Start from the page-text snapshot you are given.
+- Call read_page after every click/scroll/wait to see what the page shows now.
 - Dismiss cookie banners and pop-ups (press_escape, or click their accept/close \
 control), click "Jump to Recipe" when present, scroll down, and expand any \
-collapsed ingredient or instruction sections.
+collapsed ingredient or instruction sections (text like "read more", "show \
+more", "קרא עוד" — click it) until the recipe text is visible in read_page.
 - When the ingredients AND instructions are visible, call capture_content to \
 grab the page text. If the captured text is not yet a complete recipe, keep \
 working and capture again.
 
 Budget: you have at most 15 actions and limited time. Be efficient — do not \
-re-screenshot needlessly. Stop by capturing as soon as the full recipe is on \
-screen."""
+re-read the page needlessly. Stop by capturing as soon as the full recipe is \
+on screen."""
 
 _GOAL_TEMPLATE = (
     "Reach and capture the full recipe on this page: {url}\n"
-    "The opening screenshot above shows the page as first loaded."
+    "PAGE-TEXT SNAPSHOT (as first loaded):\n{text}\n\n"
+    "Read the snapshot below, then expand/dismiss anything hiding the recipe "
+    "and end by calling capture_content once the full recipe is visible."
 )
 
 _TOOLS: list[dict[str, Any]] = [
     {
         "name": "screenshot",
-        "description": "Capture a screenshot of the current viewport so you can see the page.",
+        "description": "Capture a screenshot of the current viewport (saved as an artifact for later review). NOTE: this model is text-only and cannot see images — use read_page instead.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "read_page",
+        "description": "Return the current readable text of the page (what a sighted user would see after JS rendering). Call this after click/scroll/wait to inspect the page state.",
         "input_schema": {"type": "object", "properties": {}},
     },
     {
         "name": "click",
         "description": (
-            "Click an element. Provide visible link/button text (preferred) or a CSS selector."
+            "Click an element. Provide visible link/button text (preferred — this also "
+            "matches localized labels like Hebrew \"קרא עוד\" for \"read more\") or a CSS selector."
         ),
         "input_schema": {
             "type": "object",
@@ -157,6 +172,38 @@ def looks_like_recipe_text(text: str) -> bool:
     """
     count = sum(1 for line in text.splitlines() if _INGREDIENT_LINE.match(line))
     return count >= _MIN_INGREDIENT_LINES
+
+
+_MAX_SNAPSHOT_CHARS = 20_000
+
+
+def _page_text_snapshot(page: Any) -> str:
+    """Best readable text of the page right now, for a text-only model.
+
+    Tries trafilatura on the raw HTML first (clean for ordinary recipe pages);
+    when that yields nothing — JS-heavy pages such as Facebook where the recipe
+    only exists after client-side rendering — falls back to the rendered
+    ``document.body.innerText``, which is exactly the text a sighted user sees
+    (so an expanded "read more" section appears in the snapshot). Either way the
+    result is capped so a chatty page cannot blow up the model's context.
+    """
+    with contextlib.suppress(Exception):
+        page.wait_for_load_state("domcontentloaded")
+    try:
+        text = trafilatura.extract(
+            page.content(), favor_recall=True, include_tables=True
+        ) or ""
+    except Exception:
+        text = ""
+    if len(text.strip()) < 200:
+        with contextlib.suppress(Exception):
+            text = page.evaluate(
+                "() => document.body ? document.body.innerText : ''"
+            ) or ""
+    text = "\n".join(line.strip() for line in text.splitlines() if line.strip())
+    if len(text) > _MAX_SNAPSHOT_CHARS:
+        text = text[:_MAX_SNAPSHOT_CHARS] + "\n…[snapshot truncated]"
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -320,11 +367,13 @@ def browse_for_recipe(
             if blocked:
                 raise TierFailed(f"blocked unsafe URL: {blocked[0]}") from exc
             raise TierFailed(f"page failed to load: {exc}") from exc
-        opening = page.screenshot(type="png")
         start = clock()
+        opening_text = _page_text_snapshot(page)
         initial_content: list[dict[str, Any]] = [
-            image_block(opening, "image/png"),
-            {"type": "text", "text": _GOAL_TEMPLATE.format(url=url)},
+            {
+                "type": "text",
+                "text": _GOAL_TEMPLATE.format(url=url, text=opening_text),
+            }
         ]
         execute = _make_execute(
             page, actions_log, start=start, clock=clock, time_budget_s=time_budget_s
@@ -374,7 +423,22 @@ def _make_execute(
         if name == "screenshot":
             shot = page.screenshot(type="png")
             _log(actions_log, name, tool_input)
-            return [image_block(shot, "image/png")]
+            # Text-only model: an image block would fail the call with "no
+            # endpoints that support image input". Keep the tool (it is fine on
+            # vision-capable models and harmless here) but never hand the bytes
+            # to the model — point it at read_page instead.
+            return (
+                f"Screenshot captured ({len(shot)} bytes, saved as an artifact when "
+                "the tier finishes). This model cannot see images — call read_page "
+                "to inspect the page text."
+            )
+
+        if name == "read_page":
+            text = _page_text_snapshot(page)
+            _log(actions_log, name, tool_input)
+            if not text.strip():
+                return "PAGE_TEXT_EMPTY: no readable text on the page yet — try wait or scroll, then read_page again."
+            return f"PAGE_TEXT:\n{text}"
 
         if name == "click":
             target = str(tool_input.get("target", ""))
@@ -404,7 +468,7 @@ def _make_execute(
             return f"waited {ms}ms"
 
         if name == "capture_content":
-            text = trafilatura.extract(page.content(), favor_recall=True, include_tables=True) or ""
+            text = _page_text_snapshot(page)
             _log(actions_log, name, tool_input)
             if text and looks_like_recipe_text(text):
                 raise _Captured(text)

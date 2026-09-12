@@ -97,7 +97,7 @@ def test_normalize_whitespace_only_text_short_circuits() -> None:
     assert stub.calls == []
 
 
-def test_system_prompt_pins_dish_type_vocab_and_verbatim_rule() -> None:
+def test_system_prompt_pins_dish_type_vocab_and_english_output_rule() -> None:
     """The prompt IS the product's extraction quality — pin its key guarantees."""
     for dish_type in (
         "cocktail",
@@ -115,10 +115,13 @@ def test_system_prompt_pins_dish_type_vocab_and_verbatim_rule() -> None:
     ):
         assert dish_type in NORMALIZE_SYSTEM
     upper = NORMALIZE_SYSTEM.upper()
-    assert "VERBATIM" in upper
+    # Everything stored is English: translated from the source when needed.
+    assert "ENGLISH" in upper
+    assert "TRANSLATED" in upper
+    assert "language" in NORMALIZE_SYSTEM
     # Never fabricate a recipe from a non-recipe.
     assert "NEVER" in upper
     assert "is_recipe" in NORMALIZE_SYSTEM
-    # English canonical name for matching; Hebrew called out for verbatim text.
+    # English canonical name for matching; Hebrew called out for translation.
     assert "English" in NORMALIZE_SYSTEM
     assert "Hebrew" in NORMALIZE_SYSTEM
