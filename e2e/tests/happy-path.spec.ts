@@ -117,12 +117,12 @@ test.describe("happy path", () => {
     // Already on the detail page from the previous test — just assert.
     await expect(page.getByRole("heading", { level: 1 })).toContainText("E2E Brownies");
 
-    // Flour line: "2 cups all-purpose flour → ~240 g (approx.)"
-    // The display string is split across spans; assert on the whole list item's text.
+    // Flour line: "2 cups all-purpose flour → ~240 g"
+    // The tilde prefix IS the approximation marker (no "(approx.)" suffix —
+    // see cookbook.schemas.build_display).
     const flourLine = page.locator(".ing-line").filter({ hasText: "all-purpose flour" });
     await expect(flourLine).toContainText("2 cups all-purpose flour");
     await expect(flourLine).toContainText("~240 g");
-    await expect(flourLine).toContainText("(approx.)");
 
     // Salt line: no arrow, no metric conversion (passthrough / no qty).
     const saltLine = page.locator(".ing-line").filter({ hasText: "salt to taste" });
@@ -130,11 +130,12 @@ test.describe("happy path", () => {
     // There should be NO "→" arrow on the salt line.
     await expect(saltLine).not.toContainText("→");
 
-    // Vanilla line: 0.5 tsp = ~2.46 ml (exact volume, no approx.).
+    // Vanilla line: 0.5 tsp = 2.46 ml (exact volume, no tilde).
     const vanillaLine = page.locator(".ing-line").filter({ hasText: "vanilla extract" });
     await expect(vanillaLine).toContainText("2.46 ml");
-    // Vanilla conversion is exact — it should NOT say "(approx.)"
-    await expect(vanillaLine).not.toContainText("(approx.)");
+    // Vanilla conversion is exact — it should NOT have the "~" approx prefix
+    // (and also not "(approx.)", which the display never appends).
+    await expect(vanillaLine).not.toContainText("~");
 
     // Unreviewed badge is visible (recipe is not verified).
     await expect(page.locator(".rd__flag")).toContainText(/unreviewed/i);

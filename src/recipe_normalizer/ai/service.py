@@ -379,7 +379,7 @@ def chat_turn(
     system = RECIPE_CHAT_SYSTEM.format(recipe_json=_recipe_grounding_json(recipe))
     try:
         answer = llm.chat(
-            feature="ai.recipe_chat", system=system, messages=history, max_tokens=1024
+            feature="ai.recipe_chat", system=system, messages=history, max_tokens=2048
         )
     except CostCapExceeded as exc:
         raise ApiError(
