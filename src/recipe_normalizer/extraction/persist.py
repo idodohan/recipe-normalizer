@@ -97,6 +97,20 @@ def _to_recipe_in(normalized: NormalizedRecipe) -> RecipeIn | None:
     )
 
 
+def _content_fingerprint(data: RecipeIn) -> str:
+    """A stable content key for within-result duplicate detection.
+
+    Sources like social posts can carry the same recipe text twice (e.g. an
+    embedded/suggested copy rendered in the DOM), and the LLM then returns two
+    identical recipes. Compare on the *normalized* content the model emitted —
+    title, ingredient text lines, and steps — so two copies of the same dish
+    collapse into one draft.
+    """
+    lines = "\n".join(f"{g.name or ''}:{line.original_text}" for g in data.groups for line in g.lines)
+    steps = "\n".join(s.original_text for s in data.steps)
+    return f"{data.title}|{lines}|{steps}".casefold()
+
+
 def persist_drafts(
     db: Session,
     *,
@@ -118,6 +132,9 @@ def persist_drafts(
       index on (owner_id, source_fingerprint) is per-recipe, so N drafts from
       one source would collide.
     - DuplicateRecipeError from the fingerprinted draft propagates to the caller.
+    - Within one *result*, recipes whose normalized content is identical (same
+      title, ingredient lines, and steps) collapse to a single draft — e.g. a
+      social page that renders the same recipe text twice.
     - *derived_from* / *provenance*, when given, are stamped on EVERY draft
       produced from *result* (plural results are rare — a transform's prompt
       asks for exactly one, but this stays correct if the model returns more).
@@ -127,6 +144,7 @@ def persist_drafts(
       reviewable draft exactly like an extracted one (see cookbook.service.
       create_recipe's docstring for what these fields mean).
     """
+    seen: set[str] = set()
     created: list[uuid.UUID] = []
     for index, normalized in enumerate(result.recipes):
         data = _to_recipe_in(normalized)
@@ -135,6 +153,15 @@ def persist_drafts(
                 "skipping draft %d (%r): no valid ingredient lines", index, normalized.title
             )
             continue
+        key = _content_fingerprint(data)
+        if key in seen:
+            logger.info(
+                "skipping draft %d (%r): duplicate of an earlier recipe in the same result",
+                index,
+                normalized.title,
+            )
+            continue
+        seen.add(key)
         out = cookbook_service.create_recipe(
             db,
             owner_id=owner_id,

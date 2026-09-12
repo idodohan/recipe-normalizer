@@ -102,6 +102,30 @@ def test_persist_multi_recipe_fingerprint_only_on_first(seeded: Session, owner: 
     assert second.source_fingerprint is None
 
 
+def test_persist_collapses_duplicate_recipes_in_same_result(
+    seeded: Session, owner: User
+) -> None:
+    """When the LLM returns two identical recipes (e.g. FB page renders the
+    recipe text twice), persist collapses them into a single draft."""
+    ids = persist_drafts(
+        seeded,
+        owner_id=owner.id,
+        result=_result(_flour_recipe("Dup"), _flour_recipe("Dup")),
+        llm=StubLLM(),  # type: ignore[arg-type]
+        source="https://fb.test/reel/123",
+        source_type=SourceType.web,
+        source_fingerprint="fp-dup",
+        extraction_meta=None,
+        image_ref=None,
+    )
+
+    assert len(ids) == 1
+    row = seeded.get(Recipe, ids[0])
+    assert row is not None
+    assert row.title == "Dup"
+    assert row.source_fingerprint == "fp-dup"
+
+
 def test_persist_skips_recipe_with_no_valid_lines(seeded: Session, owner: User) -> None:
     empty = NormalizedRecipe(
         title="Ghost Recipe",
