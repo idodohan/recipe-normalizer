@@ -27,27 +27,13 @@ export function RegisterPage() {
     setError(null);
     setSubmitting(true);
     try {
-      const { data: registered, error: registerError } = await api.POST(
+      const { data: user, error: registerError } = await api.POST(
         "/api/auth/register",
         { body: { display_name: displayName, email, password } },
       );
-      if (!registered) {
-        setError(
-          apiErrorMessage(registerError, "Could not create your account."),
-        );
-        return;
-      }
-      // Auto sign-in after a successful registration.
-      const { data: user, error: loginError } = await api.POST(
-        "/api/auth/login",
-        { body: { email, password } },
-      );
       if (!user) {
         setError(
-          apiErrorMessage(
-            loginError,
-            "Account created — please sign in manually.",
-          ),
+          apiErrorMessage(registerError, "Could not create your account."),
         );
         return;
       }

@@ -20,6 +20,7 @@ _login_limit = limit_by_ip("login", settings.rate_limit_auth_per_minute, 60.0)
 @router.post("/register", status_code=201, response_model=UserOut)
 def register(
     body: RegisterIn,
+    response: Response,
     db: Session = Depends(get_db),  # noqa: B008
     _: None = Depends(_register_limit),  # noqa: B008
 ) -> UserOut:
@@ -28,6 +29,16 @@ def register(
         email=body.email,
         password=body.password,
         display_name=body.display_name,
+    )
+    token, user = service.login(db, email=body.email, password=body.password)
+    response.set_cookie(
+        key=_SESSION_COOKIE,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=settings.cookie_secure,
+        path="/",
+        max_age=settings.session_ttl_hours * 3600,
     )
     return UserOut.model_validate(user)
 

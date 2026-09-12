@@ -77,7 +77,7 @@ export function CookbooksHomePage() {
             aria-pressed={favorites}
             onClick={() => setFavorites((f) => !f)}
           >
-            ♥ Favorites
+            <span aria-hidden="true">♥ </span>Favorites
           </button>
           {searching ? (
             <button type="button" className="cb-search__clear" onClick={clearSearch}>

@@ -51,7 +51,7 @@ export default defineConfig({
        * see ai.spec.ts — so those endpoints answer deterministically without
        * an ANTHROPIC_API_KEY. Mirrors the extraction E2E's worker subprocess,
        * which already sets the same flag for its own (separate) LLM calls. */
-      env: { ...process.env, RN_NETGUARD_ALLOW_HOSTS: "localhost", RN_LLM_STUB: "1" },
+      env: { ...process.env, RN_NETGUARD_ALLOW_HOSTS: "localhost", RN_LLM_STUB: "1", RN_RATE_LIMIT_AUTH_PER_MINUTE: "10000" },
     },
     {
       /* Frontend dev server — proxies /api to localhost:8000 */

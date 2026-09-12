@@ -150,7 +150,7 @@ export function RecipeEditorPage() {
         </div>
       </section>
 
-      <details className="manual-entry">
+      <details className="manual-entry" open>
         <summary className="manual-entry__summary">
           Prefer to enter it field by field?
         </summary>
