@@ -1,3 +1,31 @@
+export function friendlyMessage(message: string): string {
+  const normalized = message.toLowerCase().trim();
+  
+  if (normalized.includes("extraction failed")) {
+    return "We couldn't extract a recipe from this source.";
+  }
+  if (normalized.includes("download failed")) {
+    return "We couldn't download the content from this link.";
+  }
+  if (normalized.includes("invalid url") || normalized.includes("unsupported_url")) {
+    return "This link doesn't look right or isn't supported.";
+  }
+  if (normalized.includes("timeout")) {
+    return "The extraction took too long and timed out.";
+  }
+  if (normalized.includes("rate limit")) {
+    return "We're receiving too many requests. Please try again later.";
+  }
+  if (normalized.includes("payload too large")) {
+    return "The file or text is too large to process.";
+  }
+  if (normalized.includes("not found")) {
+    return "We couldn't find what you were looking for.";
+  }
+  
+  return message;
+}
+
 /** Extract a human message from the backend error envelope:
  *  `{"error": {"code": "...", "message": "...", ...}}`. */
 export function apiErrorMessage(
@@ -8,7 +36,7 @@ export function apiErrorMessage(
     const err = (body as { error: unknown }).error;
     if (err && typeof err === "object" && "message" in err) {
       const message = (err as { message: unknown }).message;
-      if (typeof message === "string" && message.length > 0) return message;
+      if (typeof message === "string" && message.length > 0) return friendlyMessage(message);
     }
   }
   return fallback;

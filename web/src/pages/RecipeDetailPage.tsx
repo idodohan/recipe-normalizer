@@ -76,34 +76,32 @@ function DeleteControl({
 
   if (!confirming) {
     return (
-      <button type="button" className="rd__delete" onClick={() => setConfirming(true)}>
+      <Button variant="danger" onClick={() => setConfirming(true)}>
         Delete
-      </button>
+      </Button>
     );
   }
 
   return (
     <span className="rd__confirm">
       <span className="rd__confirm-q">Delete recipe?</span>
-      <button
-        type="button"
-        className="rd__confirm-btn rd__confirm-btn--yes"
+      <Button
+        variant="danger"
         disabled={deleting}
         onClick={onConfirm}
       >
         {deleting ? "Deleting…" : "Yes"}
-      </button>
+      </Button>
       <span className="rd__confirm-sep" aria-hidden="true">
         /
       </span>
-      <button
-        type="button"
-        className="rd__confirm-btn rd__confirm-btn--no"
+      <Button
+        variant="secondary"
         disabled={deleting}
         onClick={() => setConfirming(false)}
       >
         No
-      </button>
+      </Button>
     </span>
   );
 }

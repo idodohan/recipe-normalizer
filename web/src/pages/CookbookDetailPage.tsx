@@ -455,7 +455,7 @@ function DangerZone({ cookbook }: { cookbook: CookbookDetail }) {
         Removes the cookbook for everyone it's shared with. Recipes inside it are
         not deleted.
       </p>
-      <Button variant="secondary" onClick={() => setConfirmOpen(true)}>
+      <Button variant="danger" onClick={() => setConfirmOpen(true)}>
         Delete cookbook
       </Button>
 
@@ -477,7 +477,7 @@ function DangerZone({ cookbook }: { cookbook: CookbookDetail }) {
           >
             Cancel
           </Button>
-          <Button onClick={handleDelete} disabled={del.isPending}>
+          <Button variant="danger" onClick={handleDelete} disabled={del.isPending}>
             {del.isPending ? "Deleting…" : "Delete cookbook"}
           </Button>
         </div>
@@ -499,11 +499,11 @@ function RecipeGrid({
   if (cookbook.recipes.length === 0) {
     return (
       <EmptyState
-        title="No recipes here yet"
-        body="Add a recipe to start filling this cookbook."
+        title="Your cookbook is empty"
+        body="Welcome! This app helps you organize and scale your recipes. Paste a link, drop a PDF or photo, or type a recipe in — we normalize every amount to grams and millilitres so you can cook with confidence."
         action={
           canAddRecipe ? (
-            <Button onClick={() => navigate("/add")}>Add a recipe</Button>
+            <Button onClick={() => navigate("/add")}>Add your first recipe</Button>
           ) : undefined
         }
       />

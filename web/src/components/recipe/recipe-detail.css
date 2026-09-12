@@ -461,6 +461,13 @@
   min-width: 0;
 }
 
+.ing-line:has(.ing-line__from) .ing-line__orig,
+.ing-line:has(.ing-line__from) .ing-line__norm {
+  font-size: var(--text-small);
+  font-weight: 400;
+  color: var(--color-text-faint);
+}
+
 /* The dotted leader between original and normalized — an empty flex
    item whose bottom margin edge sits on the text baseline. */
 .ing-line__leader {
@@ -491,11 +498,12 @@
 }
 
 /* Scaled view: the cook's original wording kept beneath the rescaled
-   row — quieter than a note (faint, upright) so the two never blur. */
+   row — this becomes the primary text in scaled mode. */
 .ing-line__from {
   margin-top: 2px;
-  font-size: var(--text-small);
-  color: var(--color-text-faint);
+  font-size: var(--text-body);
+  font-weight: 500;
+  color: var(--color-ink);
   max-width: none;
 }
 

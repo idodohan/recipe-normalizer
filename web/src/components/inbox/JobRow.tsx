@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
-import { apiErrorMessage } from "../../api/errors";
+import { apiErrorMessage, friendlyMessage } from "../../api/errors";
 import { toast } from "../../hooks/useToast";
 import {
   INPUT_LABEL,
@@ -57,7 +57,7 @@ export function JobRow({ job }: { job: Job }) {
 
       {(job.status === "failed" || job.status === "not_a_recipe") && job.reason ? (
         <p className="job-row__reason">
-          {job.reason}{" "}
+          {friendlyMessage(job.reason)}{" "}
           {screenshotRef ? (
             <a href={`/api/files/${screenshotRef}`} target="_blank" rel="noreferrer">
               See screenshot →

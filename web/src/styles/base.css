@@ -10,6 +10,10 @@
   margin: 0;
 }
 
+dialog {
+  margin: auto;
+}
+
 html {
   height: 100%;
   color-scheme: light dark;

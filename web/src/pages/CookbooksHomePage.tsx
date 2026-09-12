@@ -132,14 +132,11 @@ export function CookbooksHomePage() {
         />
       ) : totalRecipes === 0 && items.length <= 1 ? (
         <EmptyState
-          title="Start your first cookbook"
-          body="Paste a link, drop a PDF or photo, or type a recipe in — we normalize every amount to grams and millilitres and file it in a cookbook you can keep private or share."
+          title="Your cookbook is empty"
+          body="Welcome! This app helps you organize and scale your recipes. Paste a link, drop a PDF or photo, or type a recipe in — we normalize every amount to grams and millilitres so you can cook with confidence."
           action={
             <div className="cb-home__firstrun">
-              <Button onClick={() => navigate("/add")}>Add a recipe</Button>
-              <Button variant="secondary" onClick={() => setNewOpen(true)}>
-                New cookbook
-              </Button>
+              <Button onClick={() => navigate("/add")}>Add your first recipe</Button>
             </div>
           }
         />

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from collections.abc import Callable
 from types import SimpleNamespace
@@ -29,7 +30,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-_BASE_URL = "https://openrouter.ai/api/v1"
+_BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 _RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 524})
 
 _FINISH_REASON_TO_STOP_REASON = {

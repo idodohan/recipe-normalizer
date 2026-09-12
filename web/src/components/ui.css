@@ -61,6 +61,17 @@
   background-color: var(--color-accent-wash);
 }
 
+.btn--danger {
+  background-color: var(--color-error);
+  border-color: var(--color-error);
+  color: var(--color-paper);
+}
+
+.btn--danger:hover:not(:disabled) {
+  background-color: var(--color-error-deep);
+  border-color: var(--color-error-deep);
+}
+
 .btn--block {
   width: 100%;
 }
