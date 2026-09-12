@@ -44,69 +44,10 @@ export function CookbooksHomePage() {
 
   return (
     <>
-      {/* Hero: value-prop strip + the two primary actions (ui-ux-pro-max
-          "Hero-Centric Design": one clear CTA, minimal text). */}
       <header className="cb-home__masthead">
         <div className="cb-home__masthead-copy">
           <p className="cb-home__overline">Your kitchen</p>
           <h1 className="cb-home__title">Cookbooks</h1>
-          <p className="cb-home__lede">
-            Recipes from anywhere on the web, normalized to grams and
-            millilitres — in English, ready to cook.
-          </p>
-          <ul className="cb-home__props" aria-label="What Recipe Normalizer does">
-            <li className="cb-home__prop">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 Z" />
-              </svg>
-              Normalized amounts
-            </li>
-            <li className="cb-home__prop">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <circle cx="12" cy="12" r="10" />
-                <path d="M2 12h20" />
-                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-              </svg>
-              Kept in English
-            </li>
-            <li className="cb-home__prop">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z" />
-                <path d="M9 21h6" />
-              </svg>
-              Ask your cookbook
-            </li>
-          </ul>
         </div>
         <div className="cb-home__actions">
           <Button variant="secondary" onClick={() => setNewOpen(true)}>

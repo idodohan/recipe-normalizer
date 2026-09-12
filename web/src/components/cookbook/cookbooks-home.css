@@ -34,39 +34,6 @@
   margin: 0;
 }
 
-.cb-home__lede {
-  margin: var(--space-3) 0 0;
-  max-width: 34rem;
-  color: var(--color-text-muted);
-  font-size: var(--text-body);
-}
-
-/* Value-prop strip: compact inline list, one line per prop on narrow
-   screens. Icons are SVG (ui-ux-pro-max: no emoji-as-icons). */
-.cb-home__props {
-  list-style: none;
-  margin: var(--space-5) 0 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-5);
-}
-
-.cb-home__prop {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-small);
-  font-weight: 500;
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
-  color: var(--color-accent-deep);
-}
-
-.cb-home__prop svg {
-  flex-shrink: 0;
-}
-
 .cb-home__actions {
   display: flex;
   gap: var(--space-3);
