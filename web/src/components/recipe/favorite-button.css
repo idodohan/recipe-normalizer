@@ -14,7 +14,7 @@
   border: none;
   border-radius: var(--radius-sm);
   color: var(--color-text-faint);
-  transition: color 120ms ease;
+  transition: color var(--motion-fast);
 }
 
 .favorite-btn:hover:not(:disabled) {

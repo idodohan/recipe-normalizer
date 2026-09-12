@@ -29,7 +29,7 @@
   letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
   color: var(--color-text-muted);
-  transition: color 120ms ease;
+  transition: color var(--motion-fast);
 }
 
 .rd__back:hover {
@@ -46,7 +46,7 @@
   letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
   color: var(--color-text-faint);
-  transition: color 120ms ease;
+  transition: color var(--motion-fast);
 }
 
 .rd__delete:hover {
@@ -323,9 +323,9 @@
   font-variant-numeric: tabular-nums;
   color: var(--color-text-muted);
   transition:
-    color 120ms ease,
-    background-color 120ms ease,
-    border-color 120ms ease;
+    color var(--motion-fast),
+    background-color var(--motion-fast),
+    border-color var(--motion-fast);
 }
 
 .scale__preset:hover {
@@ -361,8 +361,8 @@
   border-radius: var(--radius-sm);
   color: var(--color-ink);
   transition:
-    border-color 120ms ease,
-    box-shadow 120ms ease;
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
 }
 
 .scale__input:focus-visible {
@@ -600,7 +600,7 @@
   font-size: var(--text-small);
   line-height: var(--leading-body);
   color: var(--color-text-muted);
-  transition: color 120ms ease;
+  transition: color var(--motion-fast);
 }
 
 .rd__notes-input::placeholder {
@@ -635,9 +635,9 @@
   font-weight: 560;
   color: var(--color-ink);
   transition:
-    border-color 120ms ease,
-    color 120ms ease,
-    background-color 120ms ease;
+    border-color var(--motion-fast),
+    color var(--motion-fast),
+    background-color var(--motion-fast);
 }
 
 .rd__chat-toggle:hover {

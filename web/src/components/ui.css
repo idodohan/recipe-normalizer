@@ -19,14 +19,22 @@
   border: 1px solid transparent;
   white-space: nowrap;
   transition:
-    background-color 120ms ease,
-    border-color 120ms ease,
-    color 120ms ease;
+    background-color var(--motion-fast),
+    border-color var(--motion-fast),
+    color var(--motion-fast),
+    box-shadow var(--motion-fast),
+    transform 120ms ease;
 }
 
 .btn:disabled {
   cursor: default;
   opacity: 0.55;
+}
+
+/* Pressed feedback: a subtle settle into the surface (ui-ux-pro-max
+   "Active States" — active:scale-95 on a smaller step). */
+.btn:active:not(:disabled) {
+  transform: translateY(1px) scale(0.99);
 }
 
 .btn--primary {
@@ -38,6 +46,7 @@
 .btn--primary:hover:not(:disabled) {
   background-color: var(--color-accent-deep);
   border-color: var(--color-accent-deep);
+  box-shadow: var(--shadow-clay);
 }
 
 .btn--secondary {
@@ -116,8 +125,8 @@ a.btn {
   border-radius: var(--radius-sm);
   color: var(--color-ink);
   transition:
-    border-color 120ms ease,
-    box-shadow 120ms ease;
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
 }
 
 .input::placeholder {

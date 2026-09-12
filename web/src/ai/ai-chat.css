@@ -193,8 +193,8 @@
   text-decoration: none;
   cursor: pointer;
   transition:
-    border-color 120ms ease,
-    background-color 120ms ease;
+    border-color var(--motion-fast),
+    background-color var(--motion-fast);
 }
 
 .chip--link:hover,
@@ -235,8 +235,8 @@
   border: var(--hairline-strong);
   border-radius: var(--radius-sm);
   transition:
-    border-color 120ms ease,
-    box-shadow 120ms ease;
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
 }
 
 .ai-input__field::placeholder {
@@ -264,8 +264,8 @@
   border: 1px solid var(--color-accent);
   border-radius: var(--radius-sm);
   transition:
-    background-color 120ms ease,
-    border-color 120ms ease;
+    background-color var(--motion-fast),
+    border-color var(--motion-fast);
 }
 
 .ai-input__send:hover:not(:disabled) {

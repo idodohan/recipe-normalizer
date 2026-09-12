@@ -30,9 +30,9 @@ export function JobList() {
   }
 
   return (
-    <ol className="job-list">
-      {jobs.data.map((job) => (
-        <JobRow key={job.id} job={job} />
+    <ol className="job-list rn-stagger">
+      {jobs.data.map((job, index) => (
+        <JobRow key={job.id} job={job} index={index} />
       ))}
     </ol>
   );

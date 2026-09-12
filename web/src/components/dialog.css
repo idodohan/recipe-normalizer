@@ -66,8 +66,13 @@
   border-radius: var(--radius-sm);
   color: var(--color-text-muted);
   transition:
-    color 120ms ease,
-    background-color 120ms ease;
+    color var(--motion-fast),
+    background-color var(--motion-fast),
+    transform 120ms ease;
+}
+
+.dialog__close:active {
+  transform: translateY(1px) scale(0.94);
 }
 
 .dialog__close:hover {

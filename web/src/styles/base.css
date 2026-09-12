@@ -142,6 +142,24 @@ a:hover {
   top: var(--space-3);
 }
 
+/* -- Entrance stagger (ui-ux-pro-max "Stagger List") -------------------- */
+/* Used on grid/list children via <ul class="rn-stagger"> and a per-item
+   --stagger-index custom property set from React. The global reduced-motion
+   block below collapses durations and delays to ~instant, so the final
+   layout is shown immediately for motion-sensitive users. */
+
+.rn-stagger > * {
+  animation: rn-rise var(--rise-duration) var(--motion-base) both;
+  animation-delay: calc(min(var(--stagger-index, 0), 10) * var(--stagger-step));
+}
+
+@keyframes rn-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
 /* Single source of truth for reduced-motion: kills (near-)instantly any
    animation/transition/smooth-scroll, site-wide. Per-component
    `prefers-reduced-motion` overrides should NOT be added elsewhere — this

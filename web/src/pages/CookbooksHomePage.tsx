@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
@@ -43,10 +44,69 @@ export function CookbooksHomePage() {
 
   return (
     <>
+      {/* Hero: value-prop strip + the two primary actions (ui-ux-pro-max
+          "Hero-Centric Design": one clear CTA, minimal text). */}
       <header className="cb-home__masthead">
-        <div>
+        <div className="cb-home__masthead-copy">
           <p className="cb-home__overline">Your kitchen</p>
           <h1 className="cb-home__title">Cookbooks</h1>
+          <p className="cb-home__lede">
+            Recipes from anywhere on the web, normalized to grams and
+            millilitres — in English, ready to cook.
+          </p>
+          <ul className="cb-home__props" aria-label="What Recipe Normalizer does">
+            <li className="cb-home__prop">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 Z" />
+              </svg>
+              Normalized amounts
+            </li>
+            <li className="cb-home__prop">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <path d="M2 12h20" />
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+              </svg>
+              Kept in English
+            </li>
+            <li className="cb-home__prop">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z" />
+                <path d="M9 21h6" />
+              </svg>
+              Ask your cookbook
+            </li>
+          </ul>
         </div>
         <div className="cb-home__actions">
           <Button variant="secondary" onClick={() => setNewOpen(true)}>
@@ -77,7 +137,20 @@ export function CookbooksHomePage() {
             aria-pressed={favorites}
             onClick={() => setFavorites((f) => !f)}
           >
-            <span aria-hidden="true">♥ </span>Favorites
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill={favorites ? "currentColor" : "none"}
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+            </svg>
+            Favorites
           </button>
           {searching ? (
             <button type="button" className="cb-search__clear" onClick={clearSearch}>
@@ -114,9 +187,12 @@ export function CookbooksHomePage() {
                 : "recipes"}{" "}
               found
             </p>
-            <ul className="cb-grid cb-grid--recipes">
+            <ul className="cb-grid cb-grid--recipes rn-stagger">
               {resultItems.map((recipe, index) => (
-                <li key={recipe.id}>
+                <li
+                  key={recipe.id}
+                  style={{ "--stagger-index": index } as CSSProperties}
+                >
                   <RecipeCard recipe={recipe} index={index} />
                 </li>
               ))}
@@ -146,9 +222,12 @@ export function CookbooksHomePage() {
             {shared.length > 0 ? (
               <h2 className="cb-home__section-title">Yours</h2>
             ) : null}
-            <ul className="cb-grid">
-              {mine.map((c) => (
-                <li key={c.id}>
+            <ul className="cb-grid rn-stagger">
+              {mine.map((c, index) => (
+                <li
+                  key={c.id}
+                  style={{ "--stagger-index": index } as CSSProperties}
+                >
                   <CookbookCard cookbook={c} />
                 </li>
               ))}
@@ -158,9 +237,12 @@ export function CookbooksHomePage() {
           {shared.length > 0 ? (
             <section className="cb-home__section">
               <h2 className="cb-home__section-title">Shared with you</h2>
-              <ul className="cb-grid">
-                {shared.map((c) => (
-                  <li key={c.id}>
+              <ul className="cb-grid rn-stagger">
+                {shared.map((c, index) => (
+                  <li
+                    key={c.id}
+                    style={{ "--stagger-index": index } as CSSProperties}
+                  >
                     <CookbookCard cookbook={c} />
                   </li>
                 ))}

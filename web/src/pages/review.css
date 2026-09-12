@@ -55,7 +55,7 @@
   letter-spacing: var(--tracking-wide);
   color: var(--color-text-muted);
   cursor: pointer;
-  transition: border-color 120ms ease, color 120ms ease;
+  transition: border-color var(--motion-fast), color var(--motion-fast);
 }
 
 .review__draft-tab:hover {

@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { apiErrorMessage, friendlyMessage } from "../../api/errors";
@@ -12,7 +13,7 @@ import {
   type Job,
 } from "./jobStatus";
 
-export function JobRow({ job }: { job: Job }) {
+export function JobRow({ job, index = 0 }: { job: Job; index?: number }) {
   const queryClient = useQueryClient();
   const status = STATUS_META[job.status];
   const provenance = jobProvenance(job);
@@ -39,7 +40,7 @@ export function JobRow({ job }: { job: Job }) {
   });
 
   return (
-    <li className="job-row">
+    <li className="job-row" style={{ "--stagger-index": index } as CSSProperties}>
       <div className="job-row__main">
         <span className="job-row__kind">{INPUT_LABEL[job.input_type]}</span>
         <span className="job-row__summary" title={job.url ?? undefined}>

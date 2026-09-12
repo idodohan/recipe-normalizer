@@ -232,8 +232,8 @@
   font-weight: 500;
   color: var(--color-text-muted);
   transition:
-    background-color 120ms ease,
-    color 120ms ease;
+    background-color var(--motion-fast),
+    color var(--motion-fast);
 }
 
 .cbd-seg__option:hover:not(:disabled):not(.cbd-seg__option--active) {

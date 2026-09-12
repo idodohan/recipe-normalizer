@@ -12,13 +12,18 @@
   text-decoration: none;
   color: inherit;
   transition:
-    transform 160ms ease,
-    box-shadow 160ms ease;
+    transform var(--motion-spring),
+    box-shadow var(--motion-spring);
 }
 
 .cb-card:hover {
   transform: translateY(-3px);
   box-shadow: var(--shadow-lg);
+}
+
+.cb-card:active {
+  transform: translateY(-1px) scale(0.995);
+  box-shadow: var(--shadow-md);
 }
 
 .cb-card:focus-visible {

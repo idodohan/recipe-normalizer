@@ -21,12 +21,16 @@
   border-top: 2px solid var(--color-ink);
   padding-top: var(--space-3);
   color: var(--color-ink);
-  transition: border-color 160ms ease;
+  transition: border-color var(--motion-fast), transform 120ms ease;
 }
 
 .recipe-card:hover {
   text-decoration: none;
   border-top-color: var(--color-accent);
+}
+
+.recipe-card:active {
+  transform: translateY(1px);
 }
 
 /* Sits above the card, clear of the kicker row's plate number — a sibling

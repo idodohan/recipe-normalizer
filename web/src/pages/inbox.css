@@ -103,9 +103,9 @@
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition:
-    border-color 120ms ease,
-    color 120ms ease,
-    background-color 120ms ease;
+    border-color var(--motion-fast),
+    color var(--motion-fast),
+    background-color var(--motion-fast);
 }
 
 .submit-slot__drop-target:hover:not(:disabled) {

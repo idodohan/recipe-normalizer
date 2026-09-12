@@ -61,7 +61,7 @@
 
 .catalog-row--body {
   cursor: pointer;
-  transition: background-color 120ms ease;
+  transition: background-color var(--motion-fast);
 }
 
 .catalog-row--body:hover {
