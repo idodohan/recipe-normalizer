@@ -1,46 +1,49 @@
 /* ------------------------------------------------------------------ */
 /*  Recipe Normalizer — design tokens                                  */
-/*  Editorial cookbook: warm paper, ink, terracotta. Hairlines, not    */
-/*  shadows. Small radii, generous whitespace.                         */
+/*  Bakery-café edit: warm stone ink, amber accent, creamy paper.      */
+/*  Hairlines, not shadows. Small radii, generous whitespace.          */
 /* ------------------------------------------------------------------ */
 
 :root {
   /* -- Palette ----------------------------------------------------- */
-  --color-paper: #fffbeb;
-  --color-ink: #0f172a;
-  --color-accent: #9a3412; /* warm terracotta */
-  --color-accent-deep: #7c2d12; /* hover / pressed */
-  --color-accent-wash: #ffedd5; /* terracotta tint on paper */
+  /* Warm-stone "bakery café" palette (ui-ux-pro-max): amber-brown
+     accent on creamy paper, warm near-black ink. The blue-slate is
+     gone — everything reads warm and hearth-lit. */
+  --color-paper: #fef9ee;
+  --color-ink: #2b2622; /* warm near-black stone */
+  --color-accent: #b45309; /* warm amber-brown */
+  --color-accent-deep: #92400e; /* hover / pressed */
+  --color-accent-wash: #f8e8cf; /* amber tint on paper */
 
   --color-emerald: #059669; /* fresh sage herb */
   --color-emerald-deep: #047857;
   --color-emerald-wash: #ecfdf5;
 
-  /* Warm neutral scale, ink -> paper */
-  --color-neutral-900: #0f172a;
-  --color-neutral-800: #1e293b;
-  --color-neutral-700: #334155;
-  --color-neutral-600: #475569;
-  --color-neutral-500: #64748b;
-  --color-neutral-400: #94a3b8;
-  --color-neutral-300: #cbd5e1;
-  --color-neutral-200: #e2e8f0;
-  --color-neutral-100: #f1f5f9;
-  --color-neutral-050: #fffbeb;
+  /* Warm neutral scale, ink -> paper (stone family) */
+  --color-neutral-900: #1c1917;
+  --color-neutral-800: #292524;
+  --color-neutral-700: #44403c;
+  --color-neutral-600: #57534e;
+  --color-neutral-500: #78716c;
+  --color-neutral-400: #a8a29e;
+  --color-neutral-300: #d6cdc0;
+  --color-neutral-200: #e7dfce;
+  --color-neutral-100: #f3ede0;
+  --color-neutral-050: #fef9ee;
 
   /* Semantic aliases */
   --color-text: var(--color-ink);
   --color-text-muted: var(--color-neutral-600);
-  --color-text-faint: #475569;
+  --color-text-faint: #78716c;
   --color-surface: var(--color-paper);
-  --color-surface-raised: #ffffff; /* pure white card on warm paper */
-  --color-hairline: #f2e6e2;
-  --color-hairline-strong: #e2d2cd;
+  --color-surface-raised: #fffdf7; /* warm white card on creamy paper */
+  --color-hairline: #e8dfcd;
+  --color-hairline-strong: #d8cdba;
   --color-error: #dc2626;
   --color-error-deep: #b91c1c;
   --color-error-wash: #fef2f2;
 
-  --shadow-pop: 0 10px 30px -5px rgba(15, 23, 42, 0.15);
+  --shadow-pop: 0 10px 30px -5px rgba(28, 25, 23, 0.15);
 
   /* -- Typography --------------------------------------------------- */
   --font-display: "Fraunces", "Varela Round", Georgia, serif;
@@ -81,11 +84,11 @@
   --radius-xl: 26px;
 
   /* -- Elevation ----------------------------------------------------- */
-  --shadow-sm: 0 2px 4px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 4px 12px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -1px rgba(15, 23, 42, 0.04);
-  --shadow-lg: 0 12px 28px -4px rgba(15, 23, 42, 0.12), 0 4px 8px -2px rgba(15, 23, 42, 0.06);
-  --shadow-clay: 0 6px 16px -2px rgba(154, 52, 18, 0.12), 0 2px 4px rgba(0, 0, 0, 0.04);
-  --shadow-clay-hover: 0 12px 24px -4px rgba(154, 52, 18, 0.2), 0 4px 8px rgba(0, 0, 0, 0.06);
+  --shadow-sm: 0 2px 4px rgba(28, 25, 23, 0.04), 0 1px 2px rgba(28, 25, 23, 0.06);
+  --shadow-md: 0 4px 12px -2px rgba(28, 25, 23, 0.08), 0 2px 4px -1px rgba(28, 25, 23, 0.04);
+  --shadow-lg: 0 12px 28px -4px rgba(28, 25, 23, 0.12), 0 4px 8px -2px rgba(28, 25, 23, 0.06);
+  --shadow-clay: 0 6px 16px -2px rgba(180, 83, 9, 0.14), 0 2px 4px rgba(28, 25, 23, 0.04);
+  --shadow-clay-hover: 0 12px 24px -4px rgba(180, 83, 9, 0.22), 0 4px 8px rgba(28, 25, 23, 0.06);
 
   /* -- Focus -------------------------------------------------------- */
   --focus-ring: 0 0 0 2px var(--color-paper), 0 0 0 4px var(--color-accent);
@@ -109,8 +112,8 @@
 }
 
 /* ------------------------------------------------------------------ */
-/*  Dark theme — warm editorial dark. Desaturated tonal variants of     */
-/*  the same paper/ink/terracotta palette, NEVER a naive inversion.     */
+/*  Dark theme — warm bakery dark. Desaturated tonal variants of        */
+/*  the same paper/ink/amber palette, NEVER a naive inversion.           */
 /*                                                                       */
 /*  Applied via two selectors: an explicit user choice (data-theme=     */
 /*  "dark", stamped by useTheme) and a system-preference fallback (used */
@@ -118,52 +121,47 @@
 /*  data-theme="light" opts back out). Both blocks must stay IDENTICAL. */
 /*  >>> KEEP THE TWO BLOCKS BELOW IN SYNC <<<                           */
 /*                                                                       */
-/*  Contrast ratios (WCAG 2.1 relative luminance, computed via a        */
-/*  python one-liner — see .superpowers/sdd/p1-task-9-report.md):       */
-/*    ink (#ece5da)        / paper (#181410) = 14.64:1  (need 4.5:1)   */
-/*    text-muted (#b3a89a) / paper           =  7.84:1  (need 4.5:1)   */
-/*    text-faint (#8c8174) / paper           =  4.80:1  (need 3:1;      */
-/*      used only for de-emphasized meta/micro text — verified below)  */
-/*    accent (#e0764a)     / paper           =  5.98:1  (need 4.5:1)   */
-/*    accent-deep (#e98d5f)/ paper           =  7.36:1                 */
-/*    error (#e57368)      / paper           =  6.09:1  (need 4.5:1)   */
-/*    ink / surface-raised (#201b16)         = 13.65:1                 */
-/*    accent / surface-raised                =  5.58:1                 */
-/*  All pass. --focus-ring is not redefined below: it references       */
-/*  var(--color-paper)/var(--color-accent), which resolve dynamically   */
-/*  to the dark-theme values already, so it adapts for free.           */
+/*  Contrast ratios (WCAG 2.1 relative luminance):                      */
+/*    ink (#f2e9dc)        / paper (#17130f) = 15.37:1  (need 4.5:1)   */
+/*    text-muted (#a6957e) / paper           =  6.35:1  (need 4.5:1)   */
+/*    text-faint (#8a7a66) / paper           =  4.45:1  (need 3:1;     */
+/*      used only for de-emphasized meta/micro text)                   */
+/*    accent (#e8973d)     / paper           =  7.85:1  (need 4.5:1)   */
+/*    ink / surface-raised (#221c16)         = 13.68:1                 */
+/*    accent / surface-raised                =  7.14:1                 */
+/*  All pass. --focus-ring references var(--color-paper)/accent and     */
+/*  resolves dynamically.                                               */
 /* ------------------------------------------------------------------ */
 
 :root[data-theme="dark"] {
-  --color-paper: #181410;
-  --color-ink: #ece5da;
-  --color-accent: #e0764a;
-  --color-accent-deep: #e98d5f;
-  --color-accent-wash: #31221a;
+  --color-paper: #17130f;
+  --color-ink: #f2e9dc;
+  --color-accent: #e8973d; /* warm amber */
+  --color-accent-deep: #f0a94e;
+  --color-accent-wash: #2c2113;
 
-  --color-neutral-900: #ece5da;
-  --color-neutral-800: #d6cbba;
-  --color-neutral-700: #c2b6a3;
-  --color-neutral-600: #b3a89a;
-  --color-neutral-500: #8c8174;
-  --color-neutral-400: #4d4436;
-  --color-neutral-300: #3a332b;
-  --color-neutral-200: #2a231c;
-  --color-neutral-100: #201b16;
-  --color-neutral-050: #181410;
+  --color-neutral-900: #f2e9dc;
+  --color-neutral-800: #d9cdb9;
+  --color-neutral-700: #bfb09a;
+  --color-neutral-600: #a6957e;
+  --color-neutral-500: #8a7a66;
+  --color-neutral-400: #5a4f40;
+  --color-neutral-300: #453c30;
+  --color-neutral-200: #2f2820;
+  --color-neutral-100: #221c16;
+  --color-neutral-050: #17130f;
 
   --color-text: var(--color-ink);
   --color-text-muted: var(--color-neutral-600);
   --color-text-faint: var(--color-neutral-500);
   --color-surface: var(--color-paper);
-  --color-surface-raised: #201b16;
-  /* Ramp steps 300/400 give only 1.5:1 / 1.95:1 on the dark paper — below
+  --color-surface-raised: #221c16;
+  /* Ramp steps 300/400 give only ~1.7:1 / ~2.1:1 on the dark paper — below
      WCAG 1.4.11's 3:1 for the borders that are a card/input's only boundary.
      Overridden to hand-tuned warm grays: ~2.1:1 for subtle row dividers,
-     ~3.1:1 for the structural card/input/dialog frame. >>> keep in sync with
-     the prefers-color-scheme block below. <<< */
-  --color-hairline: #524a3e;
-  --color-hairline-strong: #6d6252;
+     ~3.1:1 for the structural card/input/dialog frame. */
+  --color-hairline: #51463a;
+  --color-hairline-strong: #6d6150;
   --color-error: #e57368;
   --color-error-deep: #f28b82;
   --color-error-wash: #2e1b18;
@@ -175,31 +173,31 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --color-paper: #181410;
-    --color-ink: #ece5da;
-    --color-accent: #e0764a;
-    --color-accent-deep: #e98d5f;
-    --color-accent-wash: #31221a;
+    --color-paper: #17130f;
+    --color-ink: #f2e9dc;
+    --color-accent: #e8973d; /* warm amber */
+    --color-accent-deep: #f0a94e;
+    --color-accent-wash: #2c2113;
 
-    --color-neutral-900: #ece5da;
-    --color-neutral-800: #d6cbba;
-    --color-neutral-700: #c2b6a3;
-    --color-neutral-600: #b3a89a;
-    --color-neutral-500: #8c8174;
-    --color-neutral-400: #4d4436;
-    --color-neutral-300: #3a332b;
-    --color-neutral-200: #2a231c;
-    --color-neutral-100: #201b16;
-    --color-neutral-050: #181410;
+    --color-neutral-900: #f2e9dc;
+    --color-neutral-800: #d9cdb9;
+    --color-neutral-700: #bfb09a;
+    --color-neutral-600: #a6957e;
+    --color-neutral-500: #8a7a66;
+    --color-neutral-400: #5a4f40;
+    --color-neutral-300: #453c30;
+    --color-neutral-200: #2f2820;
+    --color-neutral-100: #221c16;
+    --color-neutral-050: #17130f;
 
     --color-text: var(--color-ink);
     --color-text-muted: var(--color-neutral-600);
     --color-text-faint: var(--color-neutral-500);
     --color-surface: var(--color-paper);
-    --color-surface-raised: #201b16;
+    --color-surface-raised: #221c16;
     /* >>> mirror of the data-theme="dark" hairline overrides above <<< */
-    --color-hairline: #524a3e;
-    --color-hairline-strong: #6d6252;
+    --color-hairline: #51463a;
+    --color-hairline-strong: #6d6150;
     --color-error: #e57368;
     --color-error-deep: #f28b82;
     --color-error-wash: #2e1b18;
